@@ -73,7 +73,7 @@ class samplers:
                 for iter_ in ITER:
                     if method == 'SVGD':
                         gmlpt = self.model.getGradientMinusLogPosterior_ensemble(X)
-                        GN_Hmlpt = self.model.getGNHessianMinusLogPosterior_ensemble(X)
+                        # GN_Hmlpt = self.model.getGNHessianMinusLogPosterior_ensemble(X)
                         # M = np.mean(GN_Hmlpt, axis=0)
                         M = None
                         kx, gkx1 = self._getKernelWithDerivatives(X, h=h, M=M)
@@ -81,7 +81,7 @@ class samplers:
                         update = v_svgd * eps
                     elif method == 'sSVGD':
                         gmlpt = self.model.getGradientMinusLogPosterior_ensemble(X)
-                        GN_Hmlpt = self.model.getGNHessianMinusLogPosterior_ensemble(X)
+                        # GN_Hmlpt = self.model.getGNHessianMinusLogPosterior_ensemble(X)
                         # M = np.mean(GN_Hmlpt, axis=0)
                         M = None
                         kx, gkx1 = self._getKernelWithDerivatives(X, h=h, M=M)
@@ -385,27 +385,43 @@ class samplers:
         median = np.median(np.trim_zeros(pairwise_distance.flatten()))
         return median ** 2 / np.log(self.nParticles + 1)
 
+    # def _getKernelWithDerivatives(self, X, h, M=None):
+    #     """
+    #     Computes radial basis function (Gaussian) kernel with optional "metric" - See (Detommasso 2018)
+    #     Args:
+    #         X (array): N x d array of particles
+    #         h (float): Kernel bandwidth
+    #         M (array): d x d positive semi-definite metric.
+    #
+    #     Returns (tuple): N x N kernel gram matrix, N x N x d gradient of kernel (with respect to first slot of kernel)
+    #
+    #     """
+    #
+    #     displacement_tensor = self._getPairwiseDisplacement(X)
+    #     if M is not None:
+    #         U = scipy.linalg.cholesky(M)
+    #         X = contract('ij, nj -> ni', U, X)
+    #         displacement_tensor = contract('ej, mnj -> mne', M, displacement_tensor)
+    #     kx = np.exp(-scipy.spatial.distance_matrix(X, X) ** 2 / h)
+    #     gkx1 = -2 * contract('mn, mne -> mne', kx, displacement_tensor) / h
+    #     ## test_gkx = -2 / h * contract('mn, ie, mni -> mne', kx, U, displacement_tensor)
+    #     return kx, gkx1
+
     def _getKernelWithDerivatives(self, X, h, M=None):
-        """
-        Computes radial basis function (Gaussian) kernel with optional "metric" - See (Detommasso 2018)
-        Args:
-            X (array): N x d array of particles
-            h (float): Kernel bandwidth
-            M (array): d x d positive semi-definite metric.
+        # Geodesic Gaussian kernel on S1
+        # Returns kernel and gradient of the kernel
+        def d_circ(thetas):
+            # Get n x n matrix of distances given vector of thetas
+            tmp = spatial.distance_matrix(thetas, thetas)
+            return np.minimum(tmp, 2 * np.pi - tmp)
 
-        Returns (tuple): N x N kernel gram matrix, N x N x d gradient of kernel (with respect to first slot of kernel)
-
-        """
-
-        displacement_tensor = self._getPairwiseDisplacement(X)
-        if M is not None:
-            U = scipy.linalg.cholesky(M)
-            X = contract('ij, nj -> ni', U, X)
-            displacement_tensor = contract('ej, mnj -> mne', M, displacement_tensor)
-        kx = np.exp(-scipy.spatial.distance_matrix(X, X) ** 2 / h)
-        gkx1 = -2 * contract('mn, mne -> mne', kx, displacement_tensor) / h
-        # test_gkx = -2 / h * contract('mn, ie, mni -> mne', kx, U, displacement_tensor)
+        d = d_circ(X)
+        kx = np.exp(-d ** 2 / h)
+        gkx1 = (2 * kx * d / h)[..., np.newaxis]
         return kx, gkx1
+
+
+
 
     # Useful distance functions
 
