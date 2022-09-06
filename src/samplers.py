@@ -11,6 +11,7 @@ from time import time, sleep
 import scipy
 from scipy import sparse, linalg, spatial
 import scipy.sparse.linalg
+# from sklearn import metrics
 
 log = logging.getLogger(__name__)
 # log.addHandler(logging.StreamHandler(stream=sys.stdout))
@@ -69,6 +70,8 @@ class samplers:
         try:
             X = self.model._newDrawFromPrior(self.nParticles) # Initial set of particles
             h = 2 * self.DoF
+            # h = self.DoF / 10
+            print('bandwidth %f' % h)
             with trange(self.nIterations) as ITER:
                 for iter_ in ITER:
                     if method == 'SVGD':
@@ -113,8 +116,8 @@ class samplers:
                     elif method == 'SVN':
                         gmlpt = self.model.getGradientMinusLogPosterior_ensemble(X)
                         GN_Hmlpt = self.model.getGNHessianMinusLogPosterior_ensemble(X)
-                        # M = np.mean(GN_Hmlpt, axis=0)
-                        M = None
+                        M = np.mean(GN_Hmlpt, axis=0)
+                        # M = None
                         kx, gkx1 = self._getKernelWithDerivatives(X, h=h, M=M)
                         solve_method = 'CG'
                         # solve_method = 'Cholesky'
@@ -133,8 +136,8 @@ class samplers:
                     elif method == 'sSVN':
                         gmlpt = self.model.getGradientMinusLogPosterior_ensemble(X)
                         GN_Hmlpt = self.model.getGNHessianMinusLogPosterior_ensemble(X)
-                        # M = np.mean(GN_Hmlpt, axis=0)
-                        M = None
+                        M = np.mean(GN_Hmlpt, axis=0)
+                        # M = None
                         kx, gkx1 = self._getKernelWithDerivatives(X, h, M)
                         NK = self._reshapeNNDDtoNDND(contract('mn, ij -> mnij', kx, np.eye(self.DoF)))
                         H1 = self._getSteinHessianPosdef(GN_Hmlpt, kx, gkx1)
@@ -385,40 +388,86 @@ class samplers:
         median = np.median(np.trim_zeros(pairwise_distance.flatten()))
         return median ** 2 / np.log(self.nParticles + 1)
 
+    def _getKernelWithDerivatives(self, X, h, M=None):
+        """
+        Computes radial basis function (Gaussian) kernel with optional "metric" - See (Detommasso 2018)
+        Args:
+            X (array): N x d array of particles
+            h (float): Kernel bandwidth
+            M (array): d x d positive semi-definite metric.
+
+        Returns (tuple): N x N kernel gram matrix, N x N x d gradient of kernel (with respect to first slot of kernel)
+
+        """
+
+        displacement_tensor = self._getPairwiseDisplacement(X)
+        if M is not None:
+            U = scipy.linalg.cholesky(M)
+            X = contract('ij, nj -> ni', U, X)
+            displacement_tensor = contract('ej, mnj -> mne', M, displacement_tensor)
+        kx = np.exp(-scipy.spatial.distance_matrix(X, X) ** 2 / h)
+        gkx1 = -2 * contract('mn, mne -> mne', kx, displacement_tensor) / h
+        ## test_gkx = -2 / h * contract('mn, ie, mni -> mne', kx, U, displacement_tensor)
+        return kx, gkx1
+
     # def _getKernelWithDerivatives(self, X, h, M=None):
-    #     """
-    #     Computes radial basis function (Gaussian) kernel with optional "metric" - See (Detommasso 2018)
-    #     Args:
-    #         X (array): N x d array of particles
-    #         h (float): Kernel bandwidth
-    #         M (array): d x d positive semi-definite metric.
+    #     # Geodesic Gaussian kernel on S1
+    #     # Returns kernel and gradient of the kernel
+    #     def d_circ(thetas):
+    #         # Get n x n matrix of distances given vector of thetas
+    #         tmp = spatial.distance_matrix(thetas, thetas)
+    #         return np.minimum(tmp, 2 * np.pi - tmp)
     #
-    #     Returns (tuple): N x N kernel gram matrix, N x N x d gradient of kernel (with respect to first slot of kernel)
-    #
-    #     """
-    #
-    #     displacement_tensor = self._getPairwiseDisplacement(X)
-    #     if M is not None:
-    #         U = scipy.linalg.cholesky(M)
-    #         X = contract('ij, nj -> ni', U, X)
-    #         displacement_tensor = contract('ej, mnj -> mne', M, displacement_tensor)
-    #     kx = np.exp(-scipy.spatial.distance_matrix(X, X) ** 2 / h)
-    #     gkx1 = -2 * contract('mn, mne -> mne', kx, displacement_tensor) / h
-    #     ## test_gkx = -2 / h * contract('mn, ie, mni -> mne', kx, U, displacement_tensor)
+    #     d = d_circ(X)
+    #     kx = np.exp(-d ** 2 / h)
+    #     gkx1 = (2 * kx * d / h)[..., np.newaxis]
     #     return kx, gkx1
 
-    def _getKernelWithDerivatives(self, X, h, M=None):
-        # Geodesic Gaussian kernel on S1
-        # Returns kernel and gradient of the kernel
-        def d_circ(thetas):
-            # Get n x n matrix of distances given vector of thetas
-            tmp = spatial.distance_matrix(thetas, thetas)
-            return np.minimum(tmp, 2 * np.pi - tmp)
+    # def _getGeodesicDist_sphere(self, x, y):
+        # theta_1 = x[0]
+        # phi_1 = x[1]
+        # theta_2 = y[0]
+        # phi_2 = y[1]
 
-        d = d_circ(X)
-        kx = np.exp(-d ** 2 / h)
-        gkx1 = (2 * kx * d / h)[..., np.newaxis]
-        return kx, gkx1
+        # tmp1 = np.sin(theta_1) * np.sin(theta_2) * np.cos(phi_1 - phi_2) + np.cos(theta_1) * np.cos(theta_2)
+        # tmp = np.sin(x[0]) * np.sin(y[0]) * np.cos(x[1] - y[1]) + np.cos(x[0]) * np.cos(y[0])
+        #
+        # tol = 1e-9
+        # if tmp > 1 and tmp < 1 + tol:
+        #     tmp = 1
+        # elif tmp < 0 and tmp > -tol:
+        #     tmp = 0
+        #
+        # return np.arccos(tmp)
+
+    # def _getKernelWithDerivatives(self, X, h, M=None):
+    #     # d = metrics.pairwise_distances(X, metric=self._getGeodesicDist_sphere)
+    #
+    #     gd = np.zeros((self.nParticles, self.nParticles, 2))
+    #
+    #     tmp0 = lambda x, y: np.sin(x[1]) * np.sin(y[1]) * np.cos(x[0] - y[0]) + np.cos(x[1]) * np.cos(y[1]) # X
+    #     tmp1 = lambda x, y: np.sin(x[1]) * np.sin(y[1]) * np.sin(x[0] - y[0])
+    #     tmp2 = lambda x, y: np.sin(x[1]) * np.cos(y[1]) - np.cos(x[1]) * np.sin(y[1]) * np.cos(x[0] - y[0]) #
+    #
+    #     eta = metrics.pairwise_distances(X, metric=tmp0)
+    #     eta[range(self.nParticles), range(self.nParticles)] = np.zeros(self.nParticles) # Set to analytic value to avoid numerical out of support
+    #
+    #     d = np.arccos(eta)
+    #     kx = np.exp(-d ** 2 / h)
+    #
+    #     # temp = 1 - eta ** 2
+    #
+    #     denominator = np.sqrt(1 - eta ** 2)
+    #
+    #     a = metrics.pairwise_distances(X, metric=tmp1) / denominator
+    #     b = metrics.pairwise_distances(X, metric=tmp2) / denominator
+    #
+    #     gd[..., 0] = a
+    #     gd[..., 1] = b
+    #
+    #     gkx1 = -2 * contract('mn, mni -> mni', kx * d, gd) / h
+    #
+    #     return kx, gkx1
 
 
 

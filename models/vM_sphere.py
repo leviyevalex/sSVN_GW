@@ -9,77 +9,107 @@ from scripts.plot_helper_functions import set_axes_equal
 from opt_einsum import contract
 import os
 import logging
+from src.sphere_methods import getEmbedding, getJacobianEmbedding
 log = logging.getLogger(__name__)
 root = os.path.dirname(os.path.abspath(__file__))
 
 class vM_sphere:
-    def __init__(self, kappa, mu, id=''):
+    def __init__(self, kappa, thetaTrue, id=''):
         self.id = id
         self.kappa = kappa
-        self.mu = mu
+        self.thetaTrue = thetaTrue # In the x-direction!
+
+        self.mu = getEmbedding(self.thetaTrue)
         self.DoF = 2
+        self.stdn = 0.3
+        # self.stdn = 1
+        self.varn = self.stdn ** 2
+        np.random.seed(40)
+        self.nData = 10
+        self.data = self._simulateData()
 
         # Record evaluations
         self.nLikelihoodEvaluations = 0
         self.nGradLikelihoodEvaluations = 0
         self.nHessLikelihoodEvaluations = 0
 
-    def getJacobianEmbedding(self, theta):
-        theta_ = theta[0]
-        phi = theta[1]
-        return np.array([[-np.sin(theta_) * np.sin(phi), np.cos(theta_) * np.cos(phi)],
-                         [np.cos(theta_) * np.sin(phi), np.sin(theta_) * np.cos(phi)],
-                         [0, -np.sin(phi)]])
+    ##################################################################################################################
+    ### Embedding methods
+    ##################################################################################################################
 
 
-    def embedding(self, theta):
-        # Take coordinates in (theta,phi) space and map to (x,y,z) on sphere.
-        theta_ = theta[0]
-        phi = theta[1]
-        x = np.cos(theta_) * np.sin(phi)
-        y = np.sin(theta_) * np.sin(phi)
-        z = np.cos(phi)
-        return np.array([x, y, z])
 
-    def embedding_ensemble(self, thetas):
-        np.apply_along_axis(self.embedding, 1, thetas)
+    ###################################################################################################################
+    ### Forward model methods
+    ###################################################################################################################
+    def _getForwardModel(self, theta):
+        x = getEmbedding(theta)
+        return self.kappa * np.dot(self.mu, x)
+
+    def _getJacobianForwardModel(self, theta):
+        """
+        Evaluates the Jacobian of the forward model
+        Args:
+            theta (np.array): DoF sized array, point to evaluate at.
+
+        Returns: (np.array) DoF shaped array
+
+        """
+        jac = getJacobianEmbedding(theta)
+        return self.kappa * jac.T @ self.mu
+
+    ###################################################################################################################
+    ### Likelihood methods
+    ###################################################################################################################
 
     def getMinusLogLikelihood(self, theta):
-        """
-        Returns minus log of von Mises distribution
-        Args:
-            theta (array): DoF sized array, point to evaluate at.
-
-        Returns: (float) Density evaluation
-
-        """
-        x = self.embedding(theta)
-        return -1 * self.kappa * np.dot(self.mu, x)
+        # Recall that F is a scalar
+        F = self._getForwardModel(theta)
+        shift = self.data - F
+        tmp = 0.5 * np.sum(shift ** 2, 0) / self.varn
+        self.nLikelihoodEvaluations += 1
+        return tmp
 
     def getGradientMinusLogLikelihood(self, theta):
-        """
-        Evaluates gradient of minus log of von Mises distribution
-        Args:
-            theta (array): DoF sized array, point to evaluate at.
-
-        Returns: (array) DoF shaped array
-
-        """
-        jac = self.getJacobianEmbedding(theta)
-        return -1 * self.kappa * jac.T @ self.mu
+        F = self._getForwardModel(theta)
+        J = self._getJacobianForwardModel(theta)
+        tmp = -1 * J * np.sum(self.data - F, 0) / self.varn
+        self.nGradLikelihoodEvaluations += 1
+        return tmp
 
     def getGNHessianMinusLogLikelihood(self, theta):
-        """
-        Calculate Gauss-Newton approximation of von Mises distribution
-        Args:
-            theta (array): DoF sized array, point to evaluate at.
+        J = self._getJacobianForwardModel(theta)
+        self.nHessLikelihoodEvaluations += 1
+        # return np.einsum('i,j -> ij', J, J) / self.varn
+        return np.outer(J, J) / self.varn
 
-        Returns: (array) DoF x DoF shaped array of Gauss-Newton approximation at theta.
+    # def getMinusLogLikelihood(self, theta):
+    #     """
+    #     Returns minus log of von Mises distribution
+    #     Args:
+    #         theta (array): DoF sized array, point to evaluate at.
+    #
+    #     Returns: (float) Density evaluation
+    #
+    #     """
+    #     # TODO
+    #     # x = self.embedding(theta)
+    #     # return -1 * self.kappa * np.dot(self.mu, x)
+    #
 
-        """
-        # TODO
-        raise NotImplementedError
-        # return self.kappa * np.cos(theta - self.mu)
+    #
+    # def getGNHessianMinusLogLikelihood(self, theta):
+    #     """
+    #     Calculate Gauss-Newton approximation of von Mises distribution
+    #     Args:
+    #         theta (array): DoF sized array, point to evaluate at.
+    #
+    #     Returns: (array) DoF x DoF shaped array of Gauss-Newton approximation at theta.
+    #
+    #     """
+    #     gJ = self.getHessianEmbedding(theta)
+    #     return contract('a, aij -> ij', -self.kappa * self.mu, gJ)
+    #     # return self.kappa * np.cos(theta - self.mu)
 
     def _newDrawFromPrior(self, N):
         # Uniformly draw from [-pi, pi]
@@ -134,6 +164,23 @@ class vM_sphere:
         orthto = v - proj_mu_v
         return orthto / np.linalg.norm(orthto)
 
+    def _simulateData(self):
+        noise = np.random.normal(scale=self.stdn, size=self.nData)
+        return self._getForwardModel(self.thetaTrue) + noise
+
+    # def L(self, theta):
+    #     # Recall that F is a scalar
+    #     F = self._getForwardModel(theta)
+    #     shift = self.data - F
+    #     tmp = 0.5 * np.sum(shift ** 2, 0) / self.varn
+    #     self.nLikelihoodEvaluations += 1
+    #     return tmp
+    #
+    # def L_ens(self, thetas):
+    #     return np.apply_along_axis(self.L, 1, thetas)
+
+
+
     # Prior stuff
     def _getMinusLogPrior(self, theta):
         return 0
@@ -172,6 +219,22 @@ class vM_sphere:
 
     def getHessianMinusLogPosterior_ensemble(self, thetas):
         return np.apply_along_axis(self.getHessianMinusLogPosterior, 1, thetas)
+
+
+
+
+
+    # def embedding(self, theta):
+    #     # Take coordinates in (theta,phi) space and map to (x,y,z) on sphere.
+    #     theta_ = theta[0]
+    #     phi = theta[1]
+    #     x = np.cos(theta_) * np.sin(phi)
+    #     y = np.sin(theta_) * np.sin(phi)
+    #     z = np.cos(phi)
+    #     return np.array([x, y, z])
+
+
+
 
 #%%
 # def sample_spherical(npoints, ndim=3):

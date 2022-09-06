@@ -10,6 +10,7 @@ from opt_einsum import contract
 import os
 import logging
 from src.sphere_methods import getEmbedding, getJacobianEmbedding
+from numdifftools import Jacobian
 log = logging.getLogger(__name__)
 root = os.path.dirname(os.path.abspath(__file__))
 
@@ -17,15 +18,13 @@ class vM_sphere:
     def __init__(self, kappa, thetaTrue, id=''):
         self.id = id
         self.kappa = kappa
-        self.thetaTrue = thetaTrue # In the x-direction!
+        self.thetaTrue = thetaTrue
 
         self.mu = getEmbedding(self.thetaTrue)
         self.DoF = 2
-        # self.stdn = 0.3
-        self.stdn = 1
-        self.varn = self.stdn ** 2
+        self.stdn = 0.3
         np.random.seed(40)
-        self.nData = 1
+        self.nData = 2
         self.data = self._simulateData()
 
         # Record evaluations
@@ -33,20 +32,15 @@ class vM_sphere:
         self.nGradLikelihoodEvaluations = 0
         self.nHessLikelihoodEvaluations = 0
 
-    ##################################################################################################################
-    ### Embedding methods
-    ##################################################################################################################
+    #####################################################
+    # Likelihood methods
+    #####################################################
 
-
-
-    ###################################################################################################################
-    ### Forward model methods
-    ###################################################################################################################
     def _getForwardModel(self, theta):
         x = getEmbedding(theta)
         return self.kappa * np.dot(self.mu, x)
 
-    def _getGradientForwardModel(self, theta):
+    def _getJacobianForwardModel(self, theta):
         """
         Evaluates the Jacobian of the forward model
         Args:
@@ -58,30 +52,110 @@ class vM_sphere:
         jac = getJacobianEmbedding(theta)
         return self.kappa * jac.T @ self.mu
 
+    def _simulateData(self):
+        noise = np.random.normal(scale=self.stdn, size=self.nData)
+        return self._getForwardModel(self.thetaTrue) + noise
+
+    def _getResidual(self, theta):
+        """
+        Residual vector of minus log density. See introduction to Chapter 10 Nocedal and Wright
+        Args:
+            theta (array): DoF sized array, point to evaluate at.
+
+        Returns: (array) DoF sized array
+
+        """
+        return self.data - self._getForwardModel(theta)
+
+    def _getJacobianResidual(self, theta):
+        """
+        Calculate the Jacobian of the residual vector
+        Args:
+            theta (np.array): DoF sized array, point to evaluate at.
+
+        Returns (np.array): r x DoF shaped Jacobian evaluated at theta
+
+        """
+        # return Jacobian(self._getResidual)(theta)
+        a = -self._getJacobianForwardModel(theta)
+        return np.tile(a, self.nData).reshape(self.nData, self.DoF)
+
+    def getMinusLogLikelihood(self, theta):
+        """
+        Returns minus log of Hybrid Rosenbrock
+        Args:
+            theta (array): DoF sized array, point to evaluate at.
+
+        Returns: (float) Density evaluation
+
+        """
+        r = self._getResidual(theta)
+        self.nLikelihoodEvaluations += 1
+        return np.dot(r, r) / 2
+
+    def getGradientMinusLogLikelihood(self, theta):
+        """
+        Evaluates gradient of minus log of Hybrid Rosenbrock
+        Args:
+            theta (array): DoF sized array, point to evaluate at.
+
+        Returns: (array) DoF shaped array
+
+        """
+        r = self._getResidual(theta)
+        jr = self._getJacobianResidual(theta)
+        self.nGradLikelihoodEvaluations += 1
+        return r.T @ jr
+
+    def getGNHessianMinusLogLikelihood(self, theta):
+        """
+        Calculate Gauss-Newton approximation of Hybrid Rosenbrock
+        Args:
+            theta (array): DoF sized array, point to evaluate at.
+
+        Returns: (array) DoF x DoF shaped array of Gauss-Newton approximation at theta.
+
+        """
+        jr = self._getJacobianResidual(theta)
+        return contract('af, ae -> ef', jr, jr)
+
+
+
+    ##################################################################################################################
+    ### Embedding methods
+    ##################################################################################################################
+
+
+
+    ###################################################################################################################
+    ### Forward model methods
+    ###################################################################################################################
+
+
     ###################################################################################################################
     ### Likelihood methods
     ###################################################################################################################
 
-    def getMinusLogLikelihood(self, theta):
-        # Recall that F is a scalar
-        F = self._getForwardModel(theta)
-        shift = self.data - F
-        tmp = 0.5 * np.sum(shift ** 2, 0) / self.varn
-        self.nLikelihoodEvaluations += 1
-        return tmp
-
-    def getGradientMinusLogLikelihood(self, theta):
-        F = self._getForwardModel(theta)
-        J = self._getJacobianForwardModel(theta)
-        tmp = -1 * J * np.sum(self.data - F, 0) / self.varn
-        self.nGradLikelihoodEvaluations += 1
-        return tmp
-
-    def getGNHessianMinusLogLikelihood(self, theta):
-        J = self._getJacobianForwardModel(theta)
-        self.nHessLikelihoodEvaluations += 1
-        # return np.einsum('i,j -> ij', J, J) / self.varn
-        return np.outer(J, J) / self.varn
+    # def getMinusLogLikelihood(self, theta):
+    #     # Recall that F is a scalar
+    #     F = self._getForwardModel(theta)
+    #     shift = self.data - F
+    #     tmp = 0.5 * np.sum(shift ** 2, 0) / self.varn
+    #     self.nLikelihoodEvaluations += 1
+    #     return tmp
+    #
+    # def getGradientMinusLogLikelihood(self, theta):
+    #     F = self._getForwardModel(theta)
+    #     J = self._getJacobianForwardModel(theta)
+    #     tmp = -1 * J * np.sum(self.data - F, 0) / self.varn
+    #     self.nGradLikelihoodEvaluations += 1
+    #     return tmp
+    #
+    # def getGNHessianMinusLogLikelihood(self, theta):
+    #     J = self._getJacobianForwardModel(theta)
+    #     self.nHessLikelihoodEvaluations += 1
+    #     # return np.einsum('i,j -> ij', J, J) / self.varn
+    #     return np.outer(J, J) / self.varn
 
     # def getMinusLogLikelihood(self, theta):
     #     """
@@ -164,9 +238,7 @@ class vM_sphere:
         orthto = v - proj_mu_v
         return orthto / np.linalg.norm(orthto)
 
-    def _simulateData(self):
-        noise = np.random.normal(scale=self.stdn, size=self.nData)
-        return self._getForwardModel(self.thetaTrue) + noise
+
 
     # def L(self, theta):
     #     # Recall that F is a scalar
