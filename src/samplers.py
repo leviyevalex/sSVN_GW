@@ -75,18 +75,22 @@ class samplers:
             with trange(self.nIterations) as ITER:
                 for iter_ in ITER:
                     if method == 'SVGD':
-                        gmlpt = self.model.getGradientMinusLogPosterior_ensemble(X)
+                        # gmlpt = self.model.getGradientMinusLogPosterior_ensemble(X)
+                        gmlpt, GN_Hmlpt = self.model.getDerivativesMinusLogPosterior_ensemble(X)
+
                         # GN_Hmlpt = self.model.getGNHessianMinusLogPosterior_ensemble(X)
-                        # M = np.mean(GN_Hmlpt, axis=0)
-                        M = None
+                        M = np.mean(GN_Hmlpt, axis=0)
+                        # M = None
                         kx, gkx1 = self._getKernelWithDerivatives(X, h=h, M=M)
                         v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt)
                         update = v_svgd * eps
                     elif method == 'sSVGD':
-                        gmlpt = self.model.getGradientMinusLogPosterior_ensemble(X)
+                        # gmlpt = self.model.getGradientMinusLogPosterior_ensemble(X)
+                        gmlpt, GN_Hmlpt = self.model.getDerivativesMinusLogPosterior_ensemble(X)
+
                         # GN_Hmlpt = self.model.getGNHessianMinusLogPosterior_ensemble(X)
-                        # M = np.mean(GN_Hmlpt, axis=0)
-                        M = None
+                        M = np.mean(GN_Hmlpt, axis=0)
+                        # M = None
                         kx, gkx1 = self._getKernelWithDerivatives(X, h=h, M=M)
                         v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt)
                         alpha, L_kx = self._getMinimumPerturbationCholesky(kx)
@@ -114,8 +118,9 @@ class samplers:
                             v_svn = tf.linalg.experimental.conjugate_gradient(HBDop, tf.constant(v_svgd), max_iter=cg_maxiter).x.numpy()
                         update = v_svn * eps
                     elif method == 'SVN':
-                        gmlpt = self.model.getGradientMinusLogPosterior_ensemble(X)
-                        GN_Hmlpt = self.model.getGNHessianMinusLogPosterior_ensemble(X)
+                        gmlpt, GN_Hmlpt = self.model.getDerivativesMinusLogPosterior_ensemble(X)
+                        # gmlpt = self.model.getGradientMinusLogPosterior_ensemble(X)
+                        # GN_Hmlpt = self.model.getGNHessianMinusLogPosterior_ensemble(X)
                         M = np.mean(GN_Hmlpt, axis=0)
                         # M = None
                         kx, gkx1 = self._getKernelWithDerivatives(X, h=h, M=M)
@@ -134,8 +139,9 @@ class samplers:
                             v_svn = self._getSVN_direction(kx, v_svgd, UH)
                         update = v_svn * eps
                     elif method == 'sSVN':
-                        gmlpt = self.model.getGradientMinusLogPosterior_ensemble(X)
-                        GN_Hmlpt = self.model.getGNHessianMinusLogPosterior_ensemble(X)
+                        # gmlpt = self.model.getGradientMinusLogPosterior_ensemble(X)
+                        # GN_Hmlpt = self.model.getGNHessianMinusLogPosterior_ensemble(X)
+                        gmlpt, GN_Hmlpt = self.model.getDerivativesMinusLogPosterior_ensemble(X)
                         M = np.mean(GN_Hmlpt, axis=0)
                         # M = None
                         kx, gkx1 = self._getKernelWithDerivatives(X, h, M)

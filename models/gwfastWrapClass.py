@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 #%%
 from argparse import ArgumentDefaultsHelpFormatter
+from random import uniform
+from tkinter import N
 import jax.numpy as jnp
 
 import numpy as np
@@ -17,19 +19,21 @@ import gwfast.gwfastGlobals as glob
 import gwfast.signal as signal
 
 from gwfast.network import DetNet
-from gwfast.waveforms import TaylorF2_RestrictedPN, IMRPhenomD_NRTidalv2
-from astropy.cosmology import Planck18
+from gwfast.waveforms import TaylorF2_RestrictedPN, IMRPhenomD
+# from astropy.cosmology import Planck18
 from opt_einsum import contract
 
 # nParticles = 1
 #%%
 class gwfast_class(object):
     
-    def __init__(self, NetDict, WaveForm, fmax=None, fmin=10, EarthMotion=False, customseed=None):
+    def __init__(self, NetDict, WaveForm, injParams, df, fmax=None, fmin=10, EarthMotion=False, customseed=None):
         """
         Args:
             NetDict (dict): dictionary containing the specifications of the detectors in the network
             WaveForm (WaveFormModel): waveform model to use
+            injParams (dict): injection parameters
+            df (float): inverse of sampling frequency - linear spacing
             fmax (float): maximum frequency at which to the frequency grid
             fmin (float): minimum frequency of the frequency grid
             EarthMotion (bool): include or not the effect of Earth motion. Default is False, meaning motion is not included
@@ -51,13 +55,33 @@ class gwfast_class(object):
         self.fmin = fmin
         self.fmax = fmax
         self.EarthMotion = EarthMotion
+        self.injParams = injParams
+        self.df = df
         if customseed is not None:
             self.seed = customseed
         else:
             self.seed = None
-        self._initSignalObjects()
+        # Parameter order convention set here
+        self.names = ['Mc','eta', 'dL', 'theta', 'phi', 'iota', 'psi', 'tcoal', 'Phicoal', 'chi1z', 'chi2z']
+        self.true_params = np.array([self.injParams[x].squeeze() for x in self.names])
+
+        self._initDetectorSignals()
+        self._initFrequencyGrid()
+        self._initInterpolatedPSD()
     
-    def _initSignalObjects(self):
+
+    def _initFrequencyGrid(self):
+        # Setup linear frequency grid
+        fcut = self.wf_model.fcut(**self.injParams)
+        if self.fmax is None:
+            self.fmax = fcut
+        else:
+            fcut = jnp.where(fcut > self.fmax, self.fmax, fcut)
+        self.grid_resolution = jnp.floor(jnp.real((1 + (fcut - self.fmin) / self.df)))
+        self.fgrid = jnp.linspace(self.fmin, fcut, num=int(self.grid_resolution))
+
+
+    def _initDetectorSignals(self):
         # Initialise the signal objects
         self.detsInNet = {}
         for d in self.NetDict.keys():
@@ -79,7 +103,7 @@ class gwfast_class(object):
             # Remark: Padded with 1's to ensure damping of frequency bins outside PSD range.
             self.strainGrid[det] = jnp.interp(self.fgrid, self.detsInNet[det].strainFreq, self.detsInNet[det].noiseCurve, left=1., right=1.).squeeze()             
     
-    def get_signal(self, method='sim', add_noise=False, df=1./4096, **kwargs):
+    def get_signal(self, method='sim', add_noise=False, **kwargs):
         """
         Function to choose the input signal data. I.e, the detectorwise responses to gravitational radiation
         
@@ -92,13 +116,11 @@ class gwfast_class(object):
             
         """
         if method=='sim':
-            self._simulate_signal(add_noise, df, kwargs)
+            self._simulate_signal(add_noise)
         else:
             raise ValueError('Method not yet implemented.')
-        self._initInterpolatedPSD() # Interpolates PSD on desired frequency grid once and for all
-        self.df = df
 
-    def _simulate_signal(self, add_noise, df, injParams):
+    def _simulate_signal(self, add_noise=False):
         """
         Function to simulate a mock signal in each considered detector given its parameters.
         The result is set as a class attribute, as well as the frequency grid.
@@ -111,40 +133,14 @@ class gwfast_class(object):
                              'psi':np.array([...]), 'tcoal':np.array([...]), 'Phicoal':np.array([...]),
                              'chi1z':np.array([...]), 'chi2z':np.array([...]),
                              'Lambda1':np.array([...]), 'Lambda2':np.array([...])}
+
         """
         # Set the seed for reproducibility
         np.random.seed(self.seed)
-        
-        # Read parameters from dictionary
-        Mc, eta, dL, theta, phi   = injParams['Mc'].astype('complex128'), injParams['eta'].astype('complex128'), injParams['dL'].astype('complex128'), injParams['theta'].astype('complex128'), injParams['phi'].astype('complex128')
 
-        iota, psi, tcoal, Phicoal = injParams['iota'].astype('complex128'), injParams['psi'].astype('complex128'), injParams['tcoal'].astype('complex128'), injParams['Phicoal'].astype('complex128'),
-
-        chi1z, chi2z = injParams['chi1z'].astype('complex128'), injParams['chi2z'].astype('complex128')
-
-        chi1x, chi2x, chi1y, chi2y = Mc*0, Mc*0, Mc*0, Mc*0
-
-        ecc = Mc*0
-
-        if self.wf_model.is_tidal:
-            LambdaTilde, deltaLambda = injParams['LambdaTilde'].astype('complex128'), injParams['deltaLambda'].astype('complex128')
-
-            Lambda1, Lambda2 = utils.Lam12_from_Lamt_delLam(LambdaTilde, deltaLambda, eta)
-        else:
-            LambdaTilde, deltaLambda = Mc*0, Mc*0
-        
-        # Compute the cut frequency of the waveform, at which to stop the calculation
-
-        fcut = self.wf_model.fcut(**injParams)
-        fcut = jnp.where(fcut > self.fmax, self.fmax, fcut)
-        # fcut = jnp.min(fcut, fmax)
-
-        res = jnp.floor(jnp.real((1+(fcut-self.fmin)/df)))
-        
-        # Define and store the frequency grid as a class attribute
-        
-        self.fgrid = jnp.linspace(self.fmin, fcut, num=int(res))
-        # self.fgrid = jnp.geomspace(self.fmin, fcut, num=int(res))
+        # Extract parameters (Assuming no precession, eccentricity, or tidal deformability)
+        Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chi1z, chi2z = [np.array(param).astype('complex128') for param in self.true_params]
+        chi1x, chi2x, chi1y, chi2y, ecc, LambdaTilde, deltaLambda = Mc*0, Mc*0, Mc*0, Mc*0, Mc*0, Mc*0, Mc*0
 
         self.signal_data = {}
         
@@ -158,17 +154,15 @@ class gwfast_class(object):
                                              is_prec_ang=False)
             if add_noise:
                 # Add Gaussian noise with std given by the detector ASD if needed
-                # strainGrid = jnp.interp(self.fgrid, self.detsInNet[det].strainFreq, self.detsInNet[det].noiseCurve, left=1., right=1.) # What does left/right=1 mean physically?
                 self.signal_data[det] = self.signal_data[det] + np.random.normal(loc=0.,scale=self.strainGrid)
         
-        
-    def _getResidual_Vec(self, theta):
+    def _getResidual_Vec(self, X):
     
         """
         Function to compute the difference between the data signal and the template (with parameters theta).
         
         Args:
-         theta (nd.array): (d, Nev) shaped array, with d being the size of the parameter space and Nev the nuber of events to simulate.
+         X (nd.array): (d, Nev) shaped array, with d being the size of the parameter space and Nev the nuber of events to simulate.
              Remark: Represents point in d-dimensional parameter space $\chi$
                      The order is Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chi1x, chi1y, chi1z, chi2x, chi2y, chi2z (, LambdaTilde, deltaLambda)
 
@@ -177,40 +171,17 @@ class gwfast_class(object):
                     The arrays represent the residuals for each frequency bin, up to bin $F$.
         """
 
-        # Read parameters, assuming the order in theta is:
-        #    Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chi1z, chi2z, LambdaTilde, deltaLambda
-
-        # if theta.shape[0] != self.DoF:
-        #     theta = theta.reshape(self.DoF, nParticles)
-
-        Mc, eta, dL, theta_, phi   = theta[0,:].astype('complex128'), theta[1,:].astype('complex128'), theta[2,:].astype('complex128'), theta[3,:].astype('complex128'), theta[4,:].astype('complex128')
-
-        iota, psi, tcoal, Phicoal = theta[5,:].astype('complex128'), theta[6,:].astype('complex128'), theta[7,:].astype('complex128'), theta[8,:].astype('complex128'),
-
-        chi1z, chi2z = theta[9,:].astype('complex128'), theta[10,:].astype('complex128')
-
-        # For the moment no precessing spins and eccentricity
-
-        chi1x, chi2x, chi1y, chi2y = Mc*0, Mc*0, Mc*0, Mc*0
-        ecc = Mc*0
-
-        if self.wf_model.is_tidal:
-            # If the waveform includes tida effects, assume LambdaTilde and deltaLambda to be present in the input parameters
-            LambdaTilde, deltaLambda = theta[11,:].astype('complex128'), theta[12,:].astype('complex128')
-
-            Lambda1, Lambda2 = utils.Lam12_from_Lamt_delLam(LambdaTilde, deltaLambda, eta)
-        else:
-            LambdaTilde, deltaLambda = Mc*0, Mc*0
-
-        residual = {}
+        # Extract parameters (Assuming no precession, eccentricity, or tidal deformability)
+        Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chi1z, chi2z = [X[i].astype('complex128') for i in range(self.DoF)]
+        chi1x, chi2x, chi1y, chi2y, ecc, LambdaTilde, deltaLambda = Mc*0, Mc*0, Mc*0, Mc*0, Mc*0, Mc*0, Mc*0
         
-        fgrids = jnp.repeat(self.fgrid, len(Mc), axis=1)
-        
+        fgrids = jnp.repeat(self.fgrid, Mc.size, axis=1) # MINE
+
         # Compute the residuals for each detector and store
-        
+        residual = {}
         for det in self.detsInNet.keys():
 
-            residual[det] = self.detsInNet[det].GWstrain(fgrids, Mc, eta, dL, theta_, phi,
+            residual[det] = self.detsInNet[det].GWstrain(fgrids, Mc, eta, dL, theta, phi,
                                              iota, psi, tcoal, Phicoal, chi1z, chi2z,
                                              chi1x, chi2x, chi1y, chi2y,
                                              LambdaTilde, deltaLambda, ecc,
@@ -221,13 +192,13 @@ class gwfast_class(object):
             
         return residual
         
-    def _getJacobianResidual_Vec(self, theta):
+    def _getJacobianResidual_Vec(self, X):
     
         """
         Function to compute the derivatives of the template with parameters theta.
         
         Args:
-         theta (nd.array): (d, Nev) shaped array, with d being the size of the parameter space and Nev the nuber of events to simulate.
+         X (nd.array): (d, Nev) shaped array, with d being the size of the parameter space and Nev the nuber of events to simulate.
          Remark: Represents point in d-dimensional parameter space $\chi$
                  The order is Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chi1x, chi1y, chi1z, chi2x, chi2y, chi2z (, LambdaTilde, deltaLambda)
          
@@ -235,31 +206,8 @@ class gwfast_class(object):
             Remark: The keys of the dictionary represent the detectors.
                     The arrays represent Jacobian of residual evaluated at theta.
         """
-
-        # Read parameters, assuming the order in theta is:
-        #    Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chi1z, chi2z, LambdaTilde, deltaLambda
-        # if theta.shape[0] != self.DoF:
-        #     theta = theta.reshape(self.DoF, nParticles)
-
-        Mc, eta, dL, theta_, phi   = theta[0,:].astype('complex128'), theta[1,:].astype('complex128'), theta[2,:].astype('complex128'), theta[3,:].astype('complex128'), theta[4,:].astype('complex128')
-
-        iota, psi, tcoal, Phicoal = theta[5,:].astype('complex128'), theta[6,:].astype('complex128'), theta[7,:].astype('complex128'), theta[8,:].astype('complex128'),
-
-        chi1z, chi2z = theta[9,:].astype('complex128'), theta[10,:].astype('complex128')
-
-        # For the moment no precessing spins and eccentricity
-
-        chi1x, chi2x, chi1y, chi2y = Mc*0, Mc*0, Mc*0, Mc*0
-        ecc = Mc*0
-
-        if self.wf_model.is_tidal:
-            # If the waveform includes tida effects, assume LambdaTilde and deltaLambda to be present in the input parameters
-            LambdaTilde, deltaLambda = theta[11,:].astype('complex128'), theta[12,:].astype('complex128')
-
-            Lambda1, Lambda2 = utils.Lam12_from_Lamt_delLam(LambdaTilde, deltaLambda, eta)
-        else:
-            LambdaTilde, deltaLambda = Mc*0, Mc*0
-            
+        Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chi1z, chi2z = [X[i].astype('complex128') for i in range(self.DoF)]
+        chi1x, chi2x, chi1y, chi2y, ecc, LambdaTilde, deltaLambda = Mc*0, Mc*0, Mc*0, Mc*0, Mc*0, Mc*0, Mc*0
 
         residualJac = {}
         
@@ -267,12 +215,11 @@ class gwfast_class(object):
         tcelem   = self.wf_model.ParNums['tcoal']
         iotaelem = self.wf_model.ParNums['iota']
         
-        fgrids = jnp.repeat(self.fgrid, len(Mc), axis=1)
-        
+        fgrids = jnp.repeat(self.fgrid, Mc.size, axis=1)
         for det in self.detsInNet.keys():
 
             # Compute derivatives
-            residualJac[det] = self.detsInNet[det]._SignalDerivatives_use(fgrids, Mc, eta, dL, theta_, phi,
+            residualJac[det] = self.detsInNet[det]._SignalDerivatives_use(fgrids, Mc, eta, dL, theta, phi,
                                                                  iota, psi, tcoal, Phicoal, chi1z, chi2z,
                                                                  chi1x, chi2x, chi1y, chi2y,
                                                                  LambdaTilde, deltaLambda, ecc,
@@ -281,68 +228,53 @@ class gwfast_class(object):
             # Change the units of the tcoal derivative from days to seconds
             residualJac[det] = residualJac[det].at[tcelem,:,:].divide(3600.*24.)
             # Change variable from iota to cos(iota)
-            # residualJac[det] = residualJac[det].at[iotaelem,:,:].divide(jnp.sin(iota)[:,jnp.newaxis]) # JACOBIAN IS POSITIVE!!! TODO: PUT THIS BACK IN
-            # residualJac[det] = residualJac[det].at[iotaelem,:,:].divide(-jnp.sin(iota)[:,jnp.newaxis]) # THIS IS BUGGY
+            residualJac[det] = residualJac[det].at[iotaelem,:,:].divide(jnp.sin(iota)[:,jnp.newaxis]) # Remark: Take absolute value of Jacobian before putting it in.
             
         return residualJac
-
-    # def getMinusLogLikelihood_single(self, x):
-    #     residual_dict = self._getResidual_Vec(x) # Input is reversed here
-    #     log_like = 0
-
-    #     for det in self.detsInNet.keys():
-    #         # strainGrid = jnp.interp(self.fgrid, self.detsInNet[det].strainFreq, self.detsInNet[det].noiseCurve, left=1., right=1.).squeeze() # What does left/right=1 mean physically?
-    #         norm = jnp.abs(residual_dict[det]) ** 2
-    #         log_like += contract('fm, f -> m', norm, 1 / self.strainGrid[det])
-    #         # log_like += contract('fm, fm, f -> m', residual_dict[det], residual_dict[det], 1 / self.strainGrid[det])
-
-        # return 4 * log_like.real * self.df
 
     def getMinusLogLikelihood_ensemble(self, thetas):
         """ 
         thetas = N x DoF
         """
-        # if thetas.shape[0] != nParticles:
-        #     thetas = thetas.reshape(nParticles, self.DoF)
-
-        residual_dict = self._getResidual_Vec(thetas.T) # Input is reversed here
+        residual_dict = self._getResidual_Vec(thetas.T) # Remark: gwfast_class uses reversed convention for particles
         log_like = np.zeros(thetas.shape[0]).astype('complex128')
-
         for det in self.detsInNet.keys():
-            # strainGrid = jnp.interp(self.fgrid, self.detsInNet[det].strainFreq, self.detsInNet[det].noiseCurve, left=1., right=1.).squeeze() # What does left/right=1 mean physically?
             norm = jnp.abs(residual_dict[det]) ** 2
             log_like += contract('fm, f -> m', norm, 1 / self.strainGrid[det])
-            # log_like += contract('fm, fm, f -> m', residual_dict[det], residual_dict[det], 1 / self.strainGrid[det])
-
-        return 4 * log_like.real * self.df
+        return 2 * log_like.real * self.df
 
     def getGradientMinusLogPosterior_ensemble(self, thetas):
+        # REMARK: Returns (d, Nev, F) shaped array instead of a (d, F, Nev) shaped array, where F is the size of the frequency grid
+        # TODO Ask Francesco if this is a bug or expected.
         """ 
         thetas = N x DoF
         """
         residual_dict = self._getResidual_Vec(thetas.T) # Input is reversed here
         jacResidual_dict = self._getJacobianResidual_Vec(thetas.T)
         grad_log_like = np.zeros(thetas.shape).astype('complex128')
-
-        # THE FOLLOWING IS WRONG
-        # Returns dict of (d, F, Nev) shaped (nd.array) with F being the size of the frequency grid
-        # IT IN FACT RETURNS A d, Nev, F shaped array!
-
         for det in self.detsInNet.keys():
-            # strainGrid = jnp.interp(self.fgrid, self.detsInNet[det].strainFreq, self.detsInNet[det].noiseCurve, left=1., right=1.).squeeze() # What does left/right=1 mean physically?
             grad_log_like += contract('dNf, fN, f -> Nd', jacResidual_dict[det].conjugate(), residual_dict[det], 1 / self.strainGrid[det])
-
         return 4 * grad_log_like.real * self.df
 
-    def getGNHessianMinusLogLikelihood(self, thetas):
+    def getGNHessianMinusLogPosterior_ensemble(self, thetas):
         N = thetas.shape[0]
         jacResidual_dict = self._getJacobianResidual_Vec(thetas.T)
         GN = np.zeros((N, self.DoF, self.DoF)).astype('complex128')
-
         for det in self.detsInNet.keys():
             GN += contract('dNf, bNf, f -> Ndb', jacResidual_dict[det].conjugate(), jacResidual_dict[det], 1 / self.strainGrid[det])
         return 4 * self.df * GN.real
 
+    def getDerivativesMinusLogPosterior_ensemble(self, thetas):
+        N = thetas.shape[0]
+        residual_dict = self._getResidual_Vec(thetas.T) # Input is reversed here
+        jacResidual_dict = self._getJacobianResidual_Vec(thetas.T)
+        grad_log_like = np.zeros(thetas.shape).astype('complex128')
+        GN = np.zeros((N, self.DoF, self.DoF)).astype('complex128')
+        for det in self.detsInNet.keys():
+            grad_log_like += contract('dNf, fN, f -> Nd', jacResidual_dict[det].conjugate(), residual_dict[det], 1 / self.strainGrid[det])
+            GN += contract('dNf, bNf, f -> Ndb', jacResidual_dict[det].conjugate(), jacResidual_dict[det], 1 / self.strainGrid[det])
+
+        return (4 * grad_log_like.real * self.df, 4 * self.df * GN.real)
 
     def _newDrawFromPrior(self, nParticles):
         """
@@ -354,7 +286,47 @@ class gwfast_class(object):
         Returns: (array) nSamples x DoF array of representative samples
 
         """
-        return np.random.uniform(low=0.2, high=0.25, size=(nParticles, self.DoF))
+        prior_draw = np.zeros((nParticles, self.DoF))
+        
+        Mc_prior = np.random.uniform(low=32, high=36, size=nParticles)
+
+        eta_prior = np.random.uniform(low=0.1, high=0.25, size=nParticles)
+
+        dL_prior = np.random.uniform(low=0.2, high=0.5, size=nParticles)
+        
+        theta_prior = np.random.uniform(low=0., high=np.pi, size=nParticles)
+        
+        phi_prior = np.random.uniform(low=0., high=2*np.pi, size=nParticles)
+        
+        cos_iota_prior = np.random.uniform(low=-1., high=1., size=nParticles)
+        
+        psi_prior = np.random.uniform(low=0., high=np.pi, size=nParticles)
+        
+        tcoal_prior = np.random.uniform(low=0, high=0.001, size=nParticles)
+        
+        Phicoal_prior = np.random.uniform(low=0., high=0.001, size=nParticles)
+        
+        chi1z_prior = np.random.uniform(low=-1., high=1., size=nParticles)
+        
+        chi2z_prior = np.random.uniform(low=-1., high=1., size=nParticles)
+
+        prior_draw[:,0] = Mc_prior
+        prior_draw[:,1] = eta_prior
+        prior_draw[:,2] = dL_prior
+        prior_draw[:,3] = theta_prior
+        prior_draw[:,4] = phi_prior
+        prior_draw[:,5] = cos_iota_prior
+        prior_draw[:,6] = psi_prior
+        prior_draw[:,7] = tcoal_prior
+        prior_draw[:,8] = Phicoal_prior
+        prior_draw[:,9] = chi1z_prior
+        prior_draw[:,10] = chi2z_prior
+
+        return prior_draw
+
+        # return np.random.multivariate_normal(mean=self.true_params.squeeze(), cov=0.01 * np.eye(self.DoF), size=nParticles) + 0.1
+
+        # return np.random.uniform(low=0.2, high=0.25, size=(nParticles, self.DoF))
 
 
 
