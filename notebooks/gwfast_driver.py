@@ -9,6 +9,7 @@ from scripts.plot_helper_functions import collect_samples
 import numpy as np
 import logging
 import sys
+from collections import OrderedDict
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 import os
 import time
@@ -19,74 +20,222 @@ import gwfast.gwfastGlobals as glob
 import gwfast.signal as signal
 from gwfast.network import DetNet
 from gwfast.waveforms import TaylorF2_RestrictedPN, IMRPhenomD
-# from astropy.cosmology import Planck18
-from numdifftools import Jacobian
+from astropy.cosmology import Planck18
 import matplotlib.pyplot as plt
-##### (GW170817)
-# z = np.array([0.00980])
-# tGPS = np.array([1187008882.4])
-# # Eleven parameters in total!
-# Mc = np.array([1.1859])*(1.+z) # Chirp mass
-# eta = np.array([0.24786618323504223]) # Symmetric mass ratio
-# dL = Planck18.luminosity_distance(z).value/1000 # Luminosity distance
-# theta = np.array([np.pi/2. + 0.4080839999999999]) # (shifted) declination
-# phi = np.array([3.4461599999999994]) # Right ascention
-# iota = np.array([2.545065595974997]) # Inclination
-# psi = np.array([0.]) # 
-# tcoal = utils.GPSt_to_LMST(tGPS, lat=0., long=0.) # Coalescence time (GMST is LMST computed at long = 0°)
-# Phicoal = np.array([0.]) # Coalescence phase
-# chi1z = np.array([0.005136138323169717]) # Spin 1
-# chi2z = np.array([0.003235146993487445]) # Spin 2
-# # Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chi1z, chi2z, LambdaTilde, deltaLambda
-# true_params = np.array([Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chi1z, chi2z])
-# injParams = {'Mc': Mc, 'eta': eta, 'dL': dL, 'theta': theta, 'phi': phi, 'iota': iota, 'psi': psi, 'tcoal': tcoal, 'Phicoal': Phicoal, 'chi1z': chi1z, 'chi2z': chi2z}
-
-###### (GW150914)
-tGPS = np.array([1.12625946e+09])
-# Eleven parameters in total!
-Mc = np.array([34.3089283]) # (1)
-eta = np.array([0.2485773]) # (2)
-dL = np.array([0.43929891]) # (3) # TODO: In gigaparsecs? true: proportional to dl^2 (for now use unif)
-theta = np.array([2.78560281]) # (4) unif in cos
-phi = np.array([1.67687425]) # (5) unif
-iota = np.array([2.67548653]) # (6) unif in cos
-psi = np.array([0.78539816]) # (7) 
-# tcoal = utils.GPSt_to_LMST(tGPS, lat=0., long=0.) # Coalescence time (GMST is LMST computed at long = 0°)
-tcoal = np.array([0.]) # (8) Unif super narrow
-Phicoal = np.array([0.]) # (9) Unif
-chi1z = np.array([0.27210419]) # (10) Unif
-chi2z = np.array([0.33355909]) # (11) Unif
-
-injParams = {'Mc': Mc, 'eta': eta, 'dL': dL, 'theta': theta, 'phi': phi, 'iota': iota, 'psi': psi, 'tcoal': tcoal, 'Phicoal': Phicoal, 'chi1z': chi1z, 'chi2z': chi2z}
-
-
-#%% Setup network class and precalculate injected signal
-alldetectors = copy.deepcopy(glob.detectors)
-LVdetectors = {det:alldetectors[det] for det in ['L1', 'H1', 'Virgo']}
-print('Using detectors '+str(list(LVdetectors.keys())))
-LVdetectors['L1']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', '2017-08-06_DCH_C02_L1_O2_Sensitivity_strain_asd.txt')
-LVdetectors['H1']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', '2017-06-10_DCH_C02_H1_O2_Sensitivity_strain_asd.txt')
-LVdetectors['Virgo']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', 'Hrec_hoft_V1O2Repro2A_16384Hz.txt')
-waveform = TaylorF2_RestrictedPN()
-# waveform = IMRPhenomD()
-fmin = 20.
-fmax = 325.
-df = 1./5
-# model = gwfast_class(LVdetectors, waveform, injParams, fmin=fmin, fmax=fmax)
-model = gwfast_class(LVdetectors, waveform, injParams, fmin=fmin, fmax=fmax)
-model.get_signal(method='sim', add_noise=False, df=df) # Remark: Not needed to calculate the Fisher. All we need is derivative of template.
-print('Using %i bins' % model.res)
-
-
-particle = np.array([Mc[0], eta[0], dL[0], theta[0], phi[0], iota[0], psi[0], tcoal[0], Phicoal[0], chi1z[0], chi2z[0]])[np.newaxis,...] + 0.01
-#%%
 from numdifftools import Jacobian, Gradient
+from jax import jacobian
 
-Jacobian(model.getMinusLogLikelihood_ensemble)(particle)
+##########################
+####### (GW150914) #######
+##########################
+tGPS = np.array([1.12625946e+09])
+injParams = dict()
+
+# injParams['tcoal'] = utils.GPSt_to_LMST(tGPS, lat=0., long=0.) # Coalescence time, in units of fraction of day (GMST is LMST computed at long = 0°) 
+injParams['tcoal']   = np.array([0.])                # Unif super narrow
+injParams['Mc']      = np.array([34.3089283])        # 
+injParams['eta']     = np.array([0.2485773])         # 
+injParams['dL']      = np.array([0.43929891])        # TODO: In gigaparsecs? true: proportional to dl^2 (for now use unif)
+injParams['theta']   = np.array([2.78560281])        # unif in cos
+injParams['phi']     = np.array([1.67687425])        # unif
+injParams['iota']    = np.array([2.67548653])        # unif in cos
+injParams['psi']     = np.array([0.78539816])        # 
+injParams['Phicoal'] = np.array([0.])                # Unif
+injParams['chiS']    = np.array([0.27210419])        # Notationally convenient.
+injParams['chiA']    = np.array([0.33355909])        #
+# injParams['chi1z']   = np.array([0.27210419])        
+# injParams['chi2z']   = np.array([0.33355909])        
+
+#%%  Setup gravitational wave network problem
+
+all_detectors = copy.deepcopy(glob.detectors) # Geometry of every available detector
+
+LV_detectors = {det:all_detectors[det] for det in ['L1', 'H1', 'Virgo']} # Extract only LIGO/Virgo detectors
+
+print('Using detectors ' + str(list(LV_detectors.keys())))
+
+detector_ASD = dict() # Remark: Providing ASD path to psd_path with flag "is_ASD = True" in
+detector_ASD['L1']    = 'O3-L1-C01_CLEAN_SUB60HZ-1240573680.0_sensitivity_strain_asd.txt'
+detector_ASD['H1']    = 'O3-H1-C01_CLEAN_SUB60HZ-1251752040.0_sensitivity_strain_asd.txt'
+detector_ASD['Virgo'] = 'O3-V1_sensitivity_strain_asd.txt'
+
+LV_detectors['L1']['psd_path']    = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['L1']) # Add paths to detector sensitivities
+LV_detectors['H1']['psd_path']    = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['H1'])
+LV_detectors['Virgo']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['Virgo'])
+
+waveform = TaylorF2_RestrictedPN() # Choice of waveform
+# waveform = IMRPhenomD()
+
+fgrid_dict = {'fmin': 20, 'fmax': 325, 'df': 1./5} # All parameters related to frequency grid.
+
+priorDict = OrderedDict()
+priorDict['Mc']      = [33.75, 34.75] 
+priorDict['eta']     = [0.245, 0.25] 
+priorDict['dL']      = [0.4, 0.47]
+priorDict['theta']   = [2.7, 2.9]
+priorDict['phi']     = [1.5, 1.8]
+priorDict['iota']    = [2.5, 4.1] 
+priorDict['psi']     = [0.7, 0.9] 
+priorDict['tcoal']   = [0, 0.00000001]
+# priorDict['tcoal']   = injParams['tcoal']
+priorDict['Phicoal'] = [0., 0.2]
+priorDict['chiS']    = [0.26, 0.285]     # Remark: Flag is chi1chi2=True. Parameter names will be transformed in gwfast to (chi1z, chi2z)
+priorDict['chiA']    = [0.31, 0.35]
+
+model = gwfast_class(LV_detectors, waveform, injParams, priorDict, nParticles=1, **fgrid_dict)
+
+#%% Get SNR
+
+injParams_original = copy.deepcopy(injParams)
+chi1z, chi2z = (injParams_original.pop('chiS'), injParams_original.pop('chiA'))
+injParams_original['chi1z'] = chi1z
+injParams_original['chi2z'] = chi2z
+net = DetNet(model.detsInNet)
+snr = net.SNR(injParams_original)
+print('Using % i bins' % model.grid_resolution)
+print('SNR is %f' % snr)
+
+#%% UNIT TEST: Compare Gauss Newton approximation to Fisher information
+particle_true = copy.deepcopy(model.true_params[np.newaxis, ...])
+GN = model.getGNHessianMinusLogPosterior_ensemble(particle_true)[0]
+Fisher = net.FisherMatr(injParams)
+bounds = copy.deepcopy(injParams)
+
+
+
+#%% UNIT TEST: Test whether numerical derivative of likelihood agrees with hard coded JAX implementation.
+
+particle = copy.deepcopy(model.true_params[np.newaxis, ...])
+likelihood = model.getMinusLogLikelihood_ensemble(particle)
+grad1 = Gradient(model.getMinusLogLikelihood_ensemble, method='central', step=0.0001)(particle)
+grad2 = model.getGradientMinusLogPosterior_ensemble(particle)
+grad3 = jacobian(model.getMinusLogLikelihood_ensemble)(particle)[0,0]
+print(np.allclose(grad1[0], grad2.squeeze()))
+a = grad1[0][7]
+b = grad2.squeeze()[7]
+# Only t_c comes out wrong
+print('t_c numerical = %f, t_c jax = %f' % (a,b))
+print(grad1[0])
+print(grad2)
+print(grad3)
+
+#%%
+from jax import grad, jacobian
+
+res = jacobian(model.getMinusLogLikelihood_ensemble)(particle)
+
+
+
+#%%
+# Record extents here
+bounds = {'Mc': [33.75, 34.75], 
+          'eta': [0.245, 0.25], 
+          'dL': [0.4, 0.47], 
+          'theta': [2.7, 2.9], 
+          'phi': [1.5, 1.8], 
+          'iota': [2.5, 4.1], 
+          'psi': [0.7, 0.9], 
+          'tcoal': [0, 0.00000001], 
+          'Phicoal': [0., 0.2], 
+          'chi1z': [0.26, 0.285], 
+          'chi2z': [0.31, 0.35]}
+
+#%%
+# UNIT TEST: What do all the 2D marginals look like?
+def getMarginal(a, b):
+    # a, b are the parameters for which we want the marginals:
+    ngrid = 100
+    x = np.linspace(bounds[a][0], bounds[a][1], ngrid)
+    y = np.linspace(bounds[b][0], bounds[b][1], ngrid)
+    X, Y = np.meshgrid(x, y)
+    particle_grid = np.zeros((ngrid ** 2, 11))
+    index1 = model.names.index(a)
+    index2 = model.names.index(b)
+    parameter_mesh = np.vstack((np.ndarray.flatten(X), np.ndarray.flatten(Y))).T
+    particle_grid[:, index1] = parameter_mesh[:, 0]
+    particle_grid[:, index2] = parameter_mesh[:, 1]
+    for i in range(11):
+        if i != index1 and i!= index2:
+            particle_grid[:, i] = np.ones(ngrid ** 2) * model.true_params[i]
+    Z = np.exp(-1 * model.getMinusLogLikelihood_ensemble(particle_grid).reshape(ngrid,ngrid))
+    fig, ax = plt.subplots(figsize = (5, 5))
+    cp = ax.contourf(X, Y, Z)
+    ax.set_xlabel(a)
+    ax.set_ylabel(b)
+    ax.set_title('Analytically calculated marginal')
+    filename = a + b + '.png'
+    path = os.path.join('marginals', filename)
+    fig.savefig(path)
+    # fig.show()
+
+getMarginal('Mc', 'chi2z')
+
+
+
+#%%
+from itertools import combinations
+pairs = list(combinations(model.names, 2))
+for pair in pairs:
+    getMarginal(pair[0], pair[1])
+
+
+
+#%%
+ngrid = 100
+x = np.linspace(33.75, 34.75, ngrid)
+y = np.linspace(0.245, 0.25, ngrid)
+X, Y = np.meshgrid(x, y)
+particle_grid = np.zeros((ngrid ** 2, 11))
+particle_grid[:, 0:2] = np.vstack((np.ndarray.flatten(X), np.ndarray.flatten(Y))).T
+for i in range(2, 11):
+    particle_grid[:, i] = np.ones(ngrid ** 2) * model.true_params[i]
+
+#%%
+Z = np.exp(-1 * model.getMinusLogLikelihood_ensemble(particle_grid).reshape(ngrid,ngrid))
+
+#%%
+# Setup static figure
+fig, ax = plt.subplots(figsize = (5, 5))
+# plt.axis('off')
+cp = ax.contourf(X, Y, Z)
+ax.set_xlabel('$M_c$')
+ax.set_ylabel('$\eta$')
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#%%
+res = (1-GN/Fisher)
+
+#%%
+# print(np.allclose(grad1[0], grad2.squeeze()))
 
 #%%
 
-model.getGradientMinusLogPosterior_ensemble(particle)
+
+
+
+
+#%%
+
 
 
 #%%
@@ -102,13 +251,11 @@ plt.plot(model.fgrid.squeeze(), (model.signal_data['H1'].real.squeeze()))
 
 #%% 
 # UNIT TEST: GN approximation equal to Fisher information
-net = DetNet(model.detsInNet)
-snr = net.SNR(injParams)
-print('SNR is %f' % snr)
+
 
 #%%
 sampler1 = samplers(model=model, nIterations=100, nParticles=100, profile=False)
-sampler1.apply(method='sSVGD', eps=0.01)
+sampler1.apply(method='SVN', eps=0.1)
 # %%
 from corner import corner
 X1 = collect_samples(sampler1.history_path)
@@ -132,3 +279,63 @@ fig = c.plotter.plot_distributions(truth=true_params)
 #%%
 1 * True
 # %%
+
+psds = model.strainGrid
+# %%
+psd_L1 = psds['L1']
+psd_H1 = psds['H1']
+psd_Virgo = psds['Virgo']
+fig, ax = plt.subplots()
+ax.plot(model.detsInNet['L1'].strainFreq, psd_L1, label='L1')
+ax.plot(model.detsInNet['H1'].strainFreq, psd_H1, label='H1')
+# ax.plot(psd_Virgo, label='Virgo')
+ax.legend()
+
+#%%
+fig1, ax1 = plt.subplots()
+for det in model.detsInNet:
+    ax1.plot(model.fgrid, np.log(model.signal_data[det]), label=det+' signal')
+    ax1.plot(model.fgrid, np.log(model.strainGrid[det] ** (0.5)), label=det+' noise')
+ax1.legend()
+
+
+# %%
+L1 = model.detsInNet['L1']
+H1 = model.detsInNet['H1']
+Virgo = model.detsInNet['Virgo']
+#%%
+L1_noise = L1.noiseCurve
+
+# %%
+plt.loglog(L1_noise)
+# %%
+plt.loglog(model.signal_data['H1'])
+# %%
+
+
+# %%
+test_tGPS = np.array([1187008882.4])
+
+Test_tcoal = utils.GPSt_to_LMST(tGPS, lat=0., long=0.) # GMST is LMST computed at long = 0° 
+
+#%%
+#%%
+def f(a, b, c):
+    return a + b + c
+
+dic = {'a':2, 'b':3}
+
+f(c=1, **dic)
+# %%
+import numpy as np
+M = np.array([[1, 1],
+              [1, 1]])
+
+a = np.array([1, 2])
+
+
+# %%
+def f(a):
+    return a + 1
+
+f(a, c='lol')

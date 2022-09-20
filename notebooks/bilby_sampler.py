@@ -52,23 +52,53 @@ waveform = TaylorF2_RestrictedPN()
 fmin = 20.
 fmax = 325.
 df = 1./5
-model = gwfast_class(LVdetectors, waveform, injParams, fmin=fmin, fmax=fmax)
-model.get_signal(method='sim', add_noise=False, df=df)
+model = gwfast_class(LVdetectors, waveform, injParams, df, fmin=fmin, fmax=fmax)
+model.get_signal(method='sim', add_noise=False)
 
 #%%
 # Define priors
 priors = {}
-priors['Mc'] = bilby.prior.Uniform(minimum=32, maximum=36, name='$\mathcal{M_c}$')
-priors['eta'] = bilby.prior.Uniform(minimum=0.1, maximum=0.25, name='$\ets$')
-priors['dL'] = dL[0]
-priors['theta'] = theta[0]
-priors['phi'] = phi[0]
-priors['cos_iota'] = np.cos(iota)[0]
-priors['psi'] = psi[0]
-priors['tcoal'] = tcoal[0]
-priors['Phicoal'] = Phicoal[0]
-priors['chi1z'] = chi1z[0]
-priors['chi2z'] = chi2z[0]
+
+# priors['Mc'] = bilby.prior.Uniform(minimum=34, maximum=34.6, name='$\mathcal{M_c}$')
+# priors['eta'] = bilby.prior.Uniform(minimum=0.247, maximum=0.25, name='$\ets$')
+# priors['dL'] = dL[0]
+# priors['theta'] = theta[0]
+# priors['phi'] = phi[0]
+# priors['iota'] = iota[0]
+# priors['psi'] = psi[0]
+# priors['tcoal'] = tcoal[0]
+# priors['Phicoal'] = Phicoal[0]
+# priors['chi1z'] = chi1z[0]
+# priors['chi2z'] = chi2z[0]
+
+bounds = {'Mc': [33.75, 34.75], 
+          'eta': [0.245, 0.25], 
+          'dL': [0.4, 0.47], 
+          'theta': [2.7, 2.9], 
+          'phi': [1.5, 1.8], 
+          'iota': [2.5, 4.1], 
+          'psi': [0.7, 0.9], 
+          'tcoal': [0, 0.00000001], 
+          'Phicoal': [0., 0.2], 
+          'chi1z': [0.26, 0.285], 
+          'chi2z': [0.31, 0.35]}
+
+latex_names = {'Mc': '$\mathcal{M}_c$', 
+               'eta': '$\eta$', 
+               'dL': '$d_L$', 
+               'theta': '$\theta$', 
+               'phi': '$\phi$', 
+               'iota': '$\iota$', 
+               'psi': '$\psi$', 
+               'tcoal': '$t_c$', 
+               'Phicoal': '$\phi_c$', 
+               'chi1z': '$\chi_{1z}$', 
+               'chi2z': '$\chi_{2z}$'}
+
+for param in model.names:
+    priors[param] = bilby.prior.Uniform(minimum=bounds[param][0], maximum=bounds[param][1], name=latex_names[param])
+
+
 
 # Wrap likelihood
 #%%
@@ -79,7 +109,7 @@ class bilby_gwfast_wrapper(bilby.Likelihood):
         Parameters
         ----------
         """
-        params = {'Mc': None, 'eta': None, 'dL': None, 'theta': None, 'phi': None, 'cos_iota': None, 'psi': None, 'tcoal': None, 'Phicoal': None, 'chi1z': None, 'chi2z': None}
+        params = {'Mc': None, 'eta': None, 'dL': None, 'theta': None, 'phi': None, 'iota': None, 'psi': None, 'tcoal': None, 'Phicoal': None, 'chi1z': None, 'chi2z': None}
 
         super().__init__(parameters=params)
 
@@ -89,17 +119,16 @@ class bilby_gwfast_wrapper(bilby.Likelihood):
         dL = self.parameters['dL'] 
         theta = self.parameters['theta'] 
         phi = self.parameters['phi'] 
-        cos_iota = self.parameters['cos_iota'] 
+        iota = self.parameters['iota'] 
         psi = self.parameters['psi'] 
         tcoal = self.parameters['tcoal'] 
         Phicoal = self.parameters['Phicoal'] 
         chi1z = self.parameters['chi1z'] 
         chi2z = self.parameters['chi2z']
 
-        theta = np.array([Mc, eta, dL, theta, phi, cos_iota, psi, tcoal, Phicoal, chi1z, chi2z])
+        theta = np.array([Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chi1z, chi2z])
         return -1 * model.getMinusLogLikelihood_ensemble(theta[np.newaxis, ...]).squeeze()
 
-#%%
 bilby_likelihood = bilby_gwfast_wrapper()
 # %%
 # nlive = 1000          # live points
@@ -114,10 +143,11 @@ result = bilby.run_sampler(
     plot=True,
     likelihood=bilby_likelihood,
     priors=priors,
-    sampler="nessai",
+    sampler="dynesty",
     injection_parameters=injParams,
     analytic_priors=True,
     seed=1234,
+    nlive=1000
 )
 
 
@@ -129,4 +159,25 @@ result = bilby.run_sampler(
 #     sample=method, nlive=nlive, dlogz=stop) 
 
 
+# %%
+import pandas as pd
+import os
+a = os.getcwd()
+pickle_path = os.path.join(a, 'outdir', 'gwfast_run_dynesty.pickle')
+obj = pd.read_pickle(pickle_path)
+# %%
+import corner
+#%%
+samples = obj['samples']
+#%%
+corner.corner(samples, smooth=1)
+# %%
+import matplotlib.pyplot as plt
+#%%
+plt.hist2d(samples[:,0], samples[:,1], bins=1000)
+# %%
+plt.scatter(samples[:,0], samples[:,1])
+# %%
+a = [1, 2, 3]
+a.size()
 # %%
