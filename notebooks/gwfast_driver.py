@@ -24,6 +24,7 @@ from astropy.cosmology import Planck18
 import matplotlib.pyplot as plt
 from numdifftools import Jacobian, Gradient
 from jax import jacobian
+from corner import corner
 
 ##########################
 ####### (GW150914) #######
@@ -32,17 +33,20 @@ tGPS = np.array([1.12625946e+09])
 injParams = dict()
 
 # injParams['tcoal'] = utils.GPSt_to_LMST(tGPS, lat=0., long=0.) # Coalescence time, in units of fraction of day (GMST is LMST computed at long = 0°) 
-injParams['tcoal']   = np.array([0.])                # Unif super narrow
-injParams['Mc']      = np.array([34.3089283])        # 
-injParams['eta']     = np.array([0.2485773])         # 
-injParams['dL']      = np.array([0.43929891])        # TODO: In gigaparsecs? true: proportional to dl^2 (for now use unif)
-injParams['theta']   = np.array([2.78560281])        # unif in cos
-injParams['phi']     = np.array([1.67687425])        # unif
-injParams['iota']    = np.array([2.67548653])        # unif in cos
-injParams['psi']     = np.array([0.78539816])        # 
-injParams['Phicoal'] = np.array([0.])                # Unif
-injParams['chiS']    = np.array([0.27210419])        # Notationally convenient.
-injParams['chiA']    = np.array([0.33355909])        #
+injParams['tcoal']   = np.array([0.])                # Units: fraction of days
+injParams['Mc']      = np.array([34.3089283])        # Units: M_sun
+injParams['eta']     = np.array([0.2485773])         # Units: Unitless
+injParams['dL']      = np.array([0.43929891])        # Units: Gigaparsecs 
+injParams['theta']   = np.array([2.78560281])        # Units: Rad
+injParams['phi']     = np.array([1.67687425])        # Units: Rad
+injParams['iota']    = np.array([2.67548653])        # Units: Rad
+injParams['psi']     = np.array([0.78539816])        # Units: Rad
+injParams['Phicoal'] = np.array([0.])                # Units: Rad
+injParams['chiS']    = np.array([0.27210419])        # Units: Unitless
+injParams['chiA']    = np.array([0.33355909])        # Units: Unitless
+
+
+
 # injParams['chi1z']   = np.array([0.27210419])        
 # injParams['chi2z']   = np.array([0.33355909])        
 
@@ -69,22 +73,25 @@ waveform = TaylorF2_RestrictedPN() # Choice of waveform
 fgrid_dict = {'fmin': 20, 'fmax': 325, 'df': 1./5} # All parameters related to frequency grid.
 
 priorDict = OrderedDict()
-priorDict['Mc']      = [33.75, 34.75] 
-priorDict['eta']     = [0.245, 0.25] 
-priorDict['dL']      = [0.4, 0.47]
-priorDict['theta']   = [2.7, 2.9]
-priorDict['phi']     = [1.5, 1.8]
-priorDict['iota']    = [2.5, 4.1] 
-priorDict['psi']     = [0.7, 0.9] 
-priorDict['tcoal']   = [0, 0.00000001]
+priorDict['Mc']      = [33.75, 34.75]         # (1)
+priorDict['eta']     = [0.245, 0.25]          # (2)
+priorDict['dL']      = [0.4, 0.47]            # (3)
+priorDict['theta']   = [2.7, 2.9]             # (4)
+priorDict['phi']     = [1.5, 1.8]             # (5)
+priorDict['iota']    = [2.5, 4.1]             # (6)
+priorDict['psi']     = [0.7, 0.9]             # (7)
+priorDict['tcoal']   = [0, 0.00000001]        # (8)
 # priorDict['tcoal']   = injParams['tcoal']
-priorDict['Phicoal'] = [0., 0.2]
-priorDict['chiS']    = [0.26, 0.285]     # Remark: Flag is chi1chi2=True. Parameter names will be transformed in gwfast to (chi1z, chi2z)
-priorDict['chiA']    = [0.31, 0.35]
+priorDict['Phicoal'] = [0., 0.2]              # (9)
+priorDict['chiS']    = [0.26, 0.285]          # (10)
+priorDict['chiA']    = [0.31, 0.35]           # (11)
+# Remark: Flag is chi1chi2=True. Parameter names will be transformed in gwfast to (chi1z, chi2z)
 
-model = gwfast_class(LV_detectors, waveform, injParams, priorDict, nParticles=1, **fgrid_dict)
+nParticles = 1
+model = gwfast_class(LV_detectors, waveform, injParams, priorDict, nParticles=nParticles, **fgrid_dict)
+print('Using % i bins' % model.grid_resolution)
 
-#%% Get SNR
+# Get SNR
 
 injParams_original = copy.deepcopy(injParams)
 chi1z, chi2z = (injParams_original.pop('chiS'), injParams_original.pop('chiA'))
@@ -92,20 +99,19 @@ injParams_original['chi1z'] = chi1z
 injParams_original['chi2z'] = chi2z
 net = DetNet(model.detsInNet)
 snr = net.SNR(injParams_original)
-print('Using % i bins' % model.grid_resolution)
 print('SNR is %f' % snr)
 
-#%% UNIT TEST: Compare Gauss Newton approximation to Fisher information
-particle_true = copy.deepcopy(model.true_params[np.newaxis, ...])
-GN = model.getGNHessianMinusLogPosterior_ensemble(particle_true)[0]
-Fisher = net.FisherMatr(injParams)
-bounds = copy.deepcopy(injParams)
+#%% RUN SAMPLER
+sampler1 = samplers(model=model, nIterations=100, nParticles=nParticles, profile=False)
+sampler1.apply(method='SVGD', eps=0.005)
+# %% PLOT SUMMARY
+X1 = collect_samples(sampler1.history_path)
+a = corner(X1, smooth=0.5)
 
+#%% SANITY CHECK: Compare hard coded gradient with numerical, and JAX derivatives
 
-
-#%% UNIT TEST: Test whether numerical derivative of likelihood agrees with hard coded JAX implementation.
-
-particle = copy.deepcopy(model.true_params[np.newaxis, ...])
+particle = copy.deepcopy(model.true_params[np.newaxis, ...]) + 0.1
+particle[7] -= 0.1
 likelihood = model.getMinusLogLikelihood_ensemble(particle)
 grad1 = Gradient(model.getMinusLogLikelihood_ensemble, method='central', step=0.0001)(particle)
 grad2 = model.getGradientMinusLogPosterior_ensemble(particle)
@@ -116,14 +122,35 @@ b = grad2.squeeze()[7]
 # Only t_c comes out wrong
 print('t_c numerical = %f, t_c jax = %f' % (a,b))
 print(grad1[0])
-print(grad2)
+print(grad2.squeeze())
 print(grad3)
+print(np.allclose(grad2.squeeze(), grad3))
 
 #%%
-from jax import grad, jacobian
+test = np.array([[1, 2, 3],
+                 [1, 2 ,3],
+                 [1, 2 ,3]])
 
-res = jacobian(model.getMinusLogLikelihood_ensemble)(particle)
 
+test[:, [0,2]]
+
+#%% SANITY CHECK: Compare Gauss-Newton approximation to Fisher information calculated by gwfast
+
+particle_true = copy.deepcopy(model.true_params[np.newaxis, ...])
+GN = model.getGNHessianMinusLogPosterior_ensemble(particle_true)[0]
+Fisher = net.FisherMatr(injParams_original, 
+                        res=float(model.grid_resolution), 
+                        # res=None, 
+                        # df=fgrid_dict['df'], 
+                        df=None, 
+                        spacing='lin', 
+                        use_prec_ang=False)
+
+difference = (1 - GN / Fisher) * 100
+
+
+
+#%%
 
 
 #%%
@@ -253,13 +280,7 @@ plt.plot(model.fgrid.squeeze(), (model.signal_data['H1'].real.squeeze()))
 # UNIT TEST: GN approximation equal to Fisher information
 
 
-#%%
-sampler1 = samplers(model=model, nIterations=100, nParticles=100, profile=False)
-sampler1.apply(method='SVN', eps=0.1)
-# %%
-from corner import corner
-X1 = collect_samples(sampler1.history_path)
-a = corner(X1, smooth=1.)
+
 
 #%%
 import deepdish as dd

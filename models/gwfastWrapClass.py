@@ -74,13 +74,10 @@ class gwfast_class(object):
 
         self.DoF = len(self.names_active)  
 
-        self.jacMask = np.ones((11, self.N, int(self.grid_resolution[0])), bool)
-
-        indicies_of_inactive_params = []
+        self.indicies_of_inactive_params = []
         for param in self.injParams.keys():
             if param in self.names_inactive:
-                indicies_of_inactive_params.append(list(self.injParams.keys()).index(param))
-        self.jacMask[indicies_of_inactive_params] = False
+                self.indicies_of_inactive_params.append(list(self.injParams.keys()).index(param))
 
     def _initParamNames(self):
         self.param_names = {'Mc': '$\mathcal{M}_c$',                      # Chirp mass
@@ -106,6 +103,7 @@ class gwfast_class(object):
 
         # self.names_active_modified = copy.deepcopy(self.names_active)
 
+        self.names_prior_order = list(self.priorDict.keys()) # Defined order
         self.names_neglected = ['chi1x', 'chi2x', 'chi1y', 'chi2y', 'LambdaTilde', 'deltaLambda', 'ecc']
         self.names_inactive = [param for param in self.priorDict.keys() if type(self.priorDict[param]) != list]
         self.names_active = [param for param in self.priorDict.keys() if param not in self.names_inactive]
@@ -115,6 +113,11 @@ class gwfast_class(object):
         self.dict_params_inactive = {param: values for param, values in [(self.names_inactive[i], (np.ones(self.N) * self.params_inactive[i]).astype('complex128'))  for i in range(len(self.names_inactive))]}
         self.true_params = np.array([self.injParams[x].squeeze() for x in self.names_active])
 
+        self.list_active_indicies = []
+        for param in self.names_prior_order:
+            if param in self.names_active:
+                self.list_active_indicies.append(self.names_prior_order.index(param))
+                
     def _initDetectorSignals(self): 
         # Initialise the signal objects
         self.detsInNet = {}
@@ -259,7 +262,8 @@ class gwfast_class(object):
         residualJac = {}
         
         # This is needed to change units in tc and variable from iota to cos(iota)
-        # tcelem   = self.wf_model.ParNums['tcoal']
+        # tcelem   = self.wf_model.ParNums['tcoal'] # GMST accounts for geometry of earth spinning
+        # print(tcelem)
         # iotaelem = self.wf_model.ParNums['iota']
 
 
@@ -268,7 +272,8 @@ class gwfast_class(object):
                                                                           **dict_params_active, 
                                                                           **self.dict_params_inactive, 
                                                                           **self.dict_params_neglected, 
-                                                                          **self.signalDerivativeKwargs)[self.jacMask].reshape(len(self.true_params), self.N, int(self.grid_resolution))
+                                                                          **self.signalDerivativeKwargs)
+            # residualJac[det] = residualJac[det].at[tcelem,:,:].divide(3600.*24.)
         return residualJac
 
     def arrayToDict(self, thetas, names):
@@ -299,8 +304,8 @@ class gwfast_class(object):
         jacResidual_dict = self._getJacobianResidual_Vec(thetas)
         grad_log_like = np.zeros(thetas.shape).astype('complex128')
         for det in self.detsInNet.keys():
-            grad_log_like += contract('dNf, fN, f -> Nd', jacResidual_dict[det].conjugate(), residual_dict[det], 1 / self.strainGrid[det])
-        return 4 * grad_log_like.real * self.df
+            grad_log_like += contract('dNf, fN, f -> Nd', jacResidual_dict[det].conjugate(), residual_dict[det], 1 / self.strainGrid[det])[:, self.list_active_indicies]
+        return (4 * grad_log_like.real * self.df)
 
     def getGNHessianMinusLogPosterior_ensemble(self, thetas):
         jacResidual_dict = self._getJacobianResidual_Vec(thetas)
@@ -313,7 +318,7 @@ class gwfast_class(object):
         residual_dict = self._getResidual_Vec(thetas) 
         jacResidual_dict = self._getJacobianResidual_Vec(thetas)
         grad_log_like = np.zeros(thetas.shape).astype('complex128')
-        GN = np.zeros((N, self.DoF, self.DoF)).astype('complex128')
+        GN = np.zeros((self.N, self.DoF, self.DoF)).astype('complex128')
         for det in self.detsInNet.keys():
             grad_log_like += contract('dNf, fN, f -> Nd', jacResidual_dict[det].conjugate(), residual_dict[det], 1 / self.strainGrid[det])
             GN += contract('dNf, bNf, f -> Ndb', jacResidual_dict[det].conjugate(), jacResidual_dict[det], 1 / self.strainGrid[det])
@@ -332,8 +337,8 @@ class gwfast_class(object):
         """
         prior_draw = np.zeros((nParticles, self.DoF))
 
-        for d, param in enumerate(self.priorDict.keys()): # Assuming uniform on all parameters
-            prior_draw[:, d] = np.random.uniform(low=self.priorDict[param][0], high=self.priorDict[param][0], size=nParticles)
+        for i, param in enumerate(self.names_active): # Assuming uniform on all parameters
+            prior_draw[:, i] = np.random.uniform(low=self.priorDict[param][0], high=self.priorDict[param][1], size=nParticles)
         
         return prior_draw
 
