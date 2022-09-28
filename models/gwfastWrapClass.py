@@ -118,6 +118,10 @@ class gwfast_class(object):
             if param in self.names_active:
                 self.list_active_indicies.append(self.names_prior_order.index(param))
                 
+        self.lower_bound = np.array([self.priorDict[param][0] for param in self.names_active])
+        self.upper_bound = np.array([self.priorDict[param][1] for param in self.names_active])
+        self.bound_tol = 1e-9
+
     def _initDetectorSignals(self): 
         # Initialise the signal objects
         self.detsInNet = {}
@@ -311,7 +315,7 @@ class gwfast_class(object):
         jacResidual_dict = self._getJacobianResidual_Vec(thetas)
         GN = np.zeros((self.N, self.DoF, self.DoF)).astype('complex128')
         for det in self.detsInNet.keys():
-            GN += contract('dNf, bNf, f -> Ndb', jacResidual_dict[det].conjugate(), jacResidual_dict[det], 1 / self.strainGrid[det])
+            GN += contract('dNf, bNf, f -> Ndb', jacResidual_dict[det].conjugate(), jacResidual_dict[det], 1 / self.strainGrid[det])[:, self.list_active_indicies, self.list_active_indicies]
         return 4 * self.df * GN.real
 
     def getDerivativesMinusLogPosterior_ensemble(self, thetas):
@@ -320,8 +324,8 @@ class gwfast_class(object):
         grad_log_like = np.zeros(thetas.shape).astype('complex128')
         GN = np.zeros((self.N, self.DoF, self.DoF)).astype('complex128')
         for det in self.detsInNet.keys():
-            grad_log_like += contract('dNf, fN, f -> Nd', jacResidual_dict[det].conjugate(), residual_dict[det], 1 / self.strainGrid[det])
-            GN += contract('dNf, bNf, f -> Ndb', jacResidual_dict[det].conjugate(), jacResidual_dict[det], 1 / self.strainGrid[det])
+            grad_log_like += contract('dNf, fN, f -> Nd', jacResidual_dict[det].conjugate(), residual_dict[det], 1 / self.strainGrid[det])[:, self.list_active_indicies]
+            GN += contract('dNf, bNf, f -> Ndb', jacResidual_dict[det].conjugate(), jacResidual_dict[det], 1 / self.strainGrid[det])[:, self.list_active_indicies][:, ..., self.list_active_indicies]
 
         return (4 * grad_log_like.real * self.df, 4 * self.df * GN.real)
 
@@ -342,8 +346,48 @@ class gwfast_class(object):
         
         return prior_draw
 
+    def getMarginal(self, a, b):
+        ngrid = int(np.sqrt(self.N))
+        # a, b are the parameters for which we want the marginals:
+        x = np.linspace(self.priorDict[a][0], self.priorDict[a][1], ngrid)
+        y = np.linspace(self.priorDict[b][0], self.priorDict[b][1], ngrid)
+        X, Y = np.meshgrid(x, y)
+        particle_grid = np.zeros((ngrid ** 2, self.DoF))
+        index1 = self.names_active.index(a)
+        index2 = self.names_active.index(b)
+        parameter_mesh = np.vstack((np.ndarray.flatten(X), np.ndarray.flatten(Y))).T
+        particle_grid[:, index1] = parameter_mesh[:, 0]
+        particle_grid[:, index2] = parameter_mesh[:, 1]
+        for i in range(self.DoF): # Fix all other parameters
+            if i != index1 and i != index2:
+                particle_grid[:, i] = np.ones(ngrid ** 2) * self.true_params[i]
+        Z = np.exp(-1 * self.getMinusLogLikelihood_ensemble(particle_grid).reshape(ngrid,ngrid))
+        fig, ax = plt.subplots(figsize = (5, 5))
+        cp = ax.contourf(X, Y, Z)
+        ax.set_xlabel(a)
+        ax.set_ylabel(b)
+        ax.set_title('Analytically calculated marginal')
+        filename = a + b + '.png'
+        path = os.path.join('marginals', filename)
+        fig.savefig(path)
 
+    def _inBounds(self, X, lower_bound, upper_bound, tol=1e-9):
+        # Pad particle behavior near boundaries
+        Y = copy.deepcopy(X)
 
+        nParticles = Y.shape[0]
+        DoF = Y.shape[1]
+
+        lower_bound = np.tile(lower_bound, nParticles).reshape(nParticles, DoF)
+        upper_bound = np.tile(upper_bound, nParticles).reshape(nParticles, DoF)
+
+        below = Y <= lower_bound 
+        Y[below] = lower_bound[below] + tol
+
+        above = Y >= upper_bound
+        Y[above] = upper_bound[above] - tol
+
+        return Y
 
 
 

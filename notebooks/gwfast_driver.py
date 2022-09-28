@@ -31,12 +31,12 @@ from corner import corner
 ##########################
 tGPS = np.array([1.12625946e+09])
 injParams = dict()
-
 # injParams['tcoal'] = utils.GPSt_to_LMST(tGPS, lat=0., long=0.) # Coalescence time, in units of fraction of day (GMST is LMST computed at long = 0°) 
 injParams['tcoal']   = np.array([0.])                # Units: fraction of days
 injParams['Mc']      = np.array([34.3089283])        # Units: M_sun
 injParams['eta']     = np.array([0.2485773])         # Units: Unitless
-injParams['dL']      = np.array([0.43929891])        # Units: Gigaparsecs 
+# injParams['dL']      = np.array([0.43929891 * 3])    # Units: Gigaparsecs 
+injParams['dL']      = np.array([1.31789673])
 injParams['theta']   = np.array([2.78560281])        # Units: Rad
 injParams['phi']     = np.array([1.67687425])        # Units: Rad
 injParams['iota']    = np.array([2.67548653])        # Units: Rad
@@ -45,16 +45,12 @@ injParams['Phicoal'] = np.array([0.])                # Units: Rad
 injParams['chiS']    = np.array([0.27210419])        # Units: Unitless
 injParams['chiA']    = np.array([0.33355909])        # Units: Unitless
 
-
-
-# injParams['chi1z']   = np.array([0.27210419])        
-# injParams['chi2z']   = np.array([0.33355909])        
-
 #%%  Setup gravitational wave network problem
 
 all_detectors = copy.deepcopy(glob.detectors) # Geometry of every available detector
 
-LV_detectors = {det:all_detectors[det] for det in ['L1', 'H1', 'Virgo']} # Extract only LIGO/Virgo detectors
+# LV_detectors = {det:all_detectors[det] for det in ['L1', 'H1', 'Virgo']} # Extract only LIGO/Virgo detectors
+LV_detectors = {det:all_detectors[det] for det in ['L1']}
 
 print('Using detectors ' + str(list(LV_detectors.keys())))
 
@@ -64,8 +60,8 @@ detector_ASD['H1']    = 'O3-H1-C01_CLEAN_SUB60HZ-1251752040.0_sensitivity_strain
 detector_ASD['Virgo'] = 'O3-V1_sensitivity_strain_asd.txt'
 
 LV_detectors['L1']['psd_path']    = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['L1']) # Add paths to detector sensitivities
-LV_detectors['H1']['psd_path']    = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['H1'])
-LV_detectors['Virgo']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['Virgo'])
+# LV_detectors['H1']['psd_path']    = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['H1'])
+# LV_detectors['Virgo']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['Virgo'])
 
 waveform = TaylorF2_RestrictedPN() # Choice of waveform
 # waveform = IMRPhenomD()
@@ -73,25 +69,38 @@ waveform = TaylorF2_RestrictedPN() # Choice of waveform
 fgrid_dict = {'fmin': 20, 'fmax': 325, 'df': 1./5} # All parameters related to frequency grid.
 
 priorDict = OrderedDict()
-priorDict['Mc']      = [33.75, 34.75]         # (1)
-priorDict['eta']     = [0.245, 0.25]          # (2)
-priorDict['dL']      = [0.4, 0.47]            # (3)
-priorDict['theta']   = [2.7, 2.9]             # (4)
-priorDict['phi']     = [1.5, 1.8]             # (5)
-priorDict['iota']    = [2.5, 4.1]             # (6)
-priorDict['psi']     = [0.7, 0.9]             # (7)
-priorDict['tcoal']   = [0, 0.00000001]        # (8)
-# priorDict['tcoal']   = injParams['tcoal']
-priorDict['Phicoal'] = [0., 0.2]              # (9)
-priorDict['chiS']    = [0.26, 0.285]          # (10)
-priorDict['chiA']    = [0.31, 0.35]           # (11)
+priorDict['Mc']      = [30., 40.]          # (1)
+priorDict['eta']     = [0.23, 0.25]        # (2)
+priorDict['dL']      = [0.25, 2.]          # (3)
+priorDict['theta']   = [2.5, 2.9]          # (4)
+priorDict['phi']     = [1.2, 2.2]          # (5)
+priorDict['iota']    = [1.5, np.pi]        # (6)
+priorDict['psi']     = [0., 2.]            # (7)
+priorDict['tcoal']   = [0, 0.00000001]     # (8)
+priorDict['Phicoal'] = [0., 1.]            # (9)
+priorDict['chiS']    = [-0.5, 0.6]         # (10)
+priorDict['chiA']    = [-0.1, 1.]          # (11)
 # Remark: Flag is chi1chi2=True. Parameter names will be transformed in gwfast to (chi1z, chi2z)
+# Keep these constant
 
-nParticles = 1
+# priorDict['Mc']      = injParams['Mc']          # (1) 
+# priorDict['eta']     = injParams['eta']         # (2)
+# priorDict['dL']      = injParams['dL']          # (3)
+priorDict['theta']   = injParams['theta']       # (4)
+priorDict['phi']     = injParams['phi']         # (5)
+priorDict['iota']    = injParams['iota']        # (6)
+priorDict['psi']     = injParams['psi']         # (7)
+priorDict['tcoal']   = injParams['tcoal']       # (8)
+priorDict['Phicoal'] = injParams['Phicoal']     # (9)
+# priorDict['chiS']    = injParams['chiS']        # (10)
+# priorDict['chiA']    = injParams['chiA']        # (11)
+
+nParticles = 300 ** 2
 model = gwfast_class(LV_detectors, waveform, injParams, priorDict, nParticles=nParticles, **fgrid_dict)
 print('Using % i bins' % model.grid_resolution)
 
-# Get SNR
+#%%
+# Diagnostics
 
 injParams_original = copy.deepcopy(injParams)
 chi1z, chi2z = (injParams_original.pop('chiS'), injParams_original.pop('chiA'))
@@ -99,32 +108,117 @@ injParams_original['chi1z'] = chi1z
 injParams_original['chi2z'] = chi2z
 net = DetNet(model.detsInNet)
 snr = net.SNR(injParams_original)
-print('SNR is %f' % snr)
+print('SNR is  ', snr)
+H1_response = model.signal_data['H1']
+plt.plot(model.fgrid, H1_response)
 
 #%% RUN SAMPLER
-sampler1 = samplers(model=model, nIterations=100, nParticles=nParticles, profile=False)
-sampler1.apply(method='SVGD', eps=0.005)
+sampler1 = samplers(model=model, nIterations=200, nParticles=nParticles, profile=False)
+sampler1.apply(method='sSVN', eps=0.1)
 # %% PLOT SUMMARY
 X1 = collect_samples(sampler1.history_path)
-a = corner(X1, smooth=0.5)
+a = corner(X1, smooth=0.5, labels=model.names_active)
+
+#%%
+model.getMarginal('chiA', 'chiS')
+
+#%%
+# Transformation methods
+import numpy as np
+a = np.array([1, 1])    # Lower bounds
+b = np.array([2, 2])   # Upper bounds
+def F_inv(Y, a, b):
+    return (a + b * np.exp(Y)) / (1 + np.exp(Y))
+
+def F(X, a, b):
+    return np.log((X - a) / (b - X))
+
+def dF_inv(Y, a, b):
+    return b * np.exp(Y) / (1 + np.exp(Y)) - np.exp(Y) * (a + b * np.exp(Y)) / (1 + np.exp(Y)) ** 2
+
+def diagHessF_inv(Y, a, b):
+    return - 2 * b * np.exp(2 * Y) / (1 + np.exp(Y)) ** 2 
+           + b * np.exp(Y) / (1 + np.exp(Y))
+           + 2 * np.exp(2 * Y) * (a + b * (a + b * np.exp(Y))) / (1 + np.exp(Y)) ** 2
+           - np.exp(Y) * (a + b * np.exp(Y)) / (1 + np.exp(Y)) ** 2
+
+
+particle = np.array([1.5, 1.5])
+
+F_inv(F(particle, a, b), a, b)
+
+
+
+
+
+
+
+
+#%%
+from itertools import combinations
+pairs = list(combinations(model.names_active, 2))
+for pair in pairs:
+    print(pair)
+    model.getMarginal(pair[0], pair[1])
+#%%
+def convert(m1, m2):
+    Mc = (m1 * m2) ** (3/5) / (m1 + m2) ** (1/5)
+
+    eta = m1 * m2 / (m1 + m2) ** 2 
+    return (Mc, eta)
+
+convert(60, 10)
+
+#%%
+
+# def _inBounds(X):
+
+#     lower_bound = np.tile(self.lower_bound, self.N).reshape(self.N, self.DoF)
+#     upper_bound = np.tile(self.upper_bound, self.N).reshape(self.N, self.DoF)
+
+#     below = X <= lower_bound 
+#     above = X >= upper_bound
+
+#     X[below] = lower_bound[below] + self.bound_tol
+#     X[above] = upper_bound[above] - self.bound_tol
+
+        # return X
+
+
+
+#%%
+
+
+
+lower = np.array([0.11, 0.12, 0.13])
+upper = np.array([0.13, 0.15, 0.17])
+
+
+particle = np.array([[0.10, 0.13, 0.14],
+                     [0.8, 0.3, 0.5]])
+
+
+
+
+#%%
+
+
+
+
+
 
 #%% SANITY CHECK: Compare hard coded gradient with numerical, and JAX derivatives
 
 particle = copy.deepcopy(model.true_params[np.newaxis, ...]) + 0.1
-particle[7] -= 0.1
-likelihood = model.getMinusLogLikelihood_ensemble(particle)
-grad1 = Gradient(model.getMinusLogLikelihood_ensemble, method='central', step=0.0001)(particle)
-grad2 = model.getGradientMinusLogPosterior_ensemble(particle)
+# particle[:,7] -= 0.1
+# grad1 = model.getGradientMinusLogPosterior_ensemble(particle)
+grad1, Fisher1 = model.getDerivativesMinusLogPosterior_ensemble(particle)
+grad2 = Gradient(model.getMinusLogLikelihood_ensemble, method='central', step=0.0001)(particle)
 grad3 = jacobian(model.getMinusLogLikelihood_ensemble)(particle)[0,0]
-print(np.allclose(grad1[0], grad2.squeeze()))
-a = grad1[0][7]
-b = grad2.squeeze()[7]
-# Only t_c comes out wrong
-print('t_c numerical = %f, t_c jax = %f' % (a,b))
-print(grad1[0])
-print(grad2.squeeze())
+print(grad1.squeeze())
+print(grad2[0])
 print(grad3)
-print(np.allclose(grad2.squeeze(), grad3))
+print(np.allclose(grad1.squeeze(), grad3))
 
 #%%
 test = np.array([[1, 2, 3],
@@ -155,60 +249,29 @@ difference = (1 - GN / Fisher) * 100
 
 #%%
 # Record extents here
-bounds = {'Mc': [33.75, 34.75], 
-          'eta': [0.245, 0.25], 
-          'dL': [0.4, 0.47], 
-          'theta': [2.7, 2.9], 
-          'phi': [1.5, 1.8], 
-          'iota': [2.5, 4.1], 
-          'psi': [0.7, 0.9], 
-          'tcoal': [0, 0.00000001], 
-          'Phicoal': [0., 0.2], 
-          'chi1z': [0.26, 0.285], 
-          'chi2z': [0.31, 0.35]}
+# bounds = {'Mc': [33.75, 34.75], 
+#           'eta': [0.245, 0.25], 
+#           'dL': [0.4, 0.47], 
+#           'theta': [2.7, 2.9], 
+#           'phi': [1.5, 1.8], 
+#           'iota': [2.5, 4.1], 
+#           'psi': [0.7, 0.9], 
+#           'tcoal': [0, 0.00000001], 
+#           'Phicoal': [0., 0.2], 
+#           'chi1z': [0.26, 0.285], 
+#           'chi2z': [0.31, 0.35]}
 
 #%%
 # UNIT TEST: What do all the 2D marginals look like?
-def getMarginal(a, b):
-    # a, b are the parameters for which we want the marginals:
-    ngrid = 100
-    x = np.linspace(bounds[a][0], bounds[a][1], ngrid)
-    y = np.linspace(bounds[b][0], bounds[b][1], ngrid)
-    X, Y = np.meshgrid(x, y)
-    particle_grid = np.zeros((ngrid ** 2, 11))
-    index1 = model.names.index(a)
-    index2 = model.names.index(b)
-    parameter_mesh = np.vstack((np.ndarray.flatten(X), np.ndarray.flatten(Y))).T
-    particle_grid[:, index1] = parameter_mesh[:, 0]
-    particle_grid[:, index2] = parameter_mesh[:, 1]
-    for i in range(11):
-        if i != index1 and i!= index2:
-            particle_grid[:, i] = np.ones(ngrid ** 2) * model.true_params[i]
-    Z = np.exp(-1 * model.getMinusLogLikelihood_ensemble(particle_grid).reshape(ngrid,ngrid))
-    fig, ax = plt.subplots(figsize = (5, 5))
-    cp = ax.contourf(X, Y, Z)
-    ax.set_xlabel(a)
-    ax.set_ylabel(b)
-    ax.set_title('Analytically calculated marginal')
-    filename = a + b + '.png'
-    path = os.path.join('marginals', filename)
-    fig.savefig(path)
+
     # fig.show()
 
-getMarginal('Mc', 'chi2z')
 
-
-
-#%%
-from itertools import combinations
-pairs = list(combinations(model.names, 2))
-for pair in pairs:
-    getMarginal(pair[0], pair[1])
 
 
 
 #%%
-ngrid = 100
+ngrid = 500
 x = np.linspace(33.75, 34.75, ngrid)
 y = np.linspace(0.245, 0.25, ngrid)
 X, Y = np.meshgrid(x, y)

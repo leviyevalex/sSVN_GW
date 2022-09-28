@@ -85,12 +85,12 @@ class samplers:
                         v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt)
                         update = v_svgd * eps
                     elif method == 'sSVGD':
-                        gmlpt = self.model.getGradientMinusLogPosterior_ensemble(X)
-                        # gmlpt, GN_Hmlpt = self.model.getDerivativesMinusLogPosterior_ensemble(X)
+                        # gmlpt = self.model.getGradientMinusLogPosterior_ensemble(X)
+                        gmlpt, GN_Hmlpt = self.model.getDerivativesMinusLogPosterior_ensemble(X)
 
                         # GN_Hmlpt = self.model.getGNHessianMinusLogPosterior_ensemble(X)
-                        # M = np.mean(GN_Hmlpt, axis=0)
-                        M = None
+                        M = np.mean(GN_Hmlpt, axis=0)
+                        # M = None
                         kx, gkx1 = self._getKernelWithDerivatives(X, h=h, M=M)
                         v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt)
                         alpha, L_kx = self._getMinimumPerturbationCholesky(kx)
@@ -170,6 +170,8 @@ class samplers:
 
                     # Update particles
                     X += update
+                    # Pad particles near boundaries
+                    X = self.model._inBounds(X, self.model.lower_bound, self.model.upper_bound)
 
                 # Dynamics completed: Storing data
                 with h5py.File(self.history_path, 'a') as f:
@@ -415,6 +417,21 @@ class samplers:
         gkx1 = -2 * contract('mn, mne -> mne', kx, displacement_tensor) / h
         ## test_gkx = -2 / h * contract('mn, ie, mni -> mne', kx, U, displacement_tensor)
         return kx, gkx1
+
+    def _F_inv(self, Y, a, b):
+        return (a + b * np.exp(Y)) / (1 + np.exp(Y))
+
+    def _F(self, X, a, b):
+        return np.log((X - a) / (b - X))
+
+    def _dF_inv(self, Y, a, b):
+        return b * np.exp(Y) / (1 + np.exp(Y)) - np.exp(Y) * (a + b * np.exp(Y)) / (1 + np.exp(Y)) ** 2
+
+    def _diagHessF_inv(self, Y, a, b):
+        return - 2 * b * np.exp(2 * Y) / (1 + np.exp(Y)) ** 2 \
+            + b * np.exp(Y) / (1 + np.exp(Y)) \
+            + 2 * np.exp(2 * Y) * (a + b * np.exp(Y)) / (1 + np.exp(Y)) ** 3 \
+            - np.exp(Y) * (a + b * np.exp(Y)) / (1 + np.exp(Y)) ** 2
 
     # def _getKernelWithDerivatives(self, X, h, M=None):
     #     # Geodesic Gaussian kernel on S1
