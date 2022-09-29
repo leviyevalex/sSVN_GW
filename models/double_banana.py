@@ -12,11 +12,12 @@ class double_banana:
         self.id = 'double-banana'
 
         # Works for non-symmetric covariances as well!
-        self.sigmaInv = np.linalg.inv(np.array([[1, 0],
-                                                [0, 1]]))
+        self.sigmaInv = np.linalg.inv(np.array([[0.01, 0.],
+                                                [0., 0.01]]))
 
         self.mu = np.array([0, 0])
         self.nData = 1
+
         # for the likelihood
         self.stdn = 0.3
         self.varn = self.stdn ** 2
@@ -29,23 +30,59 @@ class double_banana:
         self.nGradLikelihoodEvaluations = 0
         self.nFisherLikelihoodEvaluations = 0
 
+        self.lower_bound = np.array([-1., -1.])
+        self.upper_bound = np.array([1., 1.])
+
     #########################
     ### PRIORS
     #########################
+    # def _getMinusLogPrior(self, theta):
+    #     temp = (theta-self.mu)
+    #     return 1/2 * (temp).T @ self.sigmaInv @ (temp)
+    # def _getGradientMinusLogPrior(self, theta):
+    #     temp = (theta-self.mu)
+    #     return 1/2 * self.sigmaInv @ (temp) + 1/2 * (temp).T @ self.sigmaInv
+
+    # def _getHessianMinusLogPrior(self, theta):
+    #     return self.sigmaInv
+
+    # def _newDrawFromPrior(self, nParticles):
+    #     # return np.random.uniform(low=-3, high=3, size=(nParticles, self.DoF))
+    #     return np.random.uniform(low=-6, high=6, size=(nParticles, self.DoF))
+    #     # return np.random.multivariate_normal(mean=self.mu, cov=self.sigmaInv, size=nParticles)
+
+    #############################################
+    def _newDrawFromPrior(self, nParticles):
+        """
+        Return samples from a uniform prior.
+        Included for convenience.
+        Args:
+            nParticles (int): Number of samples to draw.
+
+        Returns: (array) nSamples x DoF array of representative samples
+
+        """
+        prior_draw = np.zeros((nParticles, self.DoF))
+        prior_draw[:, 0] = np.random.uniform(low=self.lower_bound[0], high=self.upper_bound[0], size=nParticles)
+        prior_draw[:, 1] = np.random.uniform(low=self.lower_bound[1], high=self.upper_bound[1], size=nParticles)        
+        return prior_draw
+
+
+
     def _getMinusLogPrior(self, theta):
-        temp = (theta-self.mu)
-        return 1/2 * (temp).T @ self.sigmaInv @ (temp)
+        return 0
+
     def _getGradientMinusLogPrior(self, theta):
-        temp = (theta-self.mu)
-        return 1/2 * self.sigmaInv @ (temp) + 1/2 * (temp).T @ self.sigmaInv
+        return np.zeros(self.DoF)
 
     def _getHessianMinusLogPrior(self, theta):
-        return self.sigmaInv
+        return np.zeros((self.DoF, self.DoF))
 
-    def _newDrawFromPrior(self, nParticles):
-        # return np.random.uniform(low=-3, high=3, size=(nParticles, self.DoF))
-        return np.random.uniform(low=-6, high=6, size=(nParticles, self.DoF))
-        # return np.random.multivariate_normal(mean=self.mu, cov=self.sigmaInv, size=nParticles)
+
+
+
+
+
     #########################
     ### LIKELIHOOD
     #########################

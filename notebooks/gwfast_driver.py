@@ -22,7 +22,7 @@ from gwfast.network import DetNet
 from gwfast.waveforms import TaylorF2_RestrictedPN, IMRPhenomD
 from astropy.cosmology import Planck18
 import matplotlib.pyplot as plt
-from numdifftools import Jacobian, Gradient
+from numdifftools import Jacobian, Gradient, Hessdiag
 from jax import jacobian
 from corner import corner
 
@@ -123,10 +123,10 @@ a = corner(X1, smooth=0.5, labels=model.names_active)
 model.getMarginal('chiA', 'chiS')
 
 #%%
-# Transformation methods
+from numdifftools import Gradient, Hessdiag
 import numpy as np
-a = np.array([1, 1])    # Lower bounds
-b = np.array([2, 2])   # Upper bounds
+import matplotlib.pyplot as plt
+
 def F_inv(Y, a, b):
     return (a + b * np.exp(Y)) / (1 + np.exp(Y))
 
@@ -136,21 +136,156 @@ def F(X, a, b):
 def dF_inv(Y, a, b):
     return b * np.exp(Y) / (1 + np.exp(Y)) - np.exp(Y) * (a + b * np.exp(Y)) / (1 + np.exp(Y)) ** 2
 
+def dF(X, a, b):
+    return (b - a) / ((X - a) * (b - X))
+
 def diagHessF_inv(Y, a, b):
-    return - 2 * b * np.exp(2 * Y) / (1 + np.exp(Y)) ** 2 
-           + b * np.exp(Y) / (1 + np.exp(Y))
-           + 2 * np.exp(2 * Y) * (a + b * (a + b * np.exp(Y))) / (1 + np.exp(Y)) ** 2
+    return - 2 * b * np.exp(2 * Y) / (1 + np.exp(Y)) ** 2 \
+           + b * np.exp(Y) / (1 + np.exp(Y)) \
+           + 2 * np.exp(2 * Y) * (a + b * np.exp(Y)) / (1 + np.exp(Y)) ** 3 \
            - np.exp(Y) * (a + b * np.exp(Y)) / (1 + np.exp(Y)) ** 2
 
+#%%
+# Test 1 - Plot for several dimensions
 
-particle = np.array([1.5, 1.5])
+# Define hypercube [1, 2] X [3, 4]
+a = np.array([1, 3])    # Lower bounds
+b = np.array([2, 4])    # Upper bounds
 
-F_inv(F(particle, a, b), a, b)
+# Draw particles uniformly in hypercube
+particle_x =  np.random.uniform(low=a[0], high=b[0], size=100)
+particle_y =  np.random.uniform(low=a[1], high=b[1], size=100)
+particles = np.zeros((100, 2))
+particles[:, 0] = particle_x
+particles[:, 1] = particle_y
+
+# Plot original and transformed particles on top of each other
+y = F(particles, a, b)
+fig, ax = plt.subplots()
+ax.scatter(particles[:, 0], particles[:, 1], c='b', label='Original')
+ax.scatter(y[:, 0], y[:, 1], c='r', label='Transformed')
+ax.legend()
+
+# Visualize relationship between (x, x'), (y, y')
+fig, ax = plt.subplots()
+ax.scatter(particles[:,0], y[:,0], c='b', label='x')
+ax.scatter(particles[:,1], y[:,1], c='r', label='y')
+ax.legend()
+
+# Check that batch calculation is stored properly
+i = 5
+particle = particles[i]
+transformed_particle = F(particle, a, b)
+print(np.allclose(transformed_particle, y[i]))
+
+#%%
+# Test 2 - Test that F_inv is defined properly
+
+# Define hypercube [1, 2] X [3, 4]
+a = np.array([1, 3])    # Lower bounds
+b = np.array([2, 4])    # Upper bounds
+
+# Draw particles uniformly in hypercube
+particle_x =  np.random.uniform(low=a[0], high=b[0], size=100)
+particle_y =  np.random.uniform(low=a[1], high=b[1], size=100)
+particles = np.zeros((100, 2))
+particles[:, 0] = particle_x
+particles[:, 1] = particle_y
+
+print(np.allclose(particles, F_inv(F(particles, a, b), a, b)))
+
+#%%
+# Test 3 - Compare numerical and analytic derivatives
+
+# Define hypercube [1, 2] X [3, 4]
+a = np.array([1, 3])    # Lower bounds
+b = np.array([2, 4])    # Upper bounds
+
+# Draw particles uniformly in hypercube
+n = 3
+particle_x =  np.random.uniform(low=a[0], high=b[0], size=n)
+particle_y =  np.random.uniform(low=a[1], high=b[1], size=n)
+particles = np.zeros((n, 2))
+particles[:, 0] = particle_x
+particles[:, 1] = particle_y
+
+test_1a = dF(particles, a, b)
+test_2a = dF_inv(particles, a, b)
+test_3a = diagHessF_inv(particles, a, b)
+for i in range(n):
+    # Calculate derivative numerically 
+    test_1b = Gradient(F)(particles[i], a, b)[range(2), range(2)]
+    test_2b = Gradient(F_inv)(particles[i], a, b)[range(2), range(2)]
+    test_3b = Hessdiag(F_inv)(particles[i], a, b)[range(2), range(2)]
+
+    assert np.allclose(test_1a[i], test_1b)
+    assert np.allclose(test_2a[i], test_2b)
+    assert np.allclose(test_3a[i], test_3b)
+
+#%%
+# Test 4 - Numerically confirm f'(x) = 1 / f'(y)
+
+# Define hypercube [1, 2] X [3, 4]
+a = np.array([1, 3])    # Lower bounds
+b = np.array([2, 4])    # Upper bounds
+
+# Draw particles uniformly in hypercube
+n = 3
+particle_x =  np.random.uniform(low=a[0], high=b[0], size=n)
+particle_y =  np.random.uniform(low=a[1], high=b[1], size=n)
+particles = np.zeros((n, 2))
+particles[:, 0] = particle_x
+particles[:, 1] = particle_y
+
+Y = F(particles, a, b)
+
+test_a = dF(particles, a, b)
+test_b = 1 / dF_inv(Y, a, b)
+
+assert np.allclose(test_a, test_b)
 
 
+#%%
 
+a = np.array([1])    # Lower bounds
+b = np.array([2])   # Upper bounds
+# Test that the derivative values are correct
+particle = np.array([1.5])
 
+test_1 = 
+print(np.allclose(test_1, test_2))
 
+test_a = diagHessF_inv(particle, a, b)
+test_b = Hessdiag(F_inv)(particle, a, b)
+test_c = Hessian(F_inv)(particle, a, b)
+print(np.allclose(test_a, test_b))
+
+#%% 
+# Test that batch functionality works correctly
+particle1 = np.array([1.5])
+particle2 = np.array([1.7])
+
+particles = (np.array([1.5, 1.7]))
+
+print(F_inv(particle1, a, b))
+print(F_inv(particle2, a, b))
+print(F_inv(particles, a, b))
+
+#%% 
+# Test that vector functionality works correctly
+a = np.array([1, 1])
+b = np.array([2, 2])
+particle1 = np.array([1.5, 1.7])
+print(F_inv(particle1, a, b))
+
+#%%
+# Test that vector batch functionality works correctly
+a = np.array([1, 1])
+b = np.array([2, 2])
+particle1 = np.array([[1.5, 1.7],
+                      [1.5, 1.8]])
+
+print(diagHessF_inv(particle1, a, b))
 
 
 
