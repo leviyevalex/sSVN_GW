@@ -5,6 +5,7 @@ from argparse import ArgumentDefaultsHelpFormatter
 from random import uniform
 from tkinter import N
 import jax.numpy as jnp
+import jax
 
 import numpy as np
 import sys
@@ -22,6 +23,8 @@ from gwfast.network import DetNet
 from gwfast.waveforms import TaylorF2_RestrictedPN, IMRPhenomD
 # from astropy.cosmology import Planck18
 from opt_einsum import contract
+
+from functools import partial
 
 # nParticles = 1
 #%%
@@ -79,6 +82,11 @@ class gwfast_class(object):
             if param in self.names_inactive:
                 self.indicies_of_inactive_params.append(list(self.injParams.keys()).index(param))
 
+        # Warmup: Precompile the derivative method for notebook convenience!
+        print('Precompiling derivatives with jax.jit')
+        self.getDerivativesMinusLogPosterior_ensemble(self._newDrawFromPrior(self.N))
+
+
     def _initParamNames(self):
         self.param_names = {'Mc': '$\mathcal{M}_c$',                      # Chirp mass
                             'eta': '$\eta$',                              # Symmetric mass ratio 
@@ -132,7 +140,7 @@ class gwfast_class(object):
                                                 det_lat= self.NetDict[d]['lat'],
                                                 det_long=self.NetDict[d]['long'],
                                                 det_xax=self.NetDict[d]['xax'],
-                                                verbose=True,
+                                                verbose=False,
                                                 useEarthMotion = self.EarthMotion,
                                                 fmin=self.fmin, fmax=self.fmax,
                                                 is_ASD=True)
@@ -157,8 +165,17 @@ class gwfast_class(object):
             self.fmax = fcut
         else:
             fcut = jnp.where(fcut > self.fmax, self.fmax, fcut)
-        self.grid_resolution = jnp.floor(jnp.real((1 + (fcut - self.fmin) / self.df)))
-        self.fgrid = jnp.linspace(self.fmin, fcut, num=int(self.grid_resolution))
+
+        grid_to_use = 'geometric'
+        # grid_to_use = 'linear'
+
+        if grid_to_use == 'geometric':
+            self.grid_resolution = int(100)
+            self.fgrid = jnp.geomspace(self.fmin, fcut, num=self.grid_resolution)
+        elif grid_to_use == 'linear':
+            self.grid_resolution = int(jnp.floor(jnp.real((1 + (fcut - self.fmin) / self.df))))
+            self.fgrid = jnp.linspace(self.fmin, fcut, num=self.grid_resolution)
+
         self.fgrids = jnp.repeat(self.fgrid, self.N, axis=1)
 
     def _initInterpolatedPSD(self):
@@ -287,9 +304,11 @@ class gwfast_class(object):
     # def dictToArray(self):
     #     pass
 
-    def getMinusLogLikelihood_ensemble(self, thetas):
+    # @jax.jit
+    def getMinusLogPosterior_ensemble(self, thetas):
         """ 
         thetas = N x DoF
+        See arxiv:1809.02293 Eq 42.
         """
         residual_dict = self._getResidual_Vec(thetas) # Remark: gwfast_class uses reversed convention for particles
         log_like = jnp.zeros(thetas.shape[0]).astype('complex128')
@@ -298,6 +317,7 @@ class gwfast_class(object):
             log_like += contract('fm, f -> m', norm, 1 / self.strainGrid[det])
         return 2 * log_like.real * self.df
 
+    # @jax.jit
     def getGradientMinusLogPosterior_ensemble(self, thetas):
         # REMARK: Returns (d, Nev, F) shaped array instead of a (d, F, Nev) shaped array, where F is the size of the frequency grid
         # TODO Ask Francesco if this is a bug or expected.
@@ -306,23 +326,26 @@ class gwfast_class(object):
         """
         residual_dict = self._getResidual_Vec(thetas) # Input is reversed here
         jacResidual_dict = self._getJacobianResidual_Vec(thetas)
-        grad_log_like = np.zeros(thetas.shape).astype('complex128')
+        grad_log_like = jnp.zeros(thetas.shape).astype('complex128')
         for det in self.detsInNet.keys():
             grad_log_like += contract('dNf, fN, f -> Nd', jacResidual_dict[det].conjugate(), residual_dict[det], 1 / self.strainGrid[det])[:, self.list_active_indicies]
         return (4 * grad_log_like.real * self.df)
 
+    # @jax.jit
     def getGNHessianMinusLogPosterior_ensemble(self, thetas):
         jacResidual_dict = self._getJacobianResidual_Vec(thetas)
-        GN = np.zeros((self.N, self.DoF, self.DoF)).astype('complex128')
+        GN = jnp.zeros((self.N, self.DoF, self.DoF)).astype('complex128')
         for det in self.detsInNet.keys():
             GN += contract('dNf, bNf, f -> Ndb', jacResidual_dict[det].conjugate(), jacResidual_dict[det], 1 / self.strainGrid[det])[:, self.list_active_indicies, self.list_active_indicies]
         return 4 * self.df * GN.real
 
+    # @jax.jit
+    @partial(jax.jit, static_argnums=(0,))
     def getDerivativesMinusLogPosterior_ensemble(self, thetas):
         residual_dict = self._getResidual_Vec(thetas) 
         jacResidual_dict = self._getJacobianResidual_Vec(thetas)
-        grad_log_like = np.zeros(thetas.shape).astype('complex128')
-        GN = np.zeros((self.N, self.DoF, self.DoF)).astype('complex128')
+        grad_log_like = jnp.zeros(thetas.shape).astype('complex128')
+        GN = jnp.zeros((self.N, self.DoF, self.DoF)).astype('complex128')
         for det in self.detsInNet.keys():
             grad_log_like += contract('dNf, fN, f -> Nd', jacResidual_dict[det].conjugate(), residual_dict[det], 1 / self.strainGrid[det])[:, self.list_active_indicies]
             GN += contract('dNf, bNf, f -> Ndb', jacResidual_dict[det].conjugate(), jacResidual_dict[det], 1 / self.strainGrid[det])[:, self.list_active_indicies][:, ..., self.list_active_indicies]
@@ -342,7 +365,11 @@ class gwfast_class(object):
         prior_draw = np.zeros((nParticles, self.DoF))
 
         for i, param in enumerate(self.names_active): # Assuming uniform on all parameters
-            prior_draw[:, i] = np.random.uniform(low=self.priorDict[param][0], high=self.priorDict[param][1], size=nParticles)
+            low = self.priorDict[param][0]
+            high = self.priorDict[param][1]
+            padding = (high-low)/10
+            prior_draw[:, i] = np.random.uniform(low=low+padding, high=high-padding, size=nParticles)
+            # prior_draw[:, i] = np.random.uniform(low=low, high=high, size=nParticles)
         
         return prior_draw
 
@@ -361,9 +388,11 @@ class gwfast_class(object):
         for i in range(self.DoF): # Fix all other parameters
             if i != index1 and i != index2:
                 particle_grid[:, i] = np.ones(ngrid ** 2) * self.true_params[i]
-        Z = np.exp(-1 * self.getMinusLogLikelihood_ensemble(particle_grid).reshape(ngrid,ngrid))
+        Z = np.exp(-1 * self.getMinusLogPosterior_ensemble(particle_grid).reshape(ngrid,ngrid))
         fig, ax = plt.subplots(figsize = (5, 5))
         cp = ax.contourf(X, Y, Z)
+        # cbar = fig.colorbar(cp)
+        plt.colorbar(cp)
         ax.set_xlabel(a)
         ax.set_ylabel(b)
         ax.set_title('Analytically calculated marginal')

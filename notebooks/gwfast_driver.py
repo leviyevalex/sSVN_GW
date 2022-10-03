@@ -25,6 +25,7 @@ import matplotlib.pyplot as plt
 from numdifftools import Jacobian, Gradient, Hessdiag
 from jax import jacobian
 from corner import corner
+import jax
 
 ##########################
 ####### (GW150914) #######
@@ -32,11 +33,10 @@ from corner import corner
 tGPS = np.array([1.12625946e+09])
 injParams = dict()
 # injParams['tcoal'] = utils.GPSt_to_LMST(tGPS, lat=0., long=0.) # Coalescence time, in units of fraction of day (GMST is LMST computed at long = 0°) 
-injParams['tcoal']   = np.array([0.])                # Units: fraction of days
+injParams['tcoal']   = np.array([0.]) # Coalescence time, in units of fraction of day (GMST is LMST computed at long = 0°) 
 injParams['Mc']      = np.array([34.3089283])        # Units: M_sun
 injParams['eta']     = np.array([0.2485773])         # Units: Unitless
-# injParams['dL']      = np.array([0.43929891 * 3])    # Units: Gigaparsecs 
-injParams['dL']      = np.array([1.31789673])
+injParams['dL']      = np.array([0.43929891])        # Units: Gigaparsecs 
 injParams['theta']   = np.array([2.78560281])        # Units: Rad
 injParams['phi']     = np.array([1.67687425])        # Units: Rad
 injParams['iota']    = np.array([2.67548653])        # Units: Rad
@@ -45,7 +45,7 @@ injParams['Phicoal'] = np.array([0.])                # Units: Rad
 injParams['chiS']    = np.array([0.27210419])        # Units: Unitless
 injParams['chiA']    = np.array([0.33355909])        # Units: Unitless
 
-#%%  Setup gravitational wave network problem
+#  Setup gravitational wave network problem
 
 all_detectors = copy.deepcopy(glob.detectors) # Geometry of every available detector
 
@@ -63,39 +63,55 @@ LV_detectors['L1']['psd_path']    = os.path.join(glob.detPath, 'LVC_O1O2O3', det
 # LV_detectors['H1']['psd_path']    = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['H1'])
 # LV_detectors['Virgo']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['Virgo'])
 
-waveform = TaylorF2_RestrictedPN() # Choice of waveform
-# waveform = IMRPhenomD()
+# waveform = TaylorF2_RestrictedPN() # Choice of waveform
+waveform = IMRPhenomD()
 
 fgrid_dict = {'fmin': 20, 'fmax': 325, 'df': 1./5} # All parameters related to frequency grid.
 
 priorDict = OrderedDict()
-priorDict['Mc']      = [30., 40.]          # (1)
-priorDict['eta']     = [0.23, 0.25]        # (2)
-priorDict['dL']      = [0.25, 2.]          # (3)
-priorDict['theta']   = [2.5, 2.9]          # (4)
-priorDict['phi']     = [1.2, 2.2]          # (5)
-priorDict['iota']    = [1.5, np.pi]        # (6)
-priorDict['psi']     = [0., 2.]            # (7)
-priorDict['tcoal']   = [0, 0.00000001]     # (8)
-priorDict['Phicoal'] = [0., 1.]            # (9)
-priorDict['chiS']    = [-0.5, 0.6]         # (10)
-priorDict['chiA']    = [-0.1, 1.]          # (11)
-# Remark: Flag is chi1chi2=True. Parameter names will be transformed in gwfast to (chi1z, chi2z)
-# Keep these constant
+# priorDict['Mc']      = [20., 50.]          # (1)
+# priorDict['eta']     = [0.1, 0.25]        # (2)
 
+priorDict['Mc']      = [29., 39.]          # (1)
+priorDict['eta']     = [0.22, 0.25]        # (2)
+priorDict['dL']      = [0.1, 1.]          # (3)
+priorDict['theta']   = [0., np.pi]          # (4)
+priorDict['phi']     = [0., 2*np.pi]          # (5)
+priorDict['iota']    = [0., np.pi]        # (6)
+priorDict['psi']     = [0., np.pi]            # (7)
+priorDict['tcoal']   = [0., 1.]            # (8)
+priorDict['Phicoal'] = [0., 1.]            # (9)
+priorDict['chiS']    = [-1., 1.]         # (10)
+priorDict['chiA']    = [-1., 1.]          # (11)
+
+# priorDict['Mc']      = [32., 37.]          # (1)
+# priorDict['eta']     = [0.24, 0.25]        # (2)
+# priorDict['dL']      = [0.25, 2.]          # (3)
+# priorDict['theta']   = [2.5, 2.9]          # (4)
+# priorDict['phi']     = [1.2, 2.2]          # (5)
+# priorDict['iota']    = [1.5, np.pi]        # (6)
+# priorDict['psi']     = [0., 2.]            # (7)
+# priorDict['tcoal']   = [0., 1.]            # (8)
+# priorDict['Phicoal'] = [0., 1.]            # (9)
+# priorDict['chiS']    = [0., 0.75]         # (10)
+# priorDict['chiA']    = [0., 0.75]          # (11)
+
+# Remark: Flag is chi1chi2=True. Parameter names will be transformed in gwfast to (chi1z, chi2z)
+
+### Keep these constant ###
 # priorDict['Mc']      = injParams['Mc']          # (1) 
 # priorDict['eta']     = injParams['eta']         # (2)
 # priorDict['dL']      = injParams['dL']          # (3)
-priorDict['theta']   = injParams['theta']       # (4)
-priorDict['phi']     = injParams['phi']         # (5)
-priorDict['iota']    = injParams['iota']        # (6)
-priorDict['psi']     = injParams['psi']         # (7)
+# priorDict['theta']   = injParams['theta']       # (4)
+# priorDict['phi']     = injParams['phi']         # (5)
+# priorDict['iota']    = injParams['iota']        # (6)
+# priorDict['psi']     = injParams['psi']         # (7)
 priorDict['tcoal']   = injParams['tcoal']       # (8)
 priorDict['Phicoal'] = injParams['Phicoal']     # (9)
 # priorDict['chiS']    = injParams['chiS']        # (10)
 # priorDict['chiA']    = injParams['chiA']        # (11)
 
-nParticles = 300 ** 2
+nParticles = 300
 model = gwfast_class(LV_detectors, waveform, injParams, priorDict, nParticles=nParticles, **fgrid_dict)
 print('Using % i bins' % model.grid_resolution)
 
@@ -109,18 +125,48 @@ injParams_original['chi2z'] = chi2z
 net = DetNet(model.detsInNet)
 snr = net.SNR(injParams_original)
 print('SNR is  ', snr)
-H1_response = model.signal_data['H1']
-plt.plot(model.fgrid, H1_response)
+H1_response = model.signal_data['L1']
+power_spectral_density = model.strainGrid['L1']
+fig, axs = plt.subplots(1, 2)
+axs[0].plot(model.fgrid, H1_response)
+axs[1].plot(model.fgrid, power_spectral_density)
 
 #%% RUN SAMPLER
 sampler1 = samplers(model=model, nIterations=200, nParticles=nParticles, profile=False)
-sampler1.apply(method='sSVN', eps=0.1)
-# %% PLOT SUMMARY
+sampler1.apply(method='SVN', eps=1, h=2*model.DoF / 10)
+
+
+
+
+################################################
+ # %% PLOT SUMMARY
+################################################
 X1 = collect_samples(sampler1.history_path)
 a = corner(X1, smooth=0.5, labels=model.names_active)
 
 #%%
-model.getMarginal('chiA', 'chiS')
+from scripts.create_animation import animate_driver
+from scripts.create_contour import create_contour
+
+#%%
+contour_file_path1 = create_contour(sampler1, model.lower_bound, model.upper_bound)
+
+#%%
+path = '/mnt/c/sSVN_GW/outdir/1664469465/output_data.h5' 
+animation_path1 = animate_driver(contour_file_path1, sampler1)
+
+
+
+#%%
+model.getMarginal('dL', 'iota')
+
+
+#%%
+from itertools import combinations
+pairs = list(combinations(model.names_active, 2))
+for pair in pairs:
+    print(pair)
+    model.getMarginal(pair[0], pair[1])
 
 #%%
 from numdifftools import Gradient, Hessdiag
@@ -289,12 +335,10 @@ print(diagHessF_inv(particle1, a, b))
 
 
 
-#%%
-from itertools import combinations
-pairs = list(combinations(model.names_active, 2))
-for pair in pairs:
-    print(pair)
-    model.getMarginal(pair[0], pair[1])
+
+
+
+
 #%%
 def convert(m1, m2):
     Mc = (m1 * m2) ** (3/5) / (m1 + m2) ** (1/5)
@@ -348,8 +392,8 @@ particle = copy.deepcopy(model.true_params[np.newaxis, ...]) + 0.1
 # particle[:,7] -= 0.1
 # grad1 = model.getGradientMinusLogPosterior_ensemble(particle)
 grad1, Fisher1 = model.getDerivativesMinusLogPosterior_ensemble(particle)
-grad2 = Gradient(model.getMinusLogLikelihood_ensemble, method='central', step=0.0001)(particle)
-grad3 = jacobian(model.getMinusLogLikelihood_ensemble)(particle)[0,0]
+grad2 = Gradient(model.getMinusLogPosterior_ensemble, method='central', step=0.0001)(particle)
+grad3 = jacobian(model.getMinusLogPosterior_ensemble)(particle)[0,0]
 print(grad1.squeeze())
 print(grad2[0])
 print(grad3)
