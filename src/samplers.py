@@ -72,8 +72,8 @@ class samplers:
         # np.random.seed(int(time())) # Enable for randomness
         np.random.seed(1) # Enable for reproducibility
         try:
-            # X = self.model._newDrawFromPrior(self.nParticles) # Initial set of particles
-            X = self._F(self.model._newDrawFromPrior(self.nParticles), self.model.lower_bound, self.model.upper_bound) # Initial set of particles in unbounded space
+            X = self.__newDrawFromPrior_(self.nParticles) # Initial set of particles
+            # X = self._F(self.model._newDrawFromPrior(self.nParticles), self.model.lower_bound, self.model.upper_bound) # Initial set of particles in unbounded space
             print('new load')
             # h = 2 * self.DoF
             # h = self.DoF / 100
@@ -207,48 +207,9 @@ class samplers:
                             v_svn = self._getSVN_direction(kx, v_svgd, UH)
                         update = v_svn * eps
                     elif method == 'sSVN':
-                        dF_inv = self._dF_inv(X, self.model.lower_bound, self.model.upper_bound)
-                        diagHessF_inv = self._diagHessF_inv(X, self.model.lower_bound, self.model.upper_bound)
-                        # gmlpt = self.model.getGradientMinusLogPosterior_ensemble(X)
-                        # GN_Hmlpt = self.model.getGNHessianMinusLogPosterior_ensemble(X)
-                        gmlpt_, GN_Hmlpt_ = self.model.getDerivativesMinusLogPosterior_ensemble(self._F_inv(X, self.model.lower_bound, self.model.upper_bound)) # chi1
-                        # gmlpt, GN_Hmlpt_ = jax_der(self._F_inv(X, self.model.lower_bound, self.model.upper_bound))
-
-
-
-
-                        # gmlpt = self.model.getGradientMinusLogPosterior_ensemble(self._F_inv(X, self.model.lower_bound, self.model.upper_bound))
-                        # GN_Hmlpt = self.model.getGNHessianMinusLogPosterior_ensemble(self._F_inv(X, self.model.lower_bound, self.model.upper_bound))
-
-                        gmlpt = gmlpt_ * dF_inv - diagHessF_inv / dF_inv
-
-                        # tmp1 = contract('Nd, Nb -> Ndb', dF_inv, dF_inv)
-                        GN_Hmlpt = contract('Nd, Nb, Ndb -> Ndb', dF_inv, dF_inv, GN_Hmlpt_)
-                        # GN_Hmlpt *= tmp1 
-                        
-                        # GN_Hmlpt[..., range(self.DoF), range(self.DoF)] += (diagHessF_inv / dF_inv) ** 2
-
-
-
-
-                        # M = None
-
-                        # Normal kernel evaluations
-                        # M = np.mean(GN_Hmlpt, axis=0)
-                        # kx, gkx1 = self._getKernelWithDerivatives(X, h, M)
-                        # kx, gkx1 = _getKernelWithDerivatives(X, h=h, M=M, l=self.nParticles, get_gkx1=True)
-
-                        # Testing with kernel transformation
-                        M = np.mean(GN_Hmlpt_, axis=0)
-
-                        # kx, gkx1_ = self._getKernelWithDerivatives(self._F_inv(X, self.model.lower_bound, self.model.upper_bound), h, M)
-                        kx, gkx1_ = _getKernelWithDerivatives(self._F_inv(X, self.model.lower_bound, self.model.upper_bound), h=h, M=M, l=self.nParticles, get_gkx1=True)
-
-                        gkx1 = contract('md, mnd -> mnd', dF_inv, gkx1_)
-
-
-
-
+                        gmlpt, GN_Hmlpt = self._getDerivativesMinusLogPosterior_(X)
+                        M = np.mean(GN_Hmlpt, axis=0)
+                        kx, gkx1 = self.__getKernelWithDerivatives_(X, h, M)
                         NK = self._reshapeNNDDtoNDND(contract('mn, ij -> mnij', kx, np.eye(self.DoF)))
                         H1 = self._getSteinHessianPosdef(GN_Hmlpt, kx, gkx1)
                         lamb = 0.01
@@ -540,6 +501,42 @@ class samplers:
                + b * np.exp(Y) / (1 + np.exp(Y)) \
                + 2 * np.exp(2 * Y) * (a + b * np.exp(Y)) / (1 + np.exp(Y)) ** 3 \
                - np.exp(Y) * (a + b * np.exp(Y)) / (1 + np.exp(Y)) ** 2
+
+    def __newDrawFromPrior_(self, nParticles):
+        if self.model.priorDict is None:
+            return self.model._newDrawFromPrior(nParticles)
+        else:
+            X = self.model._newDrawFromPrior(nParticles)
+            return self._F(X, self.model.lower_bound, self.model.upper_bound)
+
+    def _getDerivativesMinusLogPosterior_(self, Y):
+        if self.model.priorDict is None:
+            return self.model.getDerivativesMinusLogPosterior_ensemble(Y)
+        else:
+            X = self._F_inv(Y, self.model.lower_bound, self.model.upper_bound)
+            gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
+
+            dF_inv = self._dF_inv(Y, self.model.lower_bound, self.model.upper_bound)
+            diagHessF_inv = self._diagHessF_inv(Y, self.model.lower_bound, self.model.upper_bound)
+
+            gmlpt = gmlpt_X * dF_inv - diagHessF_inv / dF_inv
+
+            Hmlpt = contract('Nd, Nb, Ndb -> Ndb', dF_inv, dF_inv, Hmlpt_X)  
+            Hmlpt[:, range(self.DoF), range(self.DoF)] += 2 * np.exp(X) / (1 + np.exp(X)) ** 2
+
+            return (gmlpt, Hmlpt)
+
+    def __getKernelWithDerivatives_(self, Y, h, M):
+        if self.model.priorDict is None:
+            kx, gkx1 = self._getKernelWithDerivatives(Y, h, M)
+            return (kx, gkx1)
+        else:
+            X = self._F_inv(Y, self.model.lower_bound, self.model.upper_bound)
+            dF_inv = self._dF_inv(Y, self.model.lower_bound, self.model.upper_bound)
+            kx, gkx1_ = self._getKernelWithDerivatives(X, h, M)
+            gkx1 = contract('md, mnd -> mnd', dF_inv, gkx1_)
+            return (kx, gkx1)
+
 
     # def _getKernelWithDerivatives(self, X, h, M=None):
     #     # Geodesic Gaussian kernel on S1

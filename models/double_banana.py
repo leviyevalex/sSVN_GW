@@ -30,6 +30,7 @@ class double_banana:
         self.nGradLikelihoodEvaluations = 0
         self.nFisherLikelihoodEvaluations = 0
 
+        self.priorDict = 1 # TODO REMOVE, this is just to make interfacing easier with priorDict methods
         self.lower_bound = np.array([-1., -1.])
         self.upper_bound = np.array([1., 1.])
 

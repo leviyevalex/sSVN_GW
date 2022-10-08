@@ -82,9 +82,13 @@ class gwfast_class(object):
             if param in self.names_inactive:
                 self.indicies_of_inactive_params.append(list(self.injParams.keys()).index(param))
 
-        # Warmup: Precompile the derivative method for notebook convenience!
-        print('Precompiling derivatives with jax.jit')
-        self.getDerivativesMinusLogPosterior_ensemble(self._newDrawFromPrior(self.N))
+        # Warmup: Precompile method for notebook convenience!
+        if self.N > 1000:
+            print('Precompuling posterior with jax.jit')
+            self.getMinusLogPosterior_ensemble(self._newDrawFromPrior(self.N))
+        else:
+            print('Precompiling derivatives with jax.jit')
+            self.getDerivativesMinusLogPosterior_ensemble(self._newDrawFromPrior(self.N))
 
 
     def _initParamNames(self):
@@ -159,20 +163,20 @@ class gwfast_class(object):
         self.signalKwargs['is_prec_ang'] = False
 
     def _initFrequencyGrid(self):
-        # Setup linear frequency grid
+        # Setup frequency grid
         fcut = self.wf_model.fcut(**self.injParams)
         if self.fmax is None:
             self.fmax = fcut
         else:
             fcut = jnp.where(fcut > self.fmax, self.fmax, fcut)
 
-        grid_to_use = 'geometric'
+        self.grid_to_use = 'geometric'
         # grid_to_use = 'linear'
 
-        if grid_to_use == 'geometric':
+        if self.grid_to_use == 'geometric':
             self.grid_resolution = int(100)
             self.fgrid = jnp.geomspace(self.fmin, fcut, num=self.grid_resolution)
-        elif grid_to_use == 'linear':
+        elif self.grid_to_use == 'linear':
             self.grid_resolution = int(jnp.floor(jnp.real((1 + (fcut - self.fmin) / self.df))))
             self.fgrid = jnp.linspace(self.fmin, fcut, num=self.grid_resolution)
 
@@ -305,17 +309,27 @@ class gwfast_class(object):
     #     pass
 
     # @jax.jit
+    # @partial(jax.jit, static_argnums=(0,))
     def getMinusLogPosterior_ensemble(self, thetas):
         """ 
         thetas = N x DoF
         See arxiv:1809.02293 Eq 42.
         """
         residual_dict = self._getResidual_Vec(thetas) # Remark: gwfast_class uses reversed convention for particles
-        log_like = jnp.zeros(thetas.shape[0]).astype('complex128')
-        for det in self.detsInNet.keys():
-            norm = jnp.abs(residual_dict[det]) ** 2
-            log_like += contract('fm, f -> m', norm, 1 / self.strainGrid[det])
-        return 2 * log_like.real * self.df
+        log_like = jnp.zeros(thetas.shape[0])#.astype('complex128')
+        if self.grid_to_use == 'linear':
+            for det in self.detsInNet.keys():
+                norm = jnp.abs(residual_dict[det]) ** 2
+                log_like += contract('fm, f -> m', norm, 1 / self.strainGrid[det])
+            return 2 * log_like.real * self.df
+        elif self.grid_to_use == 'geometric':
+            tmp1 = (self.fgrid[1:] - self.fgrid[:-1]).squeeze()
+            for det in self.detsInNet.keys():
+                integrand = contract('fm, f -> mf', jnp.abs(residual_dict[det]) ** 2, 1 / self.strainGrid[det])
+                # log_like += 2 * jnp.trapz(integrand, self.fgrid.squeeze())
+                log_like += jnp.sum((integrand[:, 1:] + integrand[:, :-1]) * tmp1)
+
+            return log_like
 
     # @jax.jit
     def getGradientMinusLogPosterior_ensemble(self, thetas):
@@ -344,13 +358,41 @@ class gwfast_class(object):
     def getDerivativesMinusLogPosterior_ensemble(self, thetas):
         residual_dict = self._getResidual_Vec(thetas) 
         jacResidual_dict = self._getJacobianResidual_Vec(thetas)
-        grad_log_like = jnp.zeros(thetas.shape).astype('complex128')
-        GN = jnp.zeros((self.N, self.DoF, self.DoF)).astype('complex128')
-        for det in self.detsInNet.keys():
-            grad_log_like += contract('dNf, fN, f -> Nd', jacResidual_dict[det].conjugate(), residual_dict[det], 1 / self.strainGrid[det])[:, self.list_active_indicies]
-            GN += contract('dNf, bNf, f -> Ndb', jacResidual_dict[det].conjugate(), jacResidual_dict[det], 1 / self.strainGrid[det])[:, self.list_active_indicies][:, ..., self.list_active_indicies]
+        grad_log_like = jnp.zeros(thetas.shape)
+        GN = jnp.zeros((self.N, self.DoF, self.DoF))
+        # GN_test = jnp.zeros((self.N, self.DoF, self.DoF))
 
-        return (4 * grad_log_like.real * self.df, 4 * self.df * GN.real)
+        if self.grid_to_use == 'linear':
+            for det in self.detsInNet.keys():
+                grad_log_like += contract('dNf, fN, f -> Nd', jacResidual_dict[det].conjugate(), residual_dict[det], 1 / self.strainGrid[det])[:, self.list_active_indicies].real
+                GN += contract('dNf, bNf, f -> Ndb', jacResidual_dict[det].conjugate(), jacResidual_dict[det], 1 / self.strainGrid[det])[:, self.list_active_indicies][:, ..., self.list_active_indicies].real
+            return (4 * grad_log_like.real * self.df, 4 * self.df * GN.real)
+        elif self.grid_to_use == 'geometric':
+            tmp1 = (self.fgrid[1:] - self.fgrid[:-1]).squeeze()
+            for det in self.detsInNet.keys():
+                integrand_grad = contract('dNf, fN -> Ndf', jacResidual_dict[det].conjugate(), residual_dict[det])[:, self.list_active_indicies].real / self.strainGrid[det]
+                grad_log_like += 2 * jnp.sum((integrand_grad[...,1:] + integrand_grad[...,:-1]) * tmp1, axis=-1)
+
+                # DEBUG: Compare to jnp.trapz method
+                # grad_log_like += 4 * jnp.trapz(integrand_grad, self.fgrid.squeeze())
+
+                GN += contract('dNf, bNf, f -> Ndb', jacResidual_dict[det].conjugate()[..., 1:], jacResidual_dict[det][..., 1:], tmp1 / self.strainGrid[det][1:])[:, self.list_active_indicies][..., self.list_active_indicies].real
+                GN += contract('dNf, bNf, f -> Ndb', jacResidual_dict[det].conjugate()[..., :-1], jacResidual_dict[det][..., :-1], tmp1 / self.strainGrid[det][:-1])[:, self.list_active_indicies][..., self.list_active_indicies].real
+                GN *= 2
+
+                # integrand_GN = contract('dNf, bNf -> Ndbf', jacResidual_dict[det].conjugate(), jacResidual_dict[det]).real[:, self.list_active_indicies][:, :, self.list_active_indicies] / self.strainGrid[det]
+                # GN_test += 4 * jnp.trapz(integrand_GN, self.fgrid.squeeze())
+
+            return (grad_log_like, GN)
+            
+            
+            
+            
+            
+            
+            
+            # 0.5*((x[1:]-x[:-1])*(y[1:]+y[:-1])).sum()
+            TODO
 
     def _newDrawFromPrior(self, nParticles):
         """
@@ -368,12 +410,12 @@ class gwfast_class(object):
             low = self.priorDict[param][0]
             high = self.priorDict[param][1]
             padding = (high-low)/10
-            prior_draw[:, i] = np.random.uniform(low=low+padding, high=high-padding, size=nParticles)
-            # prior_draw[:, i] = np.random.uniform(low=low, high=high, size=nParticles)
+            # prior_draw[:, i] = np.random.uniform(low=low+padding, high=high-padding, size=nParticles)
+            prior_draw[:, i] = np.random.uniform(low=low, high=high, size=nParticles)
         
         return prior_draw
 
-    def getMarginal(self, a, b):
+    def getCrossSection(self, a, b):
         ngrid = int(np.sqrt(self.N))
         # a, b are the parameters for which we want the marginals:
         x = np.linspace(self.priorDict[a][0], self.priorDict[a][1], ngrid)

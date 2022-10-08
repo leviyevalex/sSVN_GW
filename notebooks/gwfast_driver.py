@@ -36,7 +36,7 @@ injParams = dict()
 injParams['tcoal']   = np.array([0.]) # Coalescence time, in units of fraction of day (GMST is LMST computed at long = 0°) 
 injParams['Mc']      = np.array([34.3089283])        # Units: M_sun
 injParams['eta']     = np.array([0.2485773])         # Units: Unitless
-injParams['dL']      = np.array([0.43929891])        # Units: Gigaparsecs 
+injParams['dL']      = np.array([0.43929891 * 6])        # Units: Gigaparsecs 
 injParams['theta']   = np.array([2.78560281])        # Units: Rad
 injParams['phi']     = np.array([1.67687425])        # Units: Rad
 injParams['iota']    = np.array([2.67548653])        # Units: Rad
@@ -50,7 +50,7 @@ injParams['chiA']    = np.array([0.33355909])        # Units: Unitless
 all_detectors = copy.deepcopy(glob.detectors) # Geometry of every available detector
 
 # LV_detectors = {det:all_detectors[det] for det in ['L1', 'H1', 'Virgo']} # Extract only LIGO/Virgo detectors
-LV_detectors = {det:all_detectors[det] for det in ['L1']}
+LV_detectors = {det:all_detectors[det] for det in ['L1', 'H1']}
 
 print('Using detectors ' + str(list(LV_detectors.keys())))
 
@@ -60,7 +60,7 @@ detector_ASD['H1']    = 'O3-H1-C01_CLEAN_SUB60HZ-1251752040.0_sensitivity_strain
 detector_ASD['Virgo'] = 'O3-V1_sensitivity_strain_asd.txt'
 
 LV_detectors['L1']['psd_path']    = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['L1']) # Add paths to detector sensitivities
-# LV_detectors['H1']['psd_path']    = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['H1'])
+LV_detectors['H1']['psd_path']    = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['H1'])
 # LV_detectors['Virgo']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['Virgo'])
 
 # waveform = TaylorF2_RestrictedPN() # Choice of waveform
@@ -74,7 +74,7 @@ priorDict = OrderedDict()
 
 priorDict['Mc']      = [29., 39.]          # (1)
 priorDict['eta']     = [0.22, 0.25]        # (2)
-priorDict['dL']      = [0.1, 1.]          # (3)
+priorDict['dL']      = [0.1, 3.]          # (3)
 priorDict['theta']   = [0., np.pi]          # (4)
 priorDict['phi']     = [0., 2*np.pi]          # (5)
 priorDict['iota']    = [0., np.pi]        # (6)
@@ -111,11 +111,10 @@ priorDict['Phicoal'] = injParams['Phicoal']     # (9)
 # priorDict['chiS']    = injParams['chiS']        # (10)
 # priorDict['chiA']    = injParams['chiA']        # (11)
 
-nParticles = 300
+nParticles = 100
 model = gwfast_class(LV_detectors, waveform, injParams, priorDict, nParticles=nParticles, **fgrid_dict)
 print('Using % i bins' % model.grid_resolution)
 
-#%%
 # Diagnostics
 
 injParams_original = copy.deepcopy(injParams)
@@ -132,14 +131,14 @@ axs[0].plot(model.fgrid, H1_response)
 axs[1].plot(model.fgrid, power_spectral_density)
 
 #%% RUN SAMPLER
-sampler1 = samplers(model=model, nIterations=200, nParticles=nParticles, profile=False)
-sampler1.apply(method='SVN', eps=1, h=2*model.DoF / 10)
+sampler1 = samplers(model=model, nIterations=100, nParticles=nParticles, profile=False)
+sampler1.apply(method='sSVN', eps=0.1, h=2*model.DoF)
 
 
 
 
 ################################################
- # %% PLOT SUMMARY
+# PLOT SUMMARY
 ################################################
 X1 = collect_samples(sampler1.history_path)
 a = corner(X1, smooth=0.5, labels=model.names_active)
@@ -388,16 +387,20 @@ particle = np.array([[0.10, 0.13, 0.14],
 
 #%% SANITY CHECK: Compare hard coded gradient with numerical, and JAX derivatives
 
-particle = copy.deepcopy(model.true_params[np.newaxis, ...]) + 0.1
-# particle[:,7] -= 0.1
-# grad1 = model.getGradientMinusLogPosterior_ensemble(particle)
+particle = copy.deepcopy(model.true_params[np.newaxis, ...]) + 0.01
+likelihood = model.getMinusLogPosterior_ensemble(particle)
 grad1, Fisher1 = model.getDerivativesMinusLogPosterior_ensemble(particle)
 grad2 = Gradient(model.getMinusLogPosterior_ensemble, method='central', step=0.0001)(particle)
 grad3 = jacobian(model.getMinusLogPosterior_ensemble)(particle)[0,0]
 print(grad1.squeeze())
-print(grad2[0])
+# print(grad2[0])
 print(grad3)
 print(np.allclose(grad1.squeeze(), grad3))
+
+#%%
+grad_, Fisher_ = model.getDerivativesMinusLogPosterior_ensemble(particle)
+
+
 
 #%%
 test = np.array([[1, 2, 3],
@@ -531,6 +534,7 @@ dd.io.save('test2.h5', X1)
 #%%
 import deepdish as dd
 from chainconsumer import ChainConsumer
+
 from scripts.plot_helper_functions import collect_samples
 X1 = dd.io.load('svn_phenomd_n50_niter100.h5')
 params = [r"$\mathcal{M}_c$", r"$\eta$", r"$d_L$", r"$\theta$", r"$\phi$", r"$\cos(\iota)$", r"$\psi$", r"$t_c$", r"$\phi_c$", r"$\chi_1$", r"$\chi_2$"]
@@ -602,3 +606,20 @@ def f(a):
     return a + 1
 
 f(a, c='lol')
+
+
+#%%
+# Trapezoid rule test
+
+grid = np.geomspace(1, 2, 50)
+def f(x):
+    return x ** 2
+plt.plot(grid, f(grid))
+# %%
+# %%
+def trapz(y, x):
+    return 0.5*((x[1:]-x[:-1])*(y[1:]+y[:-1])).sum()
+
+a = trapz(f(grid), grid)
+b = np.trapz(f(grid), grid)
+# %%
