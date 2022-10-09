@@ -140,6 +140,12 @@ class double_banana:
         HF = self._getHessForwardModel(theta)
         return (np.einsum('jk,i -> ijk', HF, J) + np.einsum('j,ik -> ijk', J, HF)) / self.varn
 
+    def getDerivativesMinusLogPosterior_ensemble(self, thetas):
+        gmlpt = self.getGradientMinusLogPosterior_ensemble(thetas)
+        Hmlpt = self.getGNHessianMinusLogPosterior_ensemble(thetas)
+        return (gmlpt, Hmlpt)
+
+
     def getMinusLogPosterior(self, theta):
         return self.getMinusLogLikelihood(theta) + self._getMinusLogPrior(theta)
 

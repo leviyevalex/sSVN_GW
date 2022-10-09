@@ -87,59 +87,17 @@ class samplers:
             with trange(self.nIterations) as ITER:
                 for iter_ in ITER:
                     if method == 'SVGD':
-                        gmlpt = self.model.getGradientMinusLogPosterior_ensemble(X)
-                        # gmlpt, GN_Hmlpt = self.model.getDerivativesMinusLogPosterior_ensemble(X)
-
-                        # GN_Hmlpt = self.model.getGNHessianMinusLogPosterior_ensemble(X)
-                        # M = np.mean(GN_Hmlpt, axis=0)
-                        M = None
-                        kx, gkx1 = self._getKernelWithDerivatives(X, h=h, M=M)
-                        v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt)
-                        update = v_svgd * eps
-                    elif method == 'SVGD_bound':
-                        dF_inv = self._dF_inv(X, self.model.lower_bound, self.model.upper_bound)
-                        diagHessF_inv = self._diagHessF_inv(X, self.model.lower_bound, self.model.upper_bound)
-                        gmlpt = self.model.getGradientMinusLogPosterior_ensemble(self._F_inv(X, self.model.lower_bound, self.model.upper_bound))
-                        # GN_Hmlpt = self.model.getGNHessianMinusLogPosterior_ensemble(self._F_inv(X, self.model.lower_bound, self.model.upper_bound))
-                        gmlpt = gmlpt * dF_inv - diagHessF_inv / dF_inv
-                        # tmp1 = contract('Nd, Nb -> Ndb', dF_inv, dF_inv)
-                        # GN_Hmlpt *= tmp1 
-                        # GN_Hmlpt[..., range(self.DoF), range(self.DoF)] += diagHessF_inv / dF_inv
-
-                        # M = np.mean(GN_Hmlpt, axis=0)
-                        M = None
-
-
-                        kx, gkx1 = self._getKernelWithDerivatives(X, h=h, M=M)
+                        gmlpt, GN_Hmlpt = self._getDerivativesMinusLogPosterior_(X)
+                        M = np.mean(GN_Hmlpt, axis=0)
+                        # M = None
+                        kx, gkx1 = self.__getKernelWithDerivatives_(X, h, M)
                         v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt)
                         update = v_svgd * eps
                     elif method == 'sSVGD':
-                        # gmlpt = self.model.getGradientMinusLogPosterior_ensemble(X)
-                        # gmlpt, GN_Hmlpt = self.model.getDerivativesMinusLogPosterior_ensemble(X)
-
-                        gmlpt, GN_Hmlpt_ = self.model.getDerivativesMinusLogPosterior_ensemble(self._F_inv(X, self.model.lower_bound, self.model.upper_bound))
-
-
-                        dF_inv = self._dF_inv(X, self.model.lower_bound, self.model.upper_bound)
-                        diagHessF_inv = self._diagHessF_inv(X, self.model.lower_bound, self.model.upper_bound)
-                        # gmlpt = self.model.getGradientMinusLogPosterior_ensemble(self._F_inv(X, self.model.lower_bound, self.model.upper_bound))
-                        # GN_Hmlpt = self.model.getGNHessianMinusLogPosterior_ensemble(self._F_inv(X, self.model.lower_bound, self.model.upper_bound))
-                        gmlpt = gmlpt * dF_inv - diagHessF_inv / dF_inv
-                        tmp1 = contract('Nd, Nb -> Ndb', dF_inv, dF_inv)
-                        # GN_Hmlpt *= tmp1 
-                        # GN_Hmlpt[..., range(self.DoF), range(self.DoF)] += diagHessF_inv / dF_inv
-
-
-
-
-
-
-
-
-                        # GN_Hmlpt = self.model.getGNHessianMinusLogPosterior_ensemble(X)
-                        # M = np.mean(GN_Hmlpt, axis=0)
-                        M = None
-                        kx, gkx1 = self._getKernelWithDerivatives(X, h=h, M=M)
+                        gmlpt, GN_Hmlpt = self._getDerivativesMinusLogPosterior_(X)
+                        M = np.mean(GN_Hmlpt, axis=0)
+                        # M = None
+                        kx, gkx1 = self.__getKernelWithDerivatives_(X, h, M)
                         v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt)
                         alpha, L_kx = self._getMinimumPerturbationCholesky(kx)
                         if alpha != 0:
@@ -147,11 +105,10 @@ class samplers:
                         v_stc = self._getSVGD_v_stc(L_kx)
                         update = v_svgd * eps + v_stc * np.sqrt(eps)
                     elif method == 'BDSVN':
-                        gmlpt = self.model.getGradientMinusLogPosterior_ensemble(X)
-                        GN_Hmlpt = self.model.getGNHessianMinusLogPosterior_ensemble(X)
-                        # M = np.mean(GN_Hmlpt, axis=0)
-                        M = None
-                        kx, gkx1 = self._getKernelWithDerivatives(X, h=h, M=M)
+                        gmlpt, GN_Hmlpt = self._getDerivativesMinusLogPosterior_(X)
+                        M = np.mean(GN_Hmlpt, axis=0)
+                        # M = None
+                        kx, gkx1 = self.__getKernelWithDerivatives_(X, h, M)
                         import tensorflow as tf
                         # solve_method = 'Cholesky'
                         solve_method = 'CG'
@@ -166,35 +123,10 @@ class samplers:
                             v_svn = tf.linalg.experimental.conjugate_gradient(HBDop, tf.constant(v_svgd), max_iter=cg_maxiter).x.numpy()
                         update = v_svn * eps
                     elif method == 'SVN':
-                        # gmlpt, GN_Hmlpt = self.model.getDerivativesMinusLogPosterior_ensemble(X)
-                        # gmlpt = self.model.getGradientMinusLogPosterior_ensemble(X)
-                        # GN_Hmlpt = self.model.getGNHessianMinusLogPosterior_ensemble(X)
-
-                        gmlpt_, GN_Hmlpt_ = self.model.getDerivativesMinusLogPosterior_ensemble(self._F_inv(X, self.model.lower_bound, self.model.upper_bound))
-                        # gmlpt, GN_Hmlpt = jax_der(self._F_inv(X, self.model.lower_bound, self.model.upper_bound))
-
-
-
-
-                        dF_inv = self._dF_inv(X, self.model.lower_bound, self.model.upper_bound)
-                        diagHessF_inv = self._diagHessF_inv(X, self.model.lower_bound, self.model.upper_bound)
-                        # gmlpt = self.model.getGradientMinusLogPosterior_ensemble(self._F_inv(X, self.model.lower_bound, self.model.upper_bound))
-                        # GN_Hmlpt = self.model.getGNHessianMinusLogPosterior_ensemble(self._F_inv(X, self.model.lower_bound, self.model.upper_bound))
-                        gmlpt = gmlpt_ * dF_inv - diagHessF_inv / dF_inv
-                        tmp1 = contract('Nd, Nb -> Ndb', dF_inv, dF_inv)
-                        GN_Hmlpt = GN_Hmlpt_ * tmp1 
-                        GN_Hmlpt = np.array(GN_Hmlpt)
-                        GN_Hmlpt[..., range(self.DoF), range(self.DoF)] += (diagHessF_inv / dF_inv) ** 2
-
-
-
-
-
+                        gmlpt, GN_Hmlpt = self._getDerivativesMinusLogPosterior_(X)
                         M = np.mean(GN_Hmlpt, axis=0)
                         # M = None
-                        # kx, gkx1 = self._getKernelWithDerivatives(X, h=h, M=M)
-                        kx, gkx1 = _getKernelWithDerivatives(X, h=h, M=M, l=self.nParticles, get_gkx1=True)
-
+                        kx, gkx1 = self.__getKernelWithDerivatives_(X, h, M)
                         # solve_method = 'CG'
                         solve_method = 'Cholesky'
                         v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt)
@@ -220,7 +152,6 @@ class samplers:
                         lamb = 0.01
                         # lamb = 0.1
                         H = H1 + NK * lamb
-                        # UH = jax.scipy.linalg.cholesky(H)
                         UH = jit_scipy_cholesky(H)
                         v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt)
                         v_svn = self._getSVN_direction(kx, v_svgd, UH)
