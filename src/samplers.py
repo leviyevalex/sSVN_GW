@@ -360,7 +360,7 @@ class samplers:
         """
         return (contract('mn, nij -> mij' , kx ** 2, Hmlpt) + contract('mni, mnj -> mij', gkx, gkx)) / self.nParticles
 
-    @partial(jax.jit, static_argnums=(0,))
+    # @partial(jax.jit, static_argnums=(0,))
     def _getSteinHessianPosdef(self, Hmlpt, kx, gkx):
         """
         Calculate SVN Hessian $H = H_1 + H_2$.
@@ -376,8 +376,8 @@ class samplers:
         """
         H1 = contract("xy, xz, xbd -> yzbd", kx, kx, Hmlpt)
         H2 = contract('xzi, xzj -> zij', gkx, gkx) # Only calculate block diagonal
-        H1.at[range(self.nParticles), range(self.nParticles)].add(H2)
-        # H1[range(self.nParticles), range(self.nParticles)] += H2
+        # H1.at[range(self.nParticles), range(self.nParticles)].add(H2)
+        H1[range(self.nParticles), range(self.nParticles)] += H2
         return self._reshapeNNDDtoNDND(H1 / self.nParticles)
 
     def _getMinimumPerturbationCholesky(self, x, jitter=1e-9):
