@@ -79,6 +79,10 @@ class samplers:
             # h = self.DoF / 100
             # jax_der = jax.jit(self.model.getDerivativesMinusLogPosterior_ensemble)
             print('bandwidth %f' % h)
+            
+            scipy_cholesky = lambda mat: jax.scipy.linalg.cholesky(mat)
+            jit_scipy_cholesky = jax.jit(scipy_cholesky)
+
             with trange(self.nIterations) as ITER:
                 for iter_ in ITER:
                     if method == 'SVGD':
@@ -215,7 +219,8 @@ class samplers:
                         lamb = 0.01
                         # lamb = 0.1
                         H = H1 + NK * lamb
-                        UH = jax.scipy.linalg.cholesky(H)
+                        # UH = jax.scipy.linalg.cholesky(H)
+                        UH = jit_scipy_cholesky(H)
                         v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt)
                         v_svn = self._getSVN_direction(kx, v_svgd, UH)
                         v_stc = self._getSVN_v_stc(kx, UH)
