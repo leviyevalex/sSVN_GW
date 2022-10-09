@@ -3,7 +3,7 @@
 #%%
 from argparse import ArgumentDefaultsHelpFormatter
 from random import uniform
-from tkinter import N
+# from tkinter import N
 import jax.numpy as jnp
 import jax
 
