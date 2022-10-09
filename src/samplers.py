@@ -215,7 +215,7 @@ class samplers:
                         lamb = 0.01
                         # lamb = 0.1
                         H = H1 + NK * lamb
-                        UH = scipy.linalg.cholesky(H)
+                        UH = jax.linalg.cholesky(H)
                         v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt)
                         v_svn = self._getSVN_direction(kx, v_svgd, UH)
                         v_stc = self._getSVN_v_stc(kx, UH)
