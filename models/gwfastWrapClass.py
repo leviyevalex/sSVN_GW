@@ -82,14 +82,18 @@ class gwfast_class(object):
             if param in self.names_inactive:
                 self.indicies_of_inactive_params.append(list(self.injParams.keys()).index(param))
 
+        print('put the warmup back in!')
         # Warmup: Precompile method for notebook convenience!
-        if self.N > 1000:
-            print('Precompuling posterior with jax.jit')
-            self.getMinusLogPosterior_ensemble(self._newDrawFromPrior(self.N))
-        else:
-            print('Precompiling derivatives with jax.jit')
-            self.getDerivativesMinusLogPosterior_ensemble(self._newDrawFromPrior(self.N))
+        # if self.N > 1000:
+        #     print('Precompuling posterior with jax.jit')
+        #     self.getMinusLogPosterior_ensemble(self._newDrawFromPrior(self.N))
+        # else:
+        #     print('Precompiling derivatives with jax.jit')
+        #     self.getDerivativesMinusLogPosterior_ensemble(self._newDrawFromPrior(self.N))
 
+
+    # def _initNoiseWeightedGrid(self):
+    #     for det in self.detsInNet.keys():
 
     def _initParamNames(self):
         self.param_names = {'Mc': '$\mathcal{M}_c$',                      # Chirp mass
@@ -133,6 +137,13 @@ class gwfast_class(object):
         self.lower_bound = np.array([self.priorDict[param][0] for param in self.names_active])
         self.upper_bound = np.array([self.priorDict[param][1] for param in self.names_active])
         self.bound_tol = 1e-9
+
+    def _initStaticVariablesIntegration(self):
+        self.bins = self.fgrid[1:] - self.fgrid[:-1]
+        self.bins_over_PSD = {}
+        for det in self.detsInNet.keys():
+            self.bins_over_PSD = self.bins / self.strainGrid[det][:-1]
+
 
     def _initDetectorSignals(self): 
         # Initialise the signal objects
@@ -181,6 +192,8 @@ class gwfast_class(object):
             self.fgrid = jnp.linspace(self.fmin, fcut, num=self.grid_resolution)
 
         self.fgrids = jnp.repeat(self.fgrid, self.N, axis=1)
+
+        self.fgrid = self.fgrid.squeeze() # So we can use it elsewhere normally
 
     def _initInterpolatedPSD(self):
         # Remark: This returns $S_n(f)$ for the desired frequency grid (self.fgrid)
@@ -253,16 +266,18 @@ class gwfast_class(object):
          Returns dict of (F, Nev) shaped (nd.array) with F being the size of the frequency grid
             Remark: The keys of the dictionary represent the detectors.
                     The arrays represent the residuals for each frequency bin, up to bin $F$.
+            
+            !!!REMARK!!! : CODE HAS BEEN CHANGED TO RETURN N x F matrix!!!!
         """
         dict_params_active = self.arrayToDict(X.astype('complex128'), self.names_active)
         residual = {}
         for det in self.detsInNet.keys():
-            residual[det] = self.detsInNet[det].GWstrain(self.fgrids, 
+            residual[det] = (self.detsInNet[det].GWstrain(self.fgrids, 
                                                          **dict_params_active, 
                                                          **self.dict_params_inactive, 
                                                          **self.dict_params_neglected, 
-                                                         **self.signalKwargs) - self.signal_data[det]
-        return residual
+                                                         **self.signalKwargs) - self.signal_data[det].T).T # Return a N x f matrix
+        return residual 
         
     def _getJacobianResidual_Vec(self, X):
     
@@ -279,9 +294,11 @@ class gwfast_class(object):
          Returns dict of (d, F, Nev) shaped (nd.array) with F being the size of the frequency grid
             Remark: The keys of the dictionary represent the detectors.
                     The arrays represent Jacobian of residual evaluated at theta.
-        """
-        # REMARK: Returns (d, Nev, F) shaped array instead of a (d, F, Nev) shaped array, where F is the size of the frequency grid
+
+        # !!!REMARK!!!: Returns (d, Nev, F) shaped array instead of a (d, F, Nev) shaped array, where F is the size of the frequency grid
         # TODO Ask Francesco if this is a bug or expected.
+
+        """
 
         dict_params_active = self.arrayToDict(X.astype('complex128'), self.names_active)
         residualJac = {}
@@ -315,46 +332,49 @@ class gwfast_class(object):
         thetas = N x DoF
         See arxiv:1809.02293 Eq 42.
         """
-        residual_dict = self._getResidual_Vec(thetas) # Remark: gwfast_class uses reversed convention for particles
-        log_like = jnp.zeros(thetas.shape[0])#.astype('complex128')
-        if self.grid_to_use == 'linear':
+        residual_dict = self._getResidual_Vec(thetas) 
+        log_like = jnp.zeros(thetas.shape[0])
+        quadrature = 'trapezoid' # 'riemann'  
+        if quadrature == 'riemann':
             for det in self.detsInNet.keys():
+                tmp = (self.fgrid[1:] - self.fgrid[:-1]) / self.strainGrid[det][:-1]
                 norm = jnp.abs(residual_dict[det]) ** 2
-                log_like += contract('fm, f -> m', norm, 1 / self.strainGrid[det])
-            return 2 * log_like.real * self.df
-        elif self.grid_to_use == 'geometric':
+                log_like += jnp.sum(norm[:-1]) * tmp
+            return 2 * log_like 
+        elif quadrature == 'trapezoid':
             tmp1 = (self.fgrid[1:] - self.fgrid[:-1]).squeeze()
             for det in self.detsInNet.keys():
-                integrand = contract('fm, f -> mf', jnp.abs(residual_dict[det]) ** 2, 1 / self.strainGrid[det])
+                # integrand = contract('fm, f -> mf', jnp.abs(residual_dict[det]) ** 2, 1 / self.strainGrid[det]) # OLD
+                integrand = contract('mf, f -> mf', jnp.abs(residual_dict[det]) ** 2, 1 / self.strainGrid[det]) # MODIFIED FOR MF RESIDUAL
                 # log_like += 2 * jnp.trapz(integrand, self.fgrid.squeeze())
                 log_like += jnp.sum((integrand[:, 1:] + integrand[:, :-1]) * tmp1)
+
 
             return log_like
 
     # @jax.jit
-    def getGradientMinusLogPosterior_ensemble(self, thetas):
-        # REMARK: Returns (d, Nev, F) shaped array instead of a (d, F, Nev) shaped array, where F is the size of the frequency grid
-        # TODO Ask Francesco if this is a bug or expected.
-        """ 
-        thetas = N x DoF
-        """
-        residual_dict = self._getResidual_Vec(thetas) # Input is reversed here
-        jacResidual_dict = self._getJacobianResidual_Vec(thetas)
-        grad_log_like = jnp.zeros(thetas.shape).astype('complex128')
-        for det in self.detsInNet.keys():
-            grad_log_like += contract('dNf, fN, f -> Nd', jacResidual_dict[det].conjugate(), residual_dict[det], 1 / self.strainGrid[det])[:, self.list_active_indicies]
-        return (4 * grad_log_like.real * self.df)
+    # def getGradientMinusLogPosterior_ensemble(self, thetas):
+    #     # REMARK: Returns (d, Nev, F) shaped array instead of a (d, F, Nev) shaped array, where F is the size of the frequency grid
+    #     # TODO Ask Francesco if this is a bug or expected.
+    #     """ 
+    #     thetas = N x DoF
+    #     """
+    #     residual_dict = self._getResidual_Vec(thetas) # Input is reversed here
+    #     jacResidual_dict = self._getJacobianResidual_Vec(thetas)
+    #     grad_log_like = jnp.zeros(thetas.shape).astype('complex128')
+    #     for det in self.detsInNet.keys():
+    #         grad_log_like += contract('dNf, fN, f -> Nd', jacResidual_dict[det].conjugate(), residual_dict[det], 1 / self.strainGrid[det])[:, self.list_active_indicies]
+    #     return (4 * grad_log_like.real * self.df)
 
-    # @jax.jit
-    def getGNHessianMinusLogPosterior_ensemble(self, thetas):
-        jacResidual_dict = self._getJacobianResidual_Vec(thetas)
-        GN = jnp.zeros((self.N, self.DoF, self.DoF)).astype('complex128')
-        for det in self.detsInNet.keys():
-            GN += contract('dNf, bNf, f -> Ndb', jacResidual_dict[det].conjugate(), jacResidual_dict[det], 1 / self.strainGrid[det])[:, self.list_active_indicies, self.list_active_indicies]
-        return 4 * self.df * GN.real
+    # # @jax.jit
+    # def getGNHessianMinusLogPosterior_ensemble(self, thetas):
+    #     jacResidual_dict = self._getJacobianResidual_Vec(thetas)
+    #     GN = jnp.zeros((self.N, self.DoF, self.DoF)).astype('complex128')
+    #     for det in self.detsInNet.keys():
+    #         GN += contract('dNf, bNf, f -> Ndb', jacResidual_dict[det].conjugate(), jacResidual_dict[det], 1 / self.strainGrid[det])[:, self.list_active_indicies, self.list_active_indicies]
+    #     return 4 * self.df * GN.real
 
-    # @jax.jit
-    @partial(jax.jit, static_argnums=(0,))
+    # @partial(jax.jit, static_argnums=(0,))
     def getDerivativesMinusLogPosterior_ensemble(self, thetas):
         residual_dict = self._getResidual_Vec(thetas) 
         jacResidual_dict = self._getJacobianResidual_Vec(thetas)
@@ -385,14 +405,52 @@ class gwfast_class(object):
 
             return (grad_log_like, GN)
             
-            
-            
-            
-            
-            
-            
-            # 0.5*((x[1:]-x[:-1])*(y[1:]+y[:-1])).sum()
-            TODO
+    def _riemannSum(self, integrand, grid, axis=-1):
+        return jnp.sum(integrand[:-1] * (grid[1:] - grid[:-1]), axis=axis)
+
+    def _signal_inner_product(self, a, b, det, mode):
+        quadrature_rule = 'trapezoid' # 'riemann'
+
+        if mode == 'l':
+            integrand = contract('Nf, Nf, f -> Nf', a, b, 1 / self.strainGrid[det])
+        elif mode == 'g':
+            integrand = contract('dNf, Nf, f -> Ndf', a, b, 1 / self.strainGrid[det] )
+        elif mode == 'h':
+            integrand = contract('dNf, bNf, f -> Ndbf', a, b, 1 / self.strainGrid[det])
+
+        if quadrature_rule == 'riemann':
+            return 4 * self.riemannSum(integrand.real, self.fgrid)
+        elif quadrature_rule == 'trapezoid':
+            return 4 * jnp.trapz(integrand.real, self.fgrid)
+
+    # @partial(jax.jit, static_argnums=(0,))
+    def getMinusLogPosterior___(self, thetas):
+        """_summary_
+
+        Args:
+            thetas (_type_): _description_
+
+        Returns:
+            _type_: _description_
+
+        # See arxiv:1809.02293 Eq 42.
+        """
+        residual_dict = self._getResidual_Vec(thetas) 
+        log_like = jnp.zeros(self.N)
+        for det in self.detsInNet.keys():
+            log_like += self._signal_inner_product(residual_dict[det], residual_dict[det], det, 'l')
+        return log_like / 2
+
+    # @partial(jax.jit, static_argnums=(0,))
+    def getDerivativesMinusLogPosterior(self, thetas):
+        residual_dict = self._getResidual_Vec(thetas) 
+        jacResidual_dict = self._getJacobianResidual_Vec(thetas)
+        grad_log_like = jnp.zeros(thetas.shape)
+        GN = jnp.zeros((self.N, self.DoF, self.DoF))
+        for det in self.detsInNet.keys():
+            grad_log_like += self._signal_inner_product(jacResidual_dict[det], residual_dict[det], det, 'g')[:, self.list_active_indicies]
+            GN += self._signal_inner_product(jacResidual_dict[det], jacResidual_dict[det], det, 'h')[:, self.list_active_indicies][..., self.list_active_indicies]
+        return (grad_log_like, GN)
 
     def _newDrawFromPrior(self, nParticles):
         """

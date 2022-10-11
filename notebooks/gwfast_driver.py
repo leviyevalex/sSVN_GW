@@ -79,8 +79,8 @@ priorDict['theta']   = [0., np.pi]          # (4)
 priorDict['phi']     = [0., 2*np.pi]          # (5)
 priorDict['iota']    = [0., np.pi]        # (6)
 priorDict['psi']     = [0., np.pi]            # (7)
-priorDict['tcoal']   = [0., 1.]            # (8)
-priorDict['Phicoal'] = [0., 1.]            # (9)
+# priorDict['tcoal']   = [0., 1.]            # (8)
+# priorDict['Phicoal'] = [0., 1.]            # (9)
 priorDict['chiS']    = [-1., 1.]         # (10)
 priorDict['chiA']    = [-1., 1.]          # (11)
 
@@ -111,7 +111,7 @@ priorDict['Phicoal'] = injParams['Phicoal']     # (9)
 # priorDict['chiS']    = injParams['chiS']        # (10)
 # priorDict['chiA']    = injParams['chiA']        # (11)
 
-nParticles = 100
+nParticles = 2
 model = gwfast_class(LV_detectors, waveform, injParams, priorDict, nParticles=nParticles, **fgrid_dict)
 print('Using % i bins' % model.grid_resolution)
 
@@ -127,8 +127,15 @@ print('SNR is  ', snr)
 H1_response = model.signal_data['L1']
 power_spectral_density = model.strainGrid['L1']
 fig, axs = plt.subplots(1, 2)
-axs[0].plot(model.fgrid, H1_response)
+axs[0].plot(model.fgrid, H1_response.squeeze())
 axs[1].plot(model.fgrid, power_spectral_density)
+
+#%%
+particles = model._newDrawFromPrior(2)
+test_1 = model.getMinusLogPosterior___(particles)
+
+
+
 
 #%% RUN SAMPLER
 sampler1 = samplers(model=model, nIterations=100, nParticles=nParticles, profile=False)
@@ -622,4 +629,42 @@ def trapz(y, x):
 
 a = trapz(f(grid), grid)
 b = np.trapz(f(grid), grid)
+# %%
+
+#%%
+a  = np.array([[5,3],
+          [1, 2]])
+# %%
+import numpy as np
+a = np.array([5, 1])
+
+def func(x):
+    return np.append(a, 1)
+
+print(func(a))
+print(a)
+# %%
+from opt_einsum import contract
+
+a1 = np.random.rand(5, 3, 2)
+a2 = np.random.rand(5, 3, 2)
+
+b1 = np.random.rand(3, 2)
+b2 = np.random.rand(3, 2)
+
+c1 = np.random.rand(2)
+c2 = np.random.rand(2)
+
+
+test_a = contract('dnf, bnf, f -> ndb', a1, a2, c1)
+
+
+#%%
+test_b = contract('...f, ...f, f -> ...', a1, a2, c1)
+
+#%%
+test_c = contract('dn...,bn...,... -> n...', a1, a2, c1)
+
+test_d = contract()
+
 # %%
