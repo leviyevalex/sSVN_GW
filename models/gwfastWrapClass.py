@@ -82,14 +82,14 @@ class gwfast_class(object):
             if param in self.names_inactive:
                 self.indicies_of_inactive_params.append(list(self.injParams.keys()).index(param))
 
-        print('put the warmup back in!')
+        # print('put the warmup back in!')
         # Warmup: Precompile method for notebook convenience!
-        # if self.N > 1000:
-        #     print('Precompuling posterior with jax.jit')
-        #     self.getMinusLogPosterior_ensemble(self._newDrawFromPrior(self.N))
-        # else:
-        #     print('Precompiling derivatives with jax.jit')
-        #     self.getDerivativesMinusLogPosterior_ensemble(self._newDrawFromPrior(self.N))
+        if self.N > 1000:
+            print('Precompuling posterior with jax.jit')
+            self.getMinusLogPosterior_ensemble(self._newDrawFromPrior(self.N))
+        else:
+            print('Precompiling derivatives with jax.jit')
+            self.getDerivativesMinusLogPosterior_ensemble(self._newDrawFromPrior(self.N))
 
 
     # def _initNoiseWeightedGrid(self):
@@ -327,7 +327,7 @@ class gwfast_class(object):
 
     # @jax.jit
     # @partial(jax.jit, static_argnums=(0,))
-    def getMinusLogPosterior_ensemble(self, thetas):
+    def getMinusLogPosterior_ensemble___(self, thetas):
         """ 
         thetas = N x DoF
         See arxiv:1809.02293 Eq 42.
@@ -375,7 +375,7 @@ class gwfast_class(object):
     #     return 4 * self.df * GN.real
 
     # @partial(jax.jit, static_argnums=(0,))
-    def getDerivativesMinusLogPosterior_ensemble(self, thetas):
+    def getDerivativesMinusLogPosterior_ensemble__(self, thetas):
         residual_dict = self._getResidual_Vec(thetas) 
         jacResidual_dict = self._getJacobianResidual_Vec(thetas)
         grad_log_like = jnp.zeros(thetas.shape)
@@ -423,7 +423,7 @@ class gwfast_class(object):
         elif quadrature_rule == 'trapezoid':
             return 4 * jnp.trapz(integrand.real, self.fgrid)
 
-    # @partial(jax.jit, static_argnums=(0,))
+    @partial(jax.jit, static_argnums=(0,))
     def getMinusLogPosterior___(self, thetas):
         """_summary_
 
@@ -441,8 +441,8 @@ class gwfast_class(object):
             log_like += self._signal_inner_product(residual_dict[det], residual_dict[det], det, 'l')
         return log_like / 2
 
-    # @partial(jax.jit, static_argnums=(0,))
-    def getDerivativesMinusLogPosterior(self, thetas):
+    @partial(jax.jit, static_argnums=(0,))
+    def getDerivativesMinusLogPosterior_ensemble(self, thetas):
         residual_dict = self._getResidual_Vec(thetas) 
         jacResidual_dict = self._getJacobianResidual_Vec(thetas)
         grad_log_like = jnp.zeros(thetas.shape)
