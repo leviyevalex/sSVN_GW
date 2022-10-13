@@ -86,12 +86,12 @@ class gwfast_class(object):
 
         print('put the warmup back in!')
         # Warmup: Precompile method for notebook convenience!
-        # if self.N > 1000:
-        #     print('Precompuling posterior with jax.jit')
-        #     self.getMinusLogPosterior_ensemble(self._newDrawFromPrior(self.N))
-        # else:
-        #     print('Precompiling derivatives with jax.jit')
-        #     self.getDerivativesMinusLogPosterior_ensemble(self._newDrawFromPrior(self.N))
+        if self.N > 1000:
+            print('Precompuling posterior with jax.jit')
+            self.getMinusLogPosterior_ensemble(self._newDrawFromPrior(self.N))
+        else:
+            print('Precompiling derivatives with jax.jit')
+            self.getDerivativesMinusLogPosterior_ensemble(self._newDrawFromPrior(self.N))
 
 
     # def _initNoiseWeightedGrid(self):
@@ -394,8 +394,8 @@ class gwfast_class(object):
         return jnp.sum(integrand[..., :-1] * (grid[1:] - grid[:-1]), axis=axis)
 
     def _signal_inner_product(self, a, b, det, mode):
-        # quadrature_rule = 'trapezoid' 
-        quadrature_rule = 'riemann'
+        quadrature_rule = 'trapezoid' 
+        # quadrature_rule = 'riemann'
 
         if mode == 'l':
             integrand = contract('Nf,  Nf,  f -> Nf',   a.conjugate(), b, 1 / self.strainGrid[det])
@@ -433,7 +433,7 @@ class gwfast_class(object):
             log_like = log_like + self._signal_inner_product(residual_dict[det], residual_dict[det], det, 'l')
         return log_like / 2
 
-    # @partial(jax.jit, static_argnums=(0,))
+    @partial(jax.jit, static_argnums=(0,))
     def getDerivativesMinusLogPosterior_ensemble(self, thetas):
         residual_dict = self._getResidual_Vec(thetas) 
         jacResidual_dict = self._getJacobianResidual_Vec(thetas)
