@@ -23,27 +23,41 @@ from gwfast.waveforms import TaylorF2_RestrictedPN, IMRPhenomD
 from astropy.cosmology import Planck18
 import matplotlib.pyplot as plt
 from numdifftools import Jacobian, Gradient, Hessdiag
-from jax import jacobian
+from jax import jacobian, grad
 from corner import corner
 import jax
+import jax.numpy as jnp
 
-##########################
-####### (GW150914) #######
-##########################
+#%%
+#############################
+# (GW150914) like parameters
+#############################
+
+chi1z = np.array([0.27210419])
+chi2z = np.array([0.33355909])
+
+chiS = (chi1z + chi2z) / 2
+chiA = (chi1z - chi2z) / 2
+
 tGPS = np.array([1.12625946e+09])
 injParams = dict()
 # injParams['tcoal'] = utils.GPSt_to_LMST(tGPS, lat=0., long=0.) # Coalescence time, in units of fraction of day (GMST is LMST computed at long = 0°) 
-injParams['tcoal']   = np.array([0.]) # Coalescence time, in units of fraction of day (GMST is LMST computed at long = 0°) 
 injParams['Mc']      = np.array([34.3089283])        # Units: M_sun
 injParams['eta']     = np.array([0.2485773])         # Units: Unitless
-injParams['dL']      = np.array([0.43929891 * 6])        # Units: Gigaparsecs 
+injParams['dL']      = np.array([2.634])             # Units: Gigaparsecs 
 injParams['theta']   = np.array([2.78560281])        # Units: Rad
 injParams['phi']     = np.array([1.67687425])        # Units: Rad
 injParams['iota']    = np.array([2.67548653])        # Units: Rad
 injParams['psi']     = np.array([0.78539816])        # Units: Rad
+injParams['tcoal']   = np.array([0.])                # Units: Fraction of day 
 injParams['Phicoal'] = np.array([0.])                # Units: Rad
-injParams['chiS']    = np.array([0.27210419])        # Units: Unitless
-injParams['chiA']    = np.array([0.33355909])        # Units: Unitless
+# injParams['chiS']    = chiS                         # Units: Unitless
+# injParams['chiA']    = chiA                         # Units: Unitless
+# injParams['chiS']    = chi1z                         # Units: Unitless
+# injParams['chiA']    = chi2z                         # Units: Unitless
+
+injParams['chi1z']    = chi1z                         # Units: Unitless
+injParams['chi2z']    = chi2z                         # Units: Unitless
 
 #  Setup gravitational wave network problem
 
@@ -59,8 +73,8 @@ detector_ASD['L1']    = 'O3-L1-C01_CLEAN_SUB60HZ-1240573680.0_sensitivity_strain
 detector_ASD['H1']    = 'O3-H1-C01_CLEAN_SUB60HZ-1251752040.0_sensitivity_strain_asd.txt'
 detector_ASD['Virgo'] = 'O3-V1_sensitivity_strain_asd.txt'
 
-LV_detectors['L1']['psd_path']    = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['L1']) # Add paths to detector sensitivities
-LV_detectors['H1']['psd_path']    = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['H1'])
+LV_detectors['L1']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['L1']) # Add paths to detector sensitivities
+LV_detectors['H1']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['H1'])
 # LV_detectors['Virgo']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['Virgo'])
 
 # waveform = TaylorF2_RestrictedPN() # Choice of waveform
@@ -69,70 +83,127 @@ waveform = IMRPhenomD()
 fgrid_dict = {'fmin': 20, 'fmax': 325, 'df': 1./5} # All parameters related to frequency grid.
 
 priorDict = OrderedDict()
-# priorDict['Mc']      = [20., 50.]          # (1)
-# priorDict['eta']     = [0.1, 0.25]        # (2)
 
-priorDict['Mc']      = [29., 39.]          # (1)
-priorDict['eta']     = [0.22, 0.25]        # (2)
-priorDict['dL']      = [0.1, 3.]          # (3)
-priorDict['theta']   = [0., np.pi]          # (4)
-priorDict['phi']     = [0., 2*np.pi]          # (5)
-priorDict['iota']    = [0., np.pi]        # (6)
-priorDict['psi']     = [0., np.pi]            # (7)
-# priorDict['tcoal']   = [0., 1.]            # (8)
-# priorDict['Phicoal'] = [0., 1.]            # (9)
-priorDict['chiS']    = [-1., 1.]         # (10)
-priorDict['chiA']    = [-1., 1.]          # (11)
+priorDict['Mc']      = [29., 39.]          # (1)   # (0)
+priorDict['eta']     = [0.22, 0.25]        # (2)   # (1)
+priorDict['dL']      = [0.1, 3.]           # (3)   # (2)
+priorDict['theta']   = [0., np.pi]         # (4)   # (3)
+priorDict['phi']     = [0., 2*np.pi]       # (5)   # (4)
+priorDict['iota']    = [0., np.pi]         # (6)   # (5)
+priorDict['psi']     = [0., np.pi]         # (7)   # (6)
+priorDict['tcoal']   = [0., 0.1]           # (8)   # (7)
+priorDict['Phicoal'] = [0., 0.1]           # (9)   # (8)
+# priorDict['chiS']    = [-1., 1.]           # (10)  # (9)
+# priorDict['chiA']    = [-1., 1.]           # (11)  # (10)
+priorDict['chi1z']    = [-1., 1.]           # (10)  # (9)
+priorDict['chi2z']    = [-1., 1.]           # (11)  # (10)
 
-# priorDict['Mc']      = [32., 37.]          # (1)
-# priorDict['eta']     = [0.24, 0.25]        # (2)
-# priorDict['dL']      = [0.25, 2.]          # (3)
-# priorDict['theta']   = [2.5, 2.9]          # (4)
-# priorDict['phi']     = [1.2, 2.2]          # (5)
-# priorDict['iota']    = [1.5, np.pi]        # (6)
-# priorDict['psi']     = [0., 2.]            # (7)
-# priorDict['tcoal']   = [0., 1.]            # (8)
-# priorDict['Phicoal'] = [0., 1.]            # (9)
-# priorDict['chiS']    = [0., 0.75]         # (10)
-# priorDict['chiA']    = [0., 0.75]          # (11)
-
-# Remark: Flag is chi1chi2=True. Parameter names will be transformed in gwfast to (chi1z, chi2z)
-
-### Keep these constant ###
-# priorDict['Mc']      = injParams['Mc']          # (1) 
-# priorDict['eta']     = injParams['eta']         # (2)
-# priorDict['dL']      = injParams['dL']          # (3)
-# priorDict['theta']   = injParams['theta']       # (4)
-# priorDict['phi']     = injParams['phi']         # (5)
-# priorDict['iota']    = injParams['iota']        # (6)
-# priorDict['psi']     = injParams['psi']         # (7)
-priorDict['tcoal']   = injParams['tcoal']       # (8)
-priorDict['Phicoal'] = injParams['Phicoal']     # (9)
-# priorDict['chiS']    = injParams['chiS']        # (10)
-# priorDict['chiA']    = injParams['chiA']        # (11)
-
-nParticles = 2
+nParticles = 1
 model = gwfast_class(LV_detectors, waveform, injParams, priorDict, nParticles=nParticles, **fgrid_dict)
 print('Using % i bins' % model.grid_resolution)
-
+#%%
+###################################################
 # Diagnostics
+###################################################
 
-injParams_original = copy.deepcopy(injParams)
-chi1z, chi2z = (injParams_original.pop('chiS'), injParams_original.pop('chiA'))
-injParams_original['chi1z'] = chi1z
-injParams_original['chi2z'] = chi2z
 net = DetNet(model.detsInNet)
-snr = net.SNR(injParams_original)
+snr = net.SNR(copy.deepcopy(injParams))
 print('SNR is  ', snr)
 H1_response = model.signal_data['L1']
 power_spectral_density = model.strainGrid['L1']
 fig, axs = plt.subplots(1, 2)
-axs[0].plot(model.fgrid, H1_response.squeeze())
+axs[0].plot(model.fgrid[0:100], H1_response.squeeze()[0:100])
 axs[1].plot(model.fgrid, power_spectral_density)
 
+#%% 
+###################################################
+# UNIT TEST: Do derivatives agree?
+###################################################
+
+particles = jnp.array(model._newDrawFromPrior(nParticles))
+grad1, Fisher1 = model.getDerivativesMinusLogPosterior_ensemble(particles)
+grad2 = jacobian(model.getMinusLogPosterior___)(particles)[0,0]
+print(grad1[0])
+print(grad2)
+
 #%%
-particles = model._newDrawFromPrior(2)
-test_1 = model.getMinusLogPosterior___(particles)
+# TEST: Keep things deterministic. Calculation in days
+true_particle_days = jnp.array(model.true_params)[np.newaxis,...] + 0.001
+grad1, Fisher1 = model.getDerivativesMinusLogPosterior_ensemble(true_particle_days)
+grad2 = jacobian(model.getMinusLogPosterior___)(true_particle_days)[0,0]
+print(grad1[0])
+print(grad2)
+
+#%%
+# TEST: Keep things deterministic. Calculation in sec
+true_particle_days = jnp.array(model.true_params)[np.newaxis,...] + 0.01
+true_particle_sec = true_particle_days.at[:, 7].multiply(model.time_scale)
+
+# true_particle_sec[:, 7] *= model.time_scale
+grad1, Fisher1 = model.getDerivativesMinusLogPosterior_ensemble(true_particle_sec)
+grad2 = jacobian(model.getMinusLogPosterior___)(true_particle_sec)[0,0]
+print(grad1[0])
+print(grad2)
+
+
+
+#%%
+from numdifftools import Jacobian
+grad3 = Jacobian(model.getMinusLogPosterior___)(np.array(true_particle_sec))
+
+
+
+
+#%%
+particles = model._newDrawFromPrior(nParticles)
+# grad1, Fisher1 = model.getDerivativesMinusLogPosterior_ensemble(particles)
+
+
+#%%
+###################################################
+# UNIT TEST: Compare Fisher matricies to each other
+###################################################
+
+# gwfast methods internally replace chiS and chiA
+injParams_copy = copy.deepcopy(injParams)
+injParams_copy.pop('chiS')
+injParams_copy.pop('chiA')
+injParams_copy['chi1z'] = chi1z
+injParams_copy['chi2z'] = chi2z
+
+# Evaluate at true parameters
+true_particle_sec  = jnp.array(model.true_params[np.newaxis])
+# true_particle_days = copy.deepcopy(true_particle_sec)
+grad1, Fisher1    = model.getDerivativesMinusLogPosterior_ensemble(true_particle_sec)
+fisher_mine       = np.array(Fisher1[0])
+# fisher_mine[7]   /= 3600 * 24  # Days to seconds transformation (?)
+# fisher_mine.T[7] /= 3600 * 24
+injParams_copy['tcoal'] /= model.time_scale # Put back into days
+fisher_gwfast     = net.FisherMatr(copy.deepcopy(injParams_copy), 
+                                   res=float(model.grid_resolution), 
+                                   # res=None, 
+                                   # df=fgrid_dict['df'], 
+                                   df=None, 
+                                   spacing='geom', 
+                                   use_prec_ang=False)#[model.list_active_indicies][:, model.list_active_indicies]
+
+np.allclose(fisher_gwfast, fisher_mine)
+#%%
+
+
+#%%
+error_fisher = (1 - (fisher_mine / fisher_gwfast)) * 100
+#%%
+fisher_mine = np.array(Fisher1[0])
+# fisher_gwfast = net.FisherMatr(injParams_original)
+
+
+#%%
+gmlpt, hmlpt = model.getDerivativesMinusLogPosterior_ensemble(particles)
+
+
+
+
 
 
 
@@ -386,7 +457,6 @@ particle = np.array([[0.10, 0.13, 0.14],
 
 
 #%%
-
 
 
 

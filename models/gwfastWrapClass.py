@@ -69,6 +69,8 @@ class gwfast_class(object):
         # Parameter order convention set here
         # self.names = ['Mc','eta', 'dL', 'theta', 'phi', 'iota', 'psi', 'tcoal', 'Phicoal', 'chi1z', 'chi2z']
 
+        self.time_scale = 3600. * 24. # Multiply to transform from units of days to units of seconds
+
         self._initDetectorSignals()
         self._initFrequencyGrid()
         self._initInterpolatedPSD()
@@ -82,40 +84,40 @@ class gwfast_class(object):
             if param in self.names_inactive:
                 self.indicies_of_inactive_params.append(list(self.injParams.keys()).index(param))
 
-        # print('put the warmup back in!')
+        print('put the warmup back in!')
         # Warmup: Precompile method for notebook convenience!
-        if self.N > 1000:
-            print('Precompuling posterior with jax.jit')
-            self.getMinusLogPosterior_ensemble(self._newDrawFromPrior(self.N))
-        else:
-            print('Precompiling derivatives with jax.jit')
-            self.getDerivativesMinusLogPosterior_ensemble(self._newDrawFromPrior(self.N))
+        # if self.N > 1000:
+        #     print('Precompuling posterior with jax.jit')
+        #     self.getMinusLogPosterior_ensemble(self._newDrawFromPrior(self.N))
+        # else:
+        #     print('Precompiling derivatives with jax.jit')
+        #     self.getDerivativesMinusLogPosterior_ensemble(self._newDrawFromPrior(self.N))
 
 
     # def _initNoiseWeightedGrid(self):
     #     for det in self.detsInNet.keys():
 
     def _initParamNames(self):
-        self.param_names = {'Mc': '$\mathcal{M}_c$',                      # Chirp mass
-                            'eta': '$\eta$',                              # Symmetric mass ratio 
-                            'dL': '$d_L$',                                # Luminosity distance
-                            'theta': '$\theta$',                          # pi/2 - declination angle
-                            'phi': '$\phi$',                              # Right ascention
-                            'iota': '$\iota$',                            # Inclination angle
-                            'psi': '$\psi$',                              # Polarization angle
-                            'tcoal': '$t_c$',                             # Coalescence time
-                            'Phicoal': '$\phi_c$',                        # Coalescence phase
-                            'chi1z': '$\chi_{1z}$',                       # Unitless spin z-component of object 1 
-                            'chi2z': '$\chi_{2z}$',                       # Unitless spin z-component of object 2
-                            'chi1x': '$\chi_{1x}$',                       # Unitless spin x-component of object 1
-                            'chi2x': '$\chi_{2x}$',                       # Unitless spin x-component of object 2
-                            'chi1y': '$\chi_{1y}$',                       # Unitless spin y-component of object 1
-                            'chi2y': '$\chi_{2y}$',                       # Unitless spin y-component of object 2
-                            'LambdaTilde': '$\tilde{\Lambda}$',           # ? TODO
-                            'deltaLambda': '$\Delta \tilde{\Lambda}$',    # ? TODO
-                            'ecc': '$\eps$',                              # Eccentricity
-                            'chiS': '$\chi_{1z}$',                        # Flag ischi1chi2=True. This is just for convenience
-                            'chiA': '$\chi_{2z}$'}                              
+        self.param_names = {'Mc'         : '$\mathcal{M}_c$',                      # Chirp mass
+                            'eta'        : '$\eta$',                               # Symmetric mass ratio 
+                            'dL'         : '$d_L$',                                # Luminosity distance
+                            'theta'      : '$\theta$',                             # pi/2 - declination angle
+                            'phi'        : '$\phi$',                               # Right ascention
+                            'iota'       : '$\iota$',                              # Inclination angle
+                            'psi'        : '$\psi$',                               # Polarization angle
+                            'tcoal'      : '$t_c$',                                # Coalescence time
+                            'Phicoal'    : '$\phi_c$',                             # Coalescence phase
+                            'chi1z'      : '$\chi_{1z}$',                          # Unitless spin z-component of object 1 
+                            'chi2z'      : '$\chi_{2z}$',                          # Unitless spin z-component of object 2
+                            'chi1x'      : '$\chi_{1x}$',                          # Unitless spin x-component of object 1
+                            'chi2x'      : '$\chi_{2x}$',                          # Unitless spin x-component of object 2
+                            'chi1y'      : '$\chi_{1y}$',                          # Unitless spin y-component of object 1
+                            'chi2y'      : '$\chi_{2y}$',                          # Unitless spin y-component of object 2
+                            'LambdaTilde': '$\tilde{\Lambda}$',                    # ? TODO
+                            'deltaLambda': '$\Delta \tilde{\Lambda}$',             # ? TODO
+                            'ecc'        : '$\eps$',                               # Eccentricity
+                            'chiS'       : '$\chi_S$',                             # Symmetric dimensionless spin
+                            'chiA'       : '$\chi_A$'}                             # Antisymmetric dimensionless spin
 
         # self.names_active_modified = copy.deepcopy(self.names_active)
 
@@ -123,7 +125,7 @@ class gwfast_class(object):
         self.names_neglected = ['chi1x', 'chi2x', 'chi1y', 'chi2y', 'LambdaTilde', 'deltaLambda', 'ecc']
         self.names_inactive = [param for param in self.priorDict.keys() if type(self.priorDict[param]) != list]
         self.names_active = [param for param in self.priorDict.keys() if param not in self.names_inactive]
-        # self.names_active = list(self.priorDict.keys()) # Actual parameters
+
         self.dict_params_neglected = self.arrayToDict(np.zeros((self.N, len(self.names_neglected))).astype('complex128'), self.names_neglected)
         self.params_inactive = np.array([self.priorDict[param] for param in self.names_inactive])
         self.dict_params_inactive = {param: values for param, values in [(self.names_inactive[i], (np.ones(self.N) * self.params_inactive[i]).astype('complex128'))  for i in range(len(self.names_inactive))]}
@@ -164,6 +166,7 @@ class gwfast_class(object):
         self.signalDerivativeKwargs['rot'] = 0.
         self.signalDerivativeKwargs['use_m1m2'] = False
         self.signalDerivativeKwargs['use_chi1chi2'] = True
+        # self.signalDerivativeKwargs['use_chi1chi2'] = False
         self.signalDerivativeKwargs['use_prec_ang'] = False
         self.signalDerivativeKwargs['computeAnalyticalDeriv'] = True
 
@@ -171,6 +174,7 @@ class gwfast_class(object):
         self.signalKwargs['rot'] = 0.
         self.signalKwargs['is_m1m2'] = False
         self.signalKwargs['is_chi1chi2'] = True
+        # self.signalKwargs['is_chi1chi2'] = False
         self.signalKwargs['is_prec_ang'] = False
 
     def _initFrequencyGrid(self):
@@ -182,7 +186,7 @@ class gwfast_class(object):
             fcut = jnp.where(fcut > self.fmax, self.fmax, fcut)
 
         self.grid_to_use = 'geometric'
-        # grid_to_use = 'linear'
+        # self.grid_to_use = 'linear'
 
         if self.grid_to_use == 'geometric':
             self.grid_resolution = int(100)
@@ -193,7 +197,7 @@ class gwfast_class(object):
 
         self.fgrids = jnp.repeat(self.fgrid, self.N, axis=1)
 
-        self.fgrid = self.fgrid.squeeze() # So we can use it elsewhere normally
+        # self.fgrid = self.fgrid # So we can use it elsewhere normally
 
     def _initInterpolatedPSD(self):
         # Remark: This returns $S_n(f)$ for the desired frequency grid (self.fgrid)
@@ -240,7 +244,15 @@ class gwfast_class(object):
         dict_params_inactive  = {param: values for param, values in [(self.names_inactive[i],  np.array([self.params_inactive[i]]).astype('complex128'))  for i in range(len(self.names_inactive))]}
         dict_params_active    = {param: values for param, values in [(self.names_active[i],    np.array([self.true_params[i]]).astype('complex128'))  for i in range(len(self.names_active))]}
         self.signal_data = {}
+
+        dict_params_active['chiS'] = dict_params_active.pop('chi1z')
+        dict_params_active['chiA'] = dict_params_active.pop('chi2z')
+
+
+
         
+        dict_params_active['tcoal'] /= self.time_scale # Remark: Rexpress in days for input into signal.GWstrain. Input given in seconds.
+
         # Compute the signal as seen in each detector and store the result
         for det in self.detsInNet.keys():
             self.signal_data[det] = self.detsInNet[det].GWstrain(self.fgrid, 
@@ -253,6 +265,12 @@ class gwfast_class(object):
                 # Add Gaussian noise with std given by the detector ASD if needed
                 self.signal_data[det] = self.signal_data[det] + np.random.normal(loc=0.,scale=self.strainGrid)
         
+    
+    def arrayToDict(self, thetas, names):
+        # Remark: We use D here so that the method works generally. 
+        D = len(names)
+        return {param: values for param, values in [(names[i], thetas.T[i]) for i in range(D)]}
+
     def _getResidual_Vec(self, X):
     
         """
@@ -269,16 +287,42 @@ class gwfast_class(object):
             
             !!!REMARK!!! : CODE HAS BEEN CHANGED TO RETURN N x F matrix!!!!
         """
-        dict_params_active = self.arrayToDict(X.astype('complex128'), self.names_active)
+        # Remark: Express tcoal in days for input into signal.GWstrain
+        # tcelem = self.wf_model.ParNums['tcoal'] # GMST accounts for geometry of earth spinning
+
+        X = X.astype('complex128')
+        Mc      = X[:,0]           
+        eta     = X[:,1]
+        dL      = X[:,2]
+        theta   = X[:,3]
+        phi     = X[:,4]
+        iota    = X[:,5]
+        psi     = X[:,6]
+        tcoal   = X[:,7] / self.time_scale
+        Phicoal = X[:,8]
+        chiS    = X[:,9]
+        chiA    = X[:,10]
+
+        # dict_params_active = self.arrayToDict(X.astype('complex128'), self.names_active)
+
+        # dict_params_active['tcoal'] = dict_params_active['tcoal'] / self.time_scale
+
         residual = {}
+
+
+        
         for det in self.detsInNet.keys():
             residual[det] = (self.detsInNet[det].GWstrain(self.fgrids, 
-                                                         **dict_params_active, 
+                                                          Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA,
+                                                        #  **dict_params_active, 
                                                          **self.dict_params_inactive, 
                                                          **self.dict_params_neglected, 
-                                                         **self.signalKwargs) - self.signal_data[det].T).T # Return a N x f matrix
+                                                         **self.signalKwargs) - self.signal_data[det]).T # Return a N x f matrix
+                         
         return residual 
-        
+        # signal data is f x 1 array
+        # output of gw strain is 
+        #  
     def _getJacobianResidual_Vec(self, X):
     
         """
@@ -297,133 +341,81 @@ class gwfast_class(object):
 
         # !!!REMARK!!!: Returns (d, Nev, F) shaped array instead of a (d, F, Nev) shaped array, where F is the size of the frequency grid
         # TODO Ask Francesco if this is a bug or expected.
-
+        # TODO Ask Francesco if d follows the order defined above.
         """
 
-        dict_params_active = self.arrayToDict(X.astype('complex128'), self.names_active)
+        # dict_params_active = self.arrayToDict(X.astype('complex128'), self.names_active)
+
+        # Remark: There are two modifications that need to be performed here to correctly accept t_c in seconds!
+        # dict_params_active['tcoal'] = dict_params_active['tcoal'] / self.time_scale # Correction 1
+
+        X = X.astype('complex128')
+        Mc      = X[:,0]           
+        eta     = X[:,1]
+        dL      = X[:,2]
+        theta   = X[:,3]
+        phi     = X[:,4]
+        iota    = X[:,5]
+        psi     = X[:,6]
+        tcoal   = X[:,7] / self.time_scale # Correction #1
+        Phicoal = X[:,8]
+        chiS    = X[:,9]
+        chiA    = X[:,10]
+
+
+
+
+
+
         residualJac = {}
         
         # This is needed to change units in tc and variable from iota to cos(iota)
-        # tcelem   = self.wf_model.ParNums['tcoal'] # GMST accounts for geometry of earth spinning
         # print(tcelem)
         # iotaelem = self.wf_model.ParNums['iota']
+        tcelem = self.wf_model.ParNums['tcoal'] # GMST accounts for geometry of earth spinning
+
+
 
 
         for det in self.detsInNet.keys():
             residualJac[det] = self.detsInNet[det]._SignalDerivatives_use(self.fgrids, 
-                                                                          **dict_params_active, 
+                                                                          Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chiS, chiA,
+                                                                        #   **dict_params_active, 
                                                                           **self.dict_params_inactive, 
                                                                           **self.dict_params_neglected, 
-                                                                          **self.signalDerivativeKwargs)
-            # residualJac[det] = residualJac[det].at[tcelem,:,:].divide(3600.*24.)
+                                                                          **self.signalDerivativeKwargs)#.at[tcelem,:,:].divide(3600.*24.)
+
+            residualJac[det] = residualJac[det].at[tcelem].divide(self.time_scale) # Correction 2
+
+            # Remark: signal._SignalDerivatvies_use eats t_c in units of fraction of the day. Convert sec to days.
         return residualJac
-
-    def arrayToDict(self, thetas, names):
-        D = len(names)
-        return {param: values for param, values in [(names[i], thetas.T[i]) for i in range(D)]}
-
-    # def dictToArray(self):
-    #     pass
-
-    # @jax.jit
-    # @partial(jax.jit, static_argnums=(0,))
-    def getMinusLogPosterior_ensemble___(self, thetas):
-        """ 
-        thetas = N x DoF
-        See arxiv:1809.02293 Eq 42.
-        """
-        residual_dict = self._getResidual_Vec(thetas) 
-        log_like = jnp.zeros(thetas.shape[0])
-        quadrature = 'trapezoid' # 'riemann'  
-        if quadrature == 'riemann':
-            for det in self.detsInNet.keys():
-                tmp = (self.fgrid[1:] - self.fgrid[:-1]) / self.strainGrid[det][:-1]
-                norm = jnp.abs(residual_dict[det]) ** 2
-                log_like += jnp.sum(norm[:-1]) * tmp
-            return 2 * log_like 
-        elif quadrature == 'trapezoid':
-            tmp1 = (self.fgrid[1:] - self.fgrid[:-1]).squeeze()
-            for det in self.detsInNet.keys():
-                # integrand = contract('fm, f -> mf', jnp.abs(residual_dict[det]) ** 2, 1 / self.strainGrid[det]) # OLD
-                integrand = contract('mf, f -> mf', jnp.abs(residual_dict[det]) ** 2, 1 / self.strainGrid[det]) # MODIFIED FOR MF RESIDUAL
-                # log_like += 2 * jnp.trapz(integrand, self.fgrid.squeeze())
-                log_like += jnp.sum((integrand[:, 1:] + integrand[:, :-1]) * tmp1)
-
-
-            return log_like
-
-    # @jax.jit
-    # def getGradientMinusLogPosterior_ensemble(self, thetas):
-    #     # REMARK: Returns (d, Nev, F) shaped array instead of a (d, F, Nev) shaped array, where F is the size of the frequency grid
-    #     # TODO Ask Francesco if this is a bug or expected.
-    #     """ 
-    #     thetas = N x DoF
-    #     """
-    #     residual_dict = self._getResidual_Vec(thetas) # Input is reversed here
-    #     jacResidual_dict = self._getJacobianResidual_Vec(thetas)
-    #     grad_log_like = jnp.zeros(thetas.shape).astype('complex128')
-    #     for det in self.detsInNet.keys():
-    #         grad_log_like += contract('dNf, fN, f -> Nd', jacResidual_dict[det].conjugate(), residual_dict[det], 1 / self.strainGrid[det])[:, self.list_active_indicies]
-    #     return (4 * grad_log_like.real * self.df)
-
-    # # @jax.jit
-    # def getGNHessianMinusLogPosterior_ensemble(self, thetas):
-    #     jacResidual_dict = self._getJacobianResidual_Vec(thetas)
-    #     GN = jnp.zeros((self.N, self.DoF, self.DoF)).astype('complex128')
-    #     for det in self.detsInNet.keys():
-    #         GN += contract('dNf, bNf, f -> Ndb', jacResidual_dict[det].conjugate(), jacResidual_dict[det], 1 / self.strainGrid[det])[:, self.list_active_indicies, self.list_active_indicies]
-    #     return 4 * self.df * GN.real
-
-    # @partial(jax.jit, static_argnums=(0,))
-    def getDerivativesMinusLogPosterior_ensemble__(self, thetas):
-        residual_dict = self._getResidual_Vec(thetas) 
-        jacResidual_dict = self._getJacobianResidual_Vec(thetas)
-        grad_log_like = jnp.zeros(thetas.shape)
-        GN = jnp.zeros((self.N, self.DoF, self.DoF))
-        # GN_test = jnp.zeros((self.N, self.DoF, self.DoF))
-
-        if self.grid_to_use == 'linear':
-            for det in self.detsInNet.keys():
-                grad_log_like += contract('dNf, fN, f -> Nd', jacResidual_dict[det].conjugate(), residual_dict[det], 1 / self.strainGrid[det])[:, self.list_active_indicies].real
-                GN += contract('dNf, bNf, f -> Ndb', jacResidual_dict[det].conjugate(), jacResidual_dict[det], 1 / self.strainGrid[det])[:, self.list_active_indicies][:, ..., self.list_active_indicies].real
-            return (4 * grad_log_like.real * self.df, 4 * self.df * GN.real)
-        elif self.grid_to_use == 'geometric':
-            tmp1 = (self.fgrid[1:] - self.fgrid[:-1]).squeeze()
-            for det in self.detsInNet.keys():
-                integrand_grad = contract('dNf, fN -> Ndf', jacResidual_dict[det].conjugate(), residual_dict[det])[:, self.list_active_indicies].real / self.strainGrid[det]
-                grad_log_like += 2 * jnp.sum((integrand_grad[...,1:] + integrand_grad[...,:-1]) * tmp1, axis=-1)
-
-                # DEBUG: Compare to jnp.trapz method
-                # grad_log_like += 4 * jnp.trapz(integrand_grad, self.fgrid.squeeze())
-
-                GN += contract('dNf, bNf, f -> Ndb', jacResidual_dict[det].conjugate()[..., 1:], jacResidual_dict[det][..., 1:], tmp1 / self.strainGrid[det][1:])[:, self.list_active_indicies][..., self.list_active_indicies].real
-                GN += contract('dNf, bNf, f -> Ndb', jacResidual_dict[det].conjugate()[..., :-1], jacResidual_dict[det][..., :-1], tmp1 / self.strainGrid[det][:-1])[:, self.list_active_indicies][..., self.list_active_indicies].real
-                GN *= 2
-
-                # integrand_GN = contract('dNf, bNf -> Ndbf', jacResidual_dict[det].conjugate(), jacResidual_dict[det]).real[:, self.list_active_indicies][:, :, self.list_active_indicies] / self.strainGrid[det]
-                # GN_test += 4 * jnp.trapz(integrand_GN, self.fgrid.squeeze())
-
-            return (grad_log_like, GN)
             
     def _riemannSum(self, integrand, grid, axis=-1):
-        return jnp.sum(integrand[:-1] * (grid[1:] - grid[:-1]), axis=axis)
+        return jnp.sum(integrand[..., :-1] * (grid[1:] - grid[:-1]), axis=axis)
 
     def _signal_inner_product(self, a, b, det, mode):
-        quadrature_rule = 'trapezoid' # 'riemann'
+        # quadrature_rule = 'trapezoid' 
+        quadrature_rule = 'riemann'
 
         if mode == 'l':
-            integrand = contract('Nf, Nf, f -> Nf', a, b, 1 / self.strainGrid[det])
+            integrand = contract('Nf,  Nf,  f -> Nf',   a.conjugate(), b, 1 / self.strainGrid[det])
         elif mode == 'g':
-            integrand = contract('dNf, Nf, f -> Ndf', a, b, 1 / self.strainGrid[det] )
+            integrand = contract('dNf, Nf,  f -> Ndf',  a.conjugate(), b, 1 / self.strainGrid[det])
         elif mode == 'h':
-            integrand = contract('dNf, bNf, f -> Ndbf', a, b, 1 / self.strainGrid[det])
+            integrand = contract('dNf, bNf, f -> Ndbf', a.conjugate(), b, 1 / self.strainGrid[det])
 
         if quadrature_rule == 'riemann':
-            return 4 * self.riemannSum(integrand.real, self.fgrid)
+            return 4 * self._riemannSum(integrand.real, self.fgrid.squeeze())
         elif quadrature_rule == 'trapezoid':
-            return 4 * jnp.trapz(integrand.real, self.fgrid)
+            return 4 * jnp.trapz(integrand.real, self.fgrid.squeeze())
 
-    @partial(jax.jit, static_argnums=(0,))
+    # def signal_inner_product_like(self, a, b, det):
+    #     integrand = contract('Nf,  Nf,  f -> Nf',   a.conjugate(), b, 1 / self.strainGrid[det])
+    #     return 4 * jnp.trapz(integrand.real, self.fgrid.squeeze())
+
+
+
+    # @partial(jax.jit, static_argnums=(0,))
     def getMinusLogPosterior___(self, thetas):
         """_summary_
 
@@ -438,18 +430,18 @@ class gwfast_class(object):
         residual_dict = self._getResidual_Vec(thetas) 
         log_like = jnp.zeros(self.N)
         for det in self.detsInNet.keys():
-            log_like += self._signal_inner_product(residual_dict[det], residual_dict[det], det, 'l')
+            log_like = log_like + self._signal_inner_product(residual_dict[det], residual_dict[det], det, 'l')
         return log_like / 2
 
-    @partial(jax.jit, static_argnums=(0,))
+    # @partial(jax.jit, static_argnums=(0,))
     def getDerivativesMinusLogPosterior_ensemble(self, thetas):
         residual_dict = self._getResidual_Vec(thetas) 
         jacResidual_dict = self._getJacobianResidual_Vec(thetas)
-        grad_log_like = jnp.zeros(thetas.shape)
+        grad_log_like = jnp.zeros((self.N, self.DoF))
         GN = jnp.zeros((self.N, self.DoF, self.DoF))
         for det in self.detsInNet.keys():
-            grad_log_like += self._signal_inner_product(jacResidual_dict[det], residual_dict[det], det, 'g')[:, self.list_active_indicies]
-            GN += self._signal_inner_product(jacResidual_dict[det], jacResidual_dict[det], det, 'h')[:, self.list_active_indicies][..., self.list_active_indicies]
+            grad_log_like = grad_log_like + self._signal_inner_product(jacResidual_dict[det], residual_dict[det], det, 'g')#[:, self.list_active_indicies]
+            GN = GN + self._signal_inner_product(jacResidual_dict[det], jacResidual_dict[det], det, 'h')#[:, self.list_active_indicies][..., self.list_active_indicies]
         return (grad_log_like, GN)
 
     def _newDrawFromPrior(self, nParticles):
@@ -467,7 +459,7 @@ class gwfast_class(object):
         for i, param in enumerate(self.names_active): # Assuming uniform on all parameters
             low = self.priorDict[param][0]
             high = self.priorDict[param][1]
-            padding = (high-low)/10
+            # padding = (high-low)/10
             # prior_draw[:, i] = np.random.uniform(low=low+padding, high=high-padding, size=nParticles)
             prior_draw[:, i] = np.random.uniform(low=low, high=high, size=nParticles)
         
@@ -521,6 +513,86 @@ class gwfast_class(object):
 
 
 
+    # def dictToArray(self):
+    #     pass
+
+    # @jax.jit
+    # @partial(jax.jit, static_argnums=(0,))
+    # def getMinusLogPosterior_ensemble___(self, thetas):
+    #     """ 
+    #     thetas = N x DoF
+    #     See arxiv:1809.02293 Eq 42.
+    #     """
+    #     residual_dict = self._getResidual_Vec(thetas) 
+    #     log_like = jnp.zeros(thetas.shape[0])
+    #     quadrature = 'trapezoid' # 'riemann'  
+    #     if quadrature == 'riemann':
+    #         for det in self.detsInNet.keys():
+    #             tmp = (self.fgrid[1:] - self.fgrid[:-1]) / self.strainGrid[det][:-1]
+    #             norm = jnp.abs(residual_dict[det]) ** 2
+    #             log_like += jnp.sum(norm[:-1]) * tmp
+    #         return 2 * log_like 
+    #     elif quadrature == 'trapezoid':
+    #         tmp1 = (self.fgrid[1:] - self.fgrid[:-1]).squeeze()
+    #         for det in self.detsInNet.keys():
+    #             # integrand = contract('fm, f -> mf', jnp.abs(residual_dict[det]) ** 2, 1 / self.strainGrid[det]) # OLD
+    #             integrand = contract('mf, f -> mf', jnp.abs(residual_dict[det]) ** 2, 1 / self.strainGrid[det]) # MODIFIED FOR MF RESIDUAL
+    #             # log_like += 2 * jnp.trapz(integrand, self.fgrid.squeeze())
+    #             log_like += jnp.sum((integrand[:, 1:] + integrand[:, :-1]) * tmp1)
+    #         return log_like
+
+    # @jax.jit
+    # def getGradientMinusLogPosterior_ensemble(self, thetas):
+    #     # REMARK: Returns (d, Nev, F) shaped array instead of a (d, F, Nev) shaped array, where F is the size of the frequency grid
+    #     # TODO Ask Francesco if this is a bug or expected.
+    #     """ 
+    #     thetas = N x DoF
+    #     """
+    #     residual_dict = self._getResidual_Vec(thetas) # Input is reversed here
+    #     jacResidual_dict = self._getJacobianResidual_Vec(thetas)
+    #     grad_log_like = jnp.zeros(thetas.shape).astype('complex128')
+    #     for det in self.detsInNet.keys():
+    #         grad_log_like += contract('dNf, fN, f -> Nd', jacResidual_dict[det].conjugate(), residual_dict[det], 1 / self.strainGrid[det])[:, self.list_active_indicies]
+    #     return (4 * grad_log_like.real * self.df)
+
+    # # @jax.jit
+    # def getGNHessianMinusLogPosterior_ensemble(self, thetas):
+    #     jacResidual_dict = self._getJacobianResidual_Vec(thetas)
+    #     GN = jnp.zeros((self.N, self.DoF, self.DoF)).astype('complex128')
+    #     for det in self.detsInNet.keys():
+    #         GN += contract('dNf, bNf, f -> Ndb', jacResidual_dict[det].conjugate(), jacResidual_dict[det], 1 / self.strainGrid[det])[:, self.list_active_indicies, self.list_active_indicies]
+    #     return 4 * self.df * GN.real
+
+    # @partial(jax.jit, static_argnums=(0,))
+    # def getDerivativesMinusLogPosterior_ensemble__(self, thetas):
+    #     residual_dict = self._getResidual_Vec(thetas) 
+    #     jacResidual_dict = self._getJacobianResidual_Vec(thetas)
+    #     grad_log_like = jnp.zeros(thetas.shape)
+    #     GN = jnp.zeros((self.N, self.DoF, self.DoF))
+    #     # GN_test = jnp.zeros((self.N, self.DoF, self.DoF))
+
+    #     if self.grid_to_use == 'linear':
+    #         for det in self.detsInNet.keys():
+    #             grad_log_like += contract('dNf, fN, f -> Nd', jacResidual_dict[det].conjugate(), residual_dict[det], 1 / self.strainGrid[det])[:, self.list_active_indicies].real
+    #             GN += contract('dNf, bNf, f -> Ndb', jacResidual_dict[det].conjugate(), jacResidual_dict[det], 1 / self.strainGrid[det])[:, self.list_active_indicies][:, ..., self.list_active_indicies].real
+    #         return (4 * grad_log_like.real * self.df, 4 * self.df * GN.real)
+    #     elif self.grid_to_use == 'geometric':
+    #         tmp1 = (self.fgrid[1:] - self.fgrid[:-1]).squeeze()
+    #         for det in self.detsInNet.keys():
+    #             integrand_grad = contract('dNf, fN -> Ndf', jacResidual_dict[det].conjugate(), residual_dict[det])[:, self.list_active_indicies].real / self.strainGrid[det]
+    #             grad_log_like += 2 * jnp.sum((integrand_grad[...,1:] + integrand_grad[...,:-1]) * tmp1, axis=-1)
+
+    #             # DEBUG: Compare to jnp.trapz method
+    #             # grad_log_like += 4 * jnp.trapz(integrand_grad, self.fgrid.squeeze())
+
+    #             GN += contract('dNf, bNf, f -> Ndb', jacResidual_dict[det].conjugate()[..., 1:], jacResidual_dict[det][..., 1:], tmp1 / self.strainGrid[det][1:])[:, self.list_active_indicies][..., self.list_active_indicies].real
+    #             GN += contract('dNf, bNf, f -> Ndb', jacResidual_dict[det].conjugate()[..., :-1], jacResidual_dict[det][..., :-1], tmp1 / self.strainGrid[det][:-1])[:, self.list_active_indicies][..., self.list_active_indicies].real
+    #             GN *= 2
+
+                # integrand_GN = contract('dNf, bNf -> Ndbf', jacResidual_dict[det].conjugate(), jacResidual_dict[det]).real[:, self.list_active_indicies][:, :, self.list_active_indicies] / self.strainGrid[det]
+                # GN_test += 4 * jnp.trapz(integrand_GN, self.fgrid.squeeze())
+
+            # return (grad_log_like, GN)
 
 
 
