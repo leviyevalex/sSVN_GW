@@ -165,8 +165,10 @@ class samplers:
                     # Store relevant per iteration information
                     with h5py.File(self.history_path, 'a') as f:
                         g = f.create_group('%i' % iter_)
-                        # g.create_dataset('X', data=copy.deepcopy(X))
-                        g.create_dataset('X', data=copy.deepcopy(self._F_inv(X, self.model.lower_bound, self.model.upper_bound)))
+                        if self.model.priorDict == None:
+                            g.create_dataset('X', data=copy.deepcopy(X))
+                        else:
+                            g.create_dataset('X', data=copy.deepcopy(self._F_inv(X, self.model.lower_bound, self.model.upper_bound)))
                         g.create_dataset('h', data=copy.deepcopy(h))
                         g.create_dataset('eps', data=copy.deepcopy(eps))
                         g.create_dataset('gmlpt', data=copy.deepcopy(gmlpt))
@@ -180,8 +182,10 @@ class samplers:
                 # Dynamics completed: Storing data
                 with h5py.File(self.history_path, 'a') as f:
                     g = f.create_group('metadata')
-                    # g.create_dataset('X', data=copy.deepcopy(X))
-                    g.create_dataset('X', data=copy.deepcopy(self._F_inv(X, self.model.lower_bound, self.model.upper_bound)))
+                    if self.model.priorDict == None:
+                        g.create_dataset('X', data=copy.deepcopy(X))
+                    else:
+                        g.create_dataset('X', data=copy.deepcopy(self._F_inv(X, self.model.lower_bound, self.model.upper_bound)))
                     g.create_dataset('nLikelihoodEvals', data=copy.deepcopy(self.model.nLikelihoodEvaluations))
                     g.create_dataset('nGradLikelihoodEvals', data=copy.deepcopy(self.model.nGradLikelihoodEvaluations))
                     g.create_dataset('nParticles', data=copy.deepcopy(self.nParticles))
@@ -189,8 +193,10 @@ class samplers:
                     g.create_dataset('L', data=copy.deepcopy(iter_ + 1))
                     g.create_dataset('method', data=method)
                     g1 = f.create_group('final_updated_particles')
-                    # g1.create_dataset('X', data=X)
-                    g1.create_dataset('X', data=copy.deepcopy(self._F_inv(X, self.model.lower_bound, self.model.upper_bound)))
+                    if self.model.priorDict == None:
+                        g1.create_dataset('X', data=X)
+                    else:
+                        g1.create_dataset('X', data=copy.deepcopy(self._F_inv(X, self.model.lower_bound, self.model.upper_bound)))
 
             # Save profiling results
             if self.profile == True:

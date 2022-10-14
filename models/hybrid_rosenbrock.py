@@ -45,6 +45,7 @@ class hybrid_rosenbrock:
         self.jacGraph = self._getJacobianGraph()
         self.hessRes = self._getHessianResidual()
 
+        self.priorDict = None
 #######################################################################################################################
 
     def _getGraph(self, theta):
@@ -199,6 +200,11 @@ class hybrid_rosenbrock:
         """
         # TODO
         raise NotImplementedError
+
+    def getDerivativesMinusLogPosterior_ensemble(self, thetas):
+        gmlpt = self.getGradientMinusLogPosterior_ensemble(thetas)
+        Hmlpt = self.getGNHessianMinusLogPosterior_ensemble(thetas)
+        return (gmlpt, Hmlpt)
 
     def getNormalizationConstant(self):
         """

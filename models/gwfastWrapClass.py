@@ -30,19 +30,20 @@ from functools import partial
 #%%
 class gwfast_class(object):
     
-    def __init__(self, NetDict, WaveForm, injParams, priorDict, df, nParticles, fmax=None, fmin=10, EarthMotion=False, customseed=None):
+    def __init__(self, NetDict, WaveForm, injParams, priorDict, grid_type='geometric', nParticles=1, EarthMotion=False):
         """
         Args:
             NetDict (dict): dictionary containing the specifications of the detectors in the network
             WaveForm (WaveFormModel): waveform model to use
             injParams (dict): injection parameters
-            df (float): inverse of sampling frequency - linear spacing
-            fmax (float): maximum frequency at which to the frequency grid
-            fmin (float): minimum frequency of the frequency grid
+            priorDict (dict): Provides (min,max) range for each coordinate
+            grid_type (str): Option to use predefined frequency grid. Options available: 'linear', 'geometric'.
             EarthMotion (bool): include or not the effect of Earth motion. Default is False, meaning motion is not included
-            customseed (float): input seed for the noise generation in the data
 
-        E.g NetDict: {"H1": {"lat": 46.455, "long": -119.408, "xax": 170.99924234706103, "shape": "L", "psd_path":"path/to/psd"}}
+        Remarks:
+            (1) Example of NetDict: {"H1": {"lat": 46.455, "long": -119.408, "xax": 170.99924234706103, "shape": "L", "psd_path":"path/to/psd"}}
+            
+            (2) Parameter order as follows: ['Mc','eta', 'dL', 'theta', 'phi', 'iota', 'psi', 'tcoal', 'Phicoal', 'chi1z', 'chi2z']
         """
 
         # sSVN_GW related attributes
@@ -56,18 +57,12 @@ class gwfast_class(object):
         # gw_fast related attributes
         self.wf_model = WaveForm
         self.NetDict = NetDict
-        self.fmin = fmin
-        self.fmax = fmax
+        self.grid_type = grid_type
         self.EarthMotion = EarthMotion
         self.injParams = injParams
-        self.df = df
-        if customseed is not None:
-            self.seed = customseed
-        else:
-            self.seed = None
+        self.fmin = 10
+        self.fmax = 325
 
-        # Parameter order convention set here
-        # self.names = ['Mc','eta', 'dL', 'theta', 'phi', 'iota', 'psi', 'tcoal', 'Phicoal', 'chi1z', 'chi2z']
 
         self.time_scale = 3600. * 24. # Multiply to transform from units of days to units of seconds
 
@@ -77,27 +72,16 @@ class gwfast_class(object):
         self._initParamNames()
         self._initInjectedSignal(method='sim', add_noise=False)
 
-        self.DoF = len(self.names_active)  
+        self.warmup_derivative(False) # Warmup for JIT compile
 
-        self.indicies_of_inactive_params = []
-        for param in self.injParams.keys():
-            if param in self.names_inactive:
-                self.indicies_of_inactive_params.append(list(self.injParams.keys()).index(param))
-
-        print('put the warmup back in!')
-        # Warmup: Precompile method for notebook convenience!
-        if self.N > 1000:
-            print('Precompuling posterior with jax.jit')
-            self.getMinusLogPosterior_ensemble(self._newDrawFromPrior(self.N))
-        else:
-            print('Precompiling derivatives with jax.jit')
-            self.getDerivativesMinusLogPosterior_ensemble(self._newDrawFromPrior(self.N))
-
-
-    # def _initNoiseWeightedGrid(self):
-    #     for det in self.detsInNet.keys():
+    def warmup_derivative(self, warmup):
+        self.getDerivativesMinusLogPosterior_ensemble(self._newDrawFromPrior(self.N))
 
     def _initParamNames(self):
+        """
+        Predefines useful parameter quantities that may be used in the code.
+        """
+
         self.param_names = {'Mc'         : '$\mathcal{M}_c$',                      # Chirp mass
                             'eta'        : '$\eta$',                               # Symmetric mass ratio 
                             'dL'         : '$d_L$',                                # Luminosity distance
@@ -119,8 +103,6 @@ class gwfast_class(object):
                             'chiS'       : '$\chi_S$',                             # Symmetric dimensionless spin
                             'chiA'       : '$\chi_A$'}                             # Antisymmetric dimensionless spin
 
-        # self.names_active_modified = copy.deepcopy(self.names_active)
-
         self.names_prior_order = list(self.priorDict.keys()) # Defined order
         self.names_neglected = ['chi1x', 'chi2x', 'chi1y', 'chi2y', 'LambdaTilde', 'deltaLambda', 'ecc']
         self.names_inactive = [param for param in self.priorDict.keys() if type(self.priorDict[param]) != list]
@@ -140,12 +122,18 @@ class gwfast_class(object):
         self.upper_bound = np.array([self.priorDict[param][1] for param in self.names_active])
         self.bound_tol = 1e-9
 
+        self.DoF = len(self.names_active)  
+
+        self.indicies_of_inactive_params = []
+        for param in self.injParams.keys():
+            if param in self.names_inactive:
+                self.indicies_of_inactive_params.append(list(self.injParams.keys()).index(param))
+
     def _initStaticVariablesIntegration(self):
         self.bins = self.fgrid[1:] - self.fgrid[:-1]
         self.bins_over_PSD = {}
         for det in self.detsInNet.keys():
             self.bins_over_PSD = self.bins / self.strainGrid[det][:-1]
-
 
     def _initDetectorSignals(self): 
         # Initialise the signal objects
@@ -164,17 +152,24 @@ class gwfast_class(object):
 
         self.signalDerivativeKwargs = dict()
         self.signalDerivativeKwargs['rot'] = 0.
+
+        # Remark: If we want to use chiS, chiA vs chi1z, chi2, set appropriate flags to True vs False
+
         self.signalDerivativeKwargs['use_m1m2'] = False
+
         self.signalDerivativeKwargs['use_chi1chi2'] = True
         # self.signalDerivativeKwargs['use_chi1chi2'] = False
+        
         self.signalDerivativeKwargs['use_prec_ang'] = False
         self.signalDerivativeKwargs['computeAnalyticalDeriv'] = True
 
         self.signalKwargs = dict()
         self.signalKwargs['rot'] = 0.
         self.signalKwargs['is_m1m2'] = False
+
         self.signalKwargs['is_chi1chi2'] = True
         # self.signalKwargs['is_chi1chi2'] = False
+        
         self.signalKwargs['is_prec_ang'] = False
 
     def _initFrequencyGrid(self):
@@ -192,6 +187,7 @@ class gwfast_class(object):
             self.grid_resolution = int(100)
             self.fgrid = jnp.geomspace(self.fmin, fcut, num=self.grid_resolution)
         elif self.grid_to_use == 'linear':
+            self.df = 1./5
             self.grid_resolution = int(jnp.floor(jnp.real((1 + (fcut - self.fmin) / self.df))))
             self.fgrid = jnp.linspace(self.fmin, fcut, num=self.grid_resolution)
 
@@ -238,7 +234,7 @@ class gwfast_class(object):
 
         """
         # Set the seed for reproducibility
-        np.random.seed(self.seed)
+        np.random.seed(None)
 
         dict_params_neglected = {param: values for param, values in [(self.names_neglected[i], np.array([0.]).astype('complex128'))  for i in range(len(self.names_neglected))]}
         dict_params_inactive  = {param: values for param, values in [(self.names_inactive[i],  np.array([self.params_inactive[i]]).astype('complex128'))  for i in range(len(self.names_inactive))]}
@@ -433,7 +429,7 @@ class gwfast_class(object):
             log_like = log_like + self._signal_inner_product(residual_dict[det], residual_dict[det], det, 'l')
         return log_like / 2
 
-    @partial(jax.jit, static_argnums=(0,))
+    # @partial(jax.jit, static_argnums=(0,))
     def getDerivativesMinusLogPosterior_ensemble(self, thetas):
         residual_dict = self._getResidual_Vec(thetas) 
         jacResidual_dict = self._getJacobianResidual_Vec(thetas)

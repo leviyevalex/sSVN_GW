@@ -41,7 +41,6 @@ chiA = (chi1z - chi2z) / 2
 
 tGPS = np.array([1.12625946e+09])
 injParams = dict()
-# injParams['tcoal'] = utils.GPSt_to_LMST(tGPS, lat=0., long=0.) # Coalescence time, in units of fraction of day (GMST is LMST computed at long = 0°) 
 injParams['Mc']      = np.array([34.3089283])        # Units: M_sun
 injParams['eta']     = np.array([0.2485773])         # Units: Unitless
 injParams['dL']      = np.array([2.634])             # Units: Gigaparsecs 
@@ -50,15 +49,16 @@ injParams['phi']     = np.array([1.67687425])        # Units: Rad
 injParams['iota']    = np.array([2.67548653])        # Units: Rad
 injParams['psi']     = np.array([0.78539816])        # Units: Rad
 injParams['tcoal']   = np.array([0.])                # Units: Fraction of day 
+# injParams['tcoal'] = np.array(utils.GPSt_to_LMST(tGPS, lat=0., long=0.) * (3600 * 24)) # Coalescence time, in units of fraction of day (GMST is LMST computed at long = 0°) 
 injParams['Phicoal'] = np.array([0.])                # Units: Rad
 # injParams['chiS']    = chiS                         # Units: Unitless
 # injParams['chiA']    = chiA                         # Units: Unitless
 # injParams['chiS']    = chi1z                         # Units: Unitless
 # injParams['chiA']    = chi2z                         # Units: Unitless
-
 injParams['chi1z']    = chi1z                         # Units: Unitless
 injParams['chi2z']    = chi2z                         # Units: Unitless
 
+#%%
 #  Setup gravitational wave network problem
 
 all_detectors = copy.deepcopy(glob.detectors) # Geometry of every available detector
@@ -77,8 +77,8 @@ LV_detectors['L1']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detect
 LV_detectors['H1']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['H1'])
 # LV_detectors['Virgo']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['Virgo'])
 
-# waveform = TaylorF2_RestrictedPN() # Choice of waveform
-waveform = IMRPhenomD()
+waveform = TaylorF2_RestrictedPN() # Choice of waveform
+# waveform = IMRPhenomD()
 
 fgrid_dict = {'fmin': 20, 'fmax': 325, 'df': 1./5} # All parameters related to frequency grid.
 
@@ -91,13 +91,14 @@ priorDict['theta']   = [0., np.pi]         # (4)   # (3)
 priorDict['phi']     = [0., 2*np.pi]       # (5)   # (4)
 priorDict['iota']    = [0., np.pi]         # (6)   # (5)
 priorDict['psi']     = [0., np.pi]         # (7)   # (6)
-priorDict['tcoal']   = [0., 0.1]           # (8)   # (7)
+priorDict['tcoal']   = [injParams['tcoal'][0] - 0.001, injParams['tcoal'][0] + 0.001]           # (8)   # (7)
 priorDict['Phicoal'] = [0., 0.1]           # (9)   # (8)
 # priorDict['chiS']    = [-1., 1.]           # (10)  # (9)
 # priorDict['chiA']    = [-1., 1.]           # (11)  # (10)
 priorDict['chi1z']    = [-1., 1.]           # (10)  # (9)
 priorDict['chi2z']    = [-1., 1.]           # (11)  # (10)
 
+#%%
 nParticles = 1
 model = gwfast_class(LV_detectors, waveform, injParams, priorDict, nParticles=nParticles, **fgrid_dict)
 print('Using % i bins' % model.grid_resolution)
@@ -109,11 +110,12 @@ print('Using % i bins' % model.grid_resolution)
 net = DetNet(model.detsInNet)
 snr = net.SNR(copy.deepcopy(injParams))
 print('SNR is  ', snr)
-H1_response = model.signal_data['L1']
+L1_response = model.signal_data['L1']
 power_spectral_density = model.strainGrid['L1']
 fig, axs = plt.subplots(1, 2)
-axs[0].plot(model.fgrid[0:100], H1_response.squeeze()[0:100])
-axs[1].plot(model.fgrid, power_spectral_density)
+# axs[0].plot(model.fgrid, L1_response.squeeze())
+axs[0].plot(model.fgrid, (L1_response.squeeze() ** 2 / power_spectral_density))
+axs[1].plot(model.fgrid, (L1_response.squeeze()))
 
 #%% 
 ###################################################
@@ -141,7 +143,7 @@ true_particle_sec = true_particle_days.at[:, 7].multiply(model.time_scale)
 
 # true_particle_sec[:, 7] *= model.time_scale
 grad1, Fisher1 = model.getDerivativesMinusLogPosterior_ensemble(true_particle_sec)
-grad2 = jacobian(model.getMinusLogPosterior___)(true_particle_sec)[0,0]
+grad2 = jacobian(model.getMinusLogPosterior___)(true_particle_sec)
 print(grad1[0])
 print(grad2)
 
@@ -166,10 +168,10 @@ particles = model._newDrawFromPrior(nParticles)
 
 # gwfast methods internally replace chiS and chiA
 injParams_copy = copy.deepcopy(injParams)
-injParams_copy.pop('chiS')
-injParams_copy.pop('chiA')
-injParams_copy['chi1z'] = chi1z
-injParams_copy['chi2z'] = chi2z
+# injParams_copy.pop('chiS')
+# injParams_copy.pop('chiA')
+# injParams_copy['chi1z'] = chi1z
+# injParams_copy['chi2z'] = chi2z
 
 # Evaluate at true parameters
 true_particle_sec  = jnp.array(model.true_params[np.newaxis])
