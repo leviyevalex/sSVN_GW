@@ -148,7 +148,7 @@ class hybrid_rosenbrock:
         r = self._getResidual(theta)
         self.nLikelihoodEvaluations += 1
         return jnp.dot(r, r) / 2
-
+    @partial(jax.jit, static_argnums=(0,))
     def getGradientMinusLogLikelihood(self, theta):
         """
         Evaluates gradient of minus log of Hybrid Rosenbrock
@@ -162,7 +162,7 @@ class hybrid_rosenbrock:
         jr = self._getJacobianResidual(theta)
         self.nGradLikelihoodEvaluations += 1
         return r.T @ jr
-
+    @partial(jax.jit, static_argnums=(0,))
     def getGNHessianMinusLogLikelihood(self, theta):
         """
         Calculate Gauss-Newton approximation of Hybrid Rosenbrock
@@ -281,10 +281,10 @@ class hybrid_rosenbrock:
 
     def getMinusLogPosterior(self, theta):
         return self.getMinusLogLikelihood(theta) + self._getMinusLogPrior(theta)
-
+    @partial(jax.jit, static_argnums=(0,))
     def getGradientMinusLogPosterior(self, theta):
         return self.getGradientMinusLogLikelihood(theta) + self._getGradientMinusLogPrior(theta)
-
+    @partial(jax.jit, static_argnums=(0,))
     def getGNHessianMinusLogPosterior(self, theta):
         return self.getGNHessianMinusLogLikelihood(theta) + self._getHessianMinusLogPrior(theta)
 
@@ -299,9 +299,10 @@ class hybrid_rosenbrock:
     def getMinusLogPosterior_ensemble(self, thetas):
         return np.apply_along_axis(self.getMinusLogPosterior, 1, thetas)
 
+    @partial(jax.jit, static_argnums=(0,))
     def getGradientMinusLogPosterior_ensemble(self, thetas):
         return jax.vmap(self.getGradientMinusLogPosterior)(thetas)
-
+    @partial(jax.jit, static_argnums=(0,))
     def getGNHessianMinusLogPosterior_ensemble(self, thetas):
         return jax.vmap(self.getGNHessianMinusLogPosterior)(thetas)
 
