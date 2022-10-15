@@ -150,7 +150,7 @@ class samplers:
                         update = v_svn * eps
                     elif method == 'sSVN':
                         gmlpt, GN_Hmlpt = self._getDerivativesMinusLogPosterior_(X)
-                        M = np.mean(GN_Hmlpt, axis=0)
+                        M = jnp.mean(GN_Hmlpt, axis=0)
                         kx, gkx1 = self.__getKernelWithDerivatives_(X, h, M)
                         NK = self._reshapeNNDDtoNDND(contract('mn, ij -> mnij', kx, np.eye(self.DoF)))
                         H1 = self._getSteinHessianPosdef(GN_Hmlpt, kx, gkx1)
@@ -260,6 +260,7 @@ class samplers:
             Bdn = np.random.normal(0, 1, (self.DoF, self.nParticles))
         return np.sqrt(2 / self.nParticles) * contract('mn, in -> im', L_kx, Bdn).flatten(order='F').reshape(self.nParticles, self.DoF)
 
+    @partial(jax.jit, static_argnums=(0,))
     def _getSVN_direction(self, kx, v_svgd, UH):
         """
         Get SVN velocity field
@@ -271,7 +272,8 @@ class samplers:
         Returns: (array) N x D array, SVN direction
 
         """
-        alphas = scipy.linalg.cho_solve((UH, False), v_svgd.flatten()).reshape(self.nParticles, self.DoF)
+        # alphas = scipy.linalg.cho_solve((UH, False), v_svgd.flatten()).reshape(self.nParticles, self.DoF)
+        alphas = jax.scipy.linalg.cho_solve((UH, False), v_svgd.flatten()).reshape(self.nParticles, self.DoF)
         v_svn = contract('mn, ni -> mi', kx, alphas)
         return v_svn
 
@@ -302,7 +304,7 @@ class samplers:
         """
         return (contract('mn, nij -> mij' , kx ** 2, Hmlpt) + contract('mni, mnj -> mij', gkx, gkx)) / self.nParticles
 
-    # @partial(jax.jit, static_argnums=(0,))
+    @partial(jax.jit, static_argnums=(0,))
     def _getSteinHessianPosdef(self, Hmlpt, kx, gkx):
         """
         Calculate SVN Hessian $H = H_1 + H_2$.
@@ -317,10 +319,14 @@ class samplers:
 
         """
         H1 = contract("xy, xz, xbd -> yzbd", kx, kx, Hmlpt)
-        H2 = contract('xzi, xzj -> zij', gkx, gkx) # Only calculate block diagonal
-        # H1.at[range(self.nParticles), range(self.nParticles)].add(H2)
-        H1[range(self.nParticles), range(self.nParticles)] += H2
-        return self._reshapeNNDDtoNDND(H1 / self.nParticles)
+        # H2 = contract('xzi, xzj -> zij', gkx, gkx) # Only calculate block diagonal
+        H2 = contract('pni, pmj -> nmij', gkx, gkx) 
+
+        # H1 = H1.at[range(self.nParticles), range(self.nParticles)].add(H2)
+        # H1[range(self.nParticles), range(self.nParticles)] += H2
+        # return self._reshapeNNDDtoNDND(H1 / self.nParticles)
+        return self._reshapeNNDDtoNDND((H1 + H2) / self.nParticles)
+
 
     def _getMinimumPerturbationCholesky(self, x, jitter=1e-9):
         """
