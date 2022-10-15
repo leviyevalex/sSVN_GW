@@ -23,6 +23,10 @@ class multivariate_gaussian:
         self.Z = self.getNormalizationConstant(sigma)
         self.priorDict = None # hack
         self.id = 'multivariate_gaussian'
+        # Record evaluations
+        self.nLikelihoodEvaluations = 0
+        self.nGradLikelihoodEvaluations = 0
+        self.nHessLikelihoodEvaluations = 0
     
     def getNormalizationConstant(self, sigma):
         return jnp.sqrt((2 * jnp.pi) ** self.DoF * jnp.prod(self.sigma))
