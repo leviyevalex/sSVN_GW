@@ -15,6 +15,7 @@ import jax
 import jax.numpy as jnp
 from src.kernels import get_randomRBF_metric as _getKernelWithDerivatives
 from functools import partial
+from src.JAX_kernels import kernels
 # from sklearn import metrics
 
 log = logging.getLogger(__name__)
@@ -23,7 +24,7 @@ np.seterr(over='raise')
 np.seterr(invalid='raise')
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 class samplers:
-    def __init__(self, model, nIterations, nParticles, profile=None):
+    def __init__(self, model, nIterations, nParticles, kernelKwargs, profile=None):
         # Quick settings checks
         assert(nParticles > 0)
         assert(nIterations > 0)
@@ -54,9 +55,15 @@ class samplers:
         self.nIterations = nIterations
         self.DoF = model.DoF
         self.dim = self.DoF * self.nParticles
+        # self.kernelKwargs = kernelKwargs
+        scipy_cholesky = lambda mat: jax.scipy.linalg.cholesky(mat)
+        self.jit_scipy_cholesky = jax.jit(scipy_cholesky)
+
+        kernel_class = kernels(nParticles=self.nParticles, DoF=self.DoF, **kernelKwargs)
+        self._getKernelWithDerivatives = kernel_class.getKernelWithDerivatives
 
 
-    def apply(self, method='SVGD', eps=0.1, h=10):
+    def apply(self, h, method='SVGD', eps=0.1):
         """
         Evolves a set of particles according to (method) with step-size (eps).
         Args:
@@ -75,14 +82,12 @@ class samplers:
         try:
             X = self.__newDrawFromPrior_(self.nParticles) # Initial set of particles
             # X = self._F(self.model._newDrawFromPrior(self.nParticles), self.model.lower_bound, self.model.upper_bound) # Initial set of particles in unbounded space
-            print('new load')
+            # print('new load')
             # h = 2 * self.DoF
             # h = self.DoF / 100
             # jax_der = jax.jit(self.model.getDerivativesMinusLogPosterior_ensemble)
-            print('bandwidth %f' % h)
+            # print('bandwidth %f' % h)
             
-            scipy_cholesky = lambda mat: jax.scipy.linalg.cholesky(mat)
-            jit_scipy_cholesky = jax.jit(scipy_cholesky)
 
             with trange(self.nIterations) as ITER:
                 for iter_ in ITER:
@@ -152,7 +157,7 @@ class samplers:
                         lamb = 0.01
                         # lamb = 0.1
                         H = H1 + NK * lamb
-                        UH = jit_scipy_cholesky(H)
+                        UH = self.jit_scipy_cholesky(H)
                         v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt)
                         v_svn = self._getSVN_direction(kx, v_svgd, UH)
                         v_stc = self._getSVN_v_stc(kx, UH)
@@ -410,26 +415,26 @@ class samplers:
         median = np.median(np.trim_zeros(pairwise_distance.flatten()))
         return median ** 2 / np.log(self.nParticles + 1)
 
-    def _getKernelWithDerivatives(self, X, h, M=None):
-        """
-        Computes radial basis function (Gaussian) kernel with optional "metric" - See (Detommasso 2018)
-        Args:
-            X (array): N x d array of particles
-            h (float): Kernel bandwidth
-            M (array): d x d positive semi-definite metric.
+    # def _getKernelWithDerivatives(self, X, h, M=None):
+    #     """
+    #     Computes radial basis function (Gaussian) kernel with optional "metric" - See (Detommasso 2018)
+    #     Args:
+    #         X (array): N x d array of particles
+    #         h (float): Kernel bandwidth
+    #         M (array): d x d positive semi-definite metric.
 
-        Returns (tuple): N x N kernel gram matrix, N x N x d gradient of kernel (with respect to first slot of kernel)
+    #     Returns (tuple): N x N kernel gram matrix, N x N x d gradient of kernel (with respect to first slot of kernel)
 
-        """
+    #     """
 
-        displacement_tensor = self._getPairwiseDisplacement(X)
-        if M is not None:
-            U = scipy.linalg.cholesky(M)
-            X = contract('ij, nj -> ni', U, X)
-            displacement_tensor = contract('ej, mnj -> mne', M, displacement_tensor)
-        kx = np.exp(-scipy.spatial.distance_matrix(X, X) ** 2 / h)
-        gkx1 = -2 * contract('mn, mne -> mne', kx, displacement_tensor) / h
-        ## test_gkx = -2 / h * contract('mn, ie, mni -> mne', kx, U, displacement_tensor)
+    #     displacement_tensor = self._getPairwiseDisplacement(X)
+    #     if M is not None:
+    #         U = scipy.linalg.cholesky(M)
+    #         X = contract('ij, nj -> ni', U, X)
+    #         displacement_tensor = contract('ej, mnj -> mne', M, displacement_tensor)
+    #     kx = np.exp(-scipy.spatial.distance_matrix(X, X) ** 2 / h)
+    #     gkx1 = -2 * contract('mn, mne -> mne', kx, displacement_tensor) / h
+    #     ## test_gkx = -2 / h * contract('mn, ie, mni -> mne', kx, U, displacement_tensor)
         return kx, gkx1
 
     def _F_inv(self, Y, a, b):
