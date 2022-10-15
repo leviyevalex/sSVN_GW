@@ -28,16 +28,20 @@ class multivariate_gaussian:
         self.nGradLikelihoodEvaluations = 0
         self.nHessLikelihoodEvaluations = 0
     
+    @partial(jax.jit, static_argnums=(0,))
     def getNormalizationConstant(self, sigma):
         return jnp.sqrt((2 * jnp.pi) ** self.DoF * jnp.prod(self.sigma))
 
+    @partial(jax.jit, static_argnums=(0,))
     def getMinusLogLikelihood(self, theta):
         difference = theta - self.mu
         return jnp.log(self.Z) + jnp.dot(difference, difference / self.sigma) / 2
     
+    @partial(jax.jit, static_argnums=(0,))
     def getGradientMinusLogLikelihood(self, theta):
         return (theta - self.mu) / self.sigma
     
+    @partial(jax.jit, static_argnums=(0,))
     def getGNHessianMinusLogLikelihood(self, theta):
         return jnp.diag(1 / self.sigma)
 
@@ -64,30 +68,37 @@ class multivariate_gaussian:
     def _getMinusLogPrior(self, theta):
         return 0
 
+    @partial(jax.jit, static_argnums=(0,))
     def _getGradientMinusLogPrior(self, theta):
-        return np.zeros(self.DoF)
+        return jnp.zeros(self.DoF)
 
+    @partial(jax.jit, static_argnums=(0,))
     def _getHessianMinusLogPrior(self, theta):
-        return np.zeros((self.DoF, self.DoF))
+        return jnp.zeros((self.DoF, self.DoF))
 
     ##################################################################################
     # Form the posterior methods
     ##################################################################################
+    @partial(jax.jit, static_argnums=(0,))
     def getMinusLogPosterior(self, theta):
         return self.getMinusLogLikelihood(theta) + self._getMinusLogPrior(theta)
 
+    @partial(jax.jit, static_argnums=(0,))
     def getGradientMinusLogPosterior(self, theta):
         return self.getGradientMinusLogLikelihood(theta) + self._getGradientMinusLogPrior(theta)
 
+    @partial(jax.jit, static_argnums=(0,))
     def getGNHessianMinusLogPosterior(self, theta):
         return self.getGNHessianMinusLogLikelihood(theta) + self._getHessianMinusLogPrior(theta)
 
     ######################################################################################
     # Get vectorized methods
     ######################################################################################
+    @partial(jax.jit, static_argnums=(0,))
     def getGradientMinusLogPosterior_ensemble(self, thetas):
         return jax.vmap(self.getGradientMinusLogPosterior)(thetas)
 
+    @partial(jax.jit, static_argnums=(0,))
     def getGNHessianMinusLogPosterior_ensemble(self, thetas):
         return jax.vmap(self.getGNHessianMinusLogPosterior)(thetas)
 
