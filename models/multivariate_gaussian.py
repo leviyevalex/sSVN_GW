@@ -21,6 +21,8 @@ class multivariate_gaussian:
         self.sigma = sigma 
         self.DoF = sigma.shape[0]
         self.Z = self.getNormalizationConstant(sigma)
+        self.priorDict = None # hack
+        self.id = 'multivariate_gaussian'
     
     def getNormalizationConstant(self, sigma):
         return jnp.sqrt((2 * jnp.pi) ** self.DoF * jnp.prod(self.sigma))
@@ -50,6 +52,10 @@ class multivariate_gaussian:
 
             """
             return np.random.uniform(low=-6, high=6, size=(nParticles, self.DoF))
+
+    def newDrawFromLikelihood(self, nParticles):
+        return np.random.multivariate_normal(mean=self.mu, cov=np.diag(self.sigma), size=nParticles)
+        raise NotImplementedError
 
     def _getMinusLogPrior(self, theta):
         return 0
@@ -86,3 +92,29 @@ class multivariate_gaussian:
         gmlpt = self.getGradientMinusLogPosterior_ensemble(thetas)
         Hmlpt = self.getGNHessianMinusLogPosterior_ensemble(thetas)
         return (gmlpt, Hmlpt)
+
+#%%
+# from scipy.stats import truncnorm
+# import numpy as np
+
+# DoF = 10
+# mu = np.zeros(DoF)
+# sigma = np.random.uniform(low=1, high=10, size=DoF) # covariance matrix
+# model = multivariate_gaussian(mu, sigma)
+
+# samples = np.random.multivariate_normal(mean=mu, cov=np.diag(sigma), size=1000000)
+# # %%
+# np.logical_and
+# np.where()
+
+# #%%
+# dist = tfd.TruncatedNormal(loc=[0., 1.], scale=1.,
+#                            low=[-1., 0.],
+#                            high=[1., 1.])
+
+# # Evaluate the pdf of the distributions at 0.5 and 0.8 respectively returning
+# # a 2-vector tensor.
+# dist.prob([0.5, 0.8])
+
+# # Get 3 samples, returning a 3 x 2 tensor.
+# dist.sample([3])
