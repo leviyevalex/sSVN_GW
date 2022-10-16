@@ -129,6 +129,23 @@ class hybrid_rosenbrock:
             float: The partition function.
         """
         return (jnp.pi ** (self.DoF / 2)) / (jnp.prod(jnp.sqrt(self.b)))
+    
+    def newDrawFromLikelihood(self, nSamples):
+        samples = np.zeros((nSamples, self.DoF))
+        index_structure = self._getDependencyStructure(np.arange(self.DoF))
+        for d in range(self.DoF):
+            standard_deviation = 1 / np.sqrt(2 * self.b[d])
+            if d == 0:
+                samples[:, d] = np.random.normal(self.mu, standard_deviation, nSamples)
+            elif d in index_structure[:, 1]:
+                samples[:, d] = samples[:, 0] ** 2 + np.random.normal(0, 1, nSamples) * standard_deviation
+            else:
+                samples[:, d] = samples[:, d - 1] ** 2 + np.random.normal(0, 1, nSamples) * standard_deviation
+        return samples
+
+
+
+
 
 #%%
 import numpy as np
@@ -142,25 +159,24 @@ b = b.at[0].set(a)
 b = b.at[1:].set(100 / 20)
 model = hybrid_rosenbrock(n2, n1, mu, b)
 model_old = old_hybrid_rosenbrock(n2=n2, n1=n1, mu=mu, a=a, b=np.ones((n2, n1-1)) * 100/20)
+
+#%%
+# Unit tests: Evaluations of the likelihood, gradient, and GN-Hessian all agree!
 x = np.random.rand(DoF)
 x_ = x[np.newaxis,:]
-#%%
-likelihood1 = model.getMinusLogLikelihood(x)
-likelihood2 = model_old.getMinusLogLikelihood(x)
-print(likelihood1)
-print(likelihood2)
-#%%
-
+likelihood1 = model.getMinusLogLikelihood(x) 
+likelihood2 = model_old.getMinusLogLikelihood(x) + np.log(model.Z) # Old code was not normalized
+print(np.allclose(likelihood1, likelihood2))
 grad1 = model.getGradientMinusLogLikelihood(x)
 grad2 = model_old.getGradientMinusLogLikelihood(x)
 print(grad1)
 print(grad2)
-#%%
+print(np.allclose(grad1, grad2))
 hess1 = model.getGNHessianMinusLogLikelihood(x)
 hess2 = model_old.getGNHessianMinusLogLikelihood(x)
 print(hess1)
 print(hess2)
-np.allclose(hess1, hess2)
+print(np.allclose(hess1, hess2))
 
 
 
