@@ -16,7 +16,7 @@ from functools import partial
 import jax
 from jax.config import config
 config.update("jax_enable_x64", True)
-from models.JAX_hybrid_rosenbrock import hybrid_rosenbrock as old_hybrid_rosenbrock
+import numpy as np
 
 class hybrid_rosenbrock:
     def __init__(self, n2, n1, mu, b):
@@ -147,55 +147,70 @@ class hybrid_rosenbrock:
 
 
 
-#%%
-import numpy as np
-n2 = 2
-n1 = 3
-mu = 1
-a = 1 / 20
-DoF = n2 * (n1 - 1) + 1
-b = jnp.zeros(DoF)
-b = b.at[0].set(a)
-b = b.at[1:].set(100 / 20)
-model = hybrid_rosenbrock(n2, n1, mu, b)
-model_old = old_hybrid_rosenbrock(n2=n2, n1=n1, mu=mu, a=a, b=np.ones((n2, n1-1)) * 100/20)
+# #%%
+# import numpy as np
+# n2 = 2
+# n1 = 3
+# mu = 1
+# a = 1 / 20
+# DoF = n2 * (n1 - 1) + 1
+# b = jnp.zeros(DoF)
+# b = b.at[0].set(a)
+# b = b.at[1:].set(100 / 20)
+# model = hybrid_rosenbrock(n2, n1, mu, b)
+# model_old = old_hybrid_rosenbrock(n2=n2, n1=n1, mu=mu, a=a, b=np.ones((n2, n1-1)) * 100/20)
 
-#%%
-# Unit tests: Evaluations of the likelihood, gradient, and GN-Hessian all agree!
-x = np.random.rand(DoF)
-x_ = x[np.newaxis,:]
-likelihood1 = model.getMinusLogLikelihood(x) 
-likelihood2 = model_old.getMinusLogLikelihood(x) + np.log(model.Z) # Old code was not normalized
-print(np.allclose(likelihood1, likelihood2))
-grad1 = model.getGradientMinusLogLikelihood(x)
-grad2 = model_old.getGradientMinusLogLikelihood(x)
-print(grad1)
-print(grad2)
-print(np.allclose(grad1, grad2))
-hess1 = model.getGNHessianMinusLogLikelihood(x)
-hess2 = model_old.getGNHessianMinusLogLikelihood(x)
-print(hess1)
-print(hess2)
-print(np.allclose(hess1, hess2))
+# #%%
+# # Unit tests: Evaluations of the likelihood, gradient, and GN-Hessian all agree!
+# x = np.random.rand(DoF)
+# x_ = x[np.newaxis,:]
+# likelihood1 = model.getMinusLogLikelihood(x) 
+# likelihood2 = model_old.getMinusLogLikelihood(x) + np.log(model.Z) # Old code was not normalized
+# print(np.allclose(likelihood1, likelihood2))
+# grad1 = model.getGradientMinusLogLikelihood(x)
+# grad2 = model_old.getGradientMinusLogLikelihood(x)
+# print(grad1)
+# print(grad2)
+# print(np.allclose(grad1, grad2))
+# hess1 = model.getGNHessianMinusLogLikelihood(x)
+# hess2 = model_old.getGNHessianMinusLogLikelihood(x)
+# print(hess1)
+# print(hess2)
+# print(np.allclose(hess1, hess2))
+
+# #%%
+# import corner
+# nSamples = 10000
+# samples1 = model_old.newDrawFromLikelihood(nSamples)
+# samples2 = model.newDrawFromLikelihood(nSamples)
+
+# # fig1 = corner.corner(samples1)
+# fig2 = corner.corner(samples2)
+
+
+# #%%
+# from chainconsumer import ChainConsumer
+# c = ChainConsumer()
+# c.add_chain(samples1, name='old')
+# c.add_chain(samples2, name='new')
+# c.plotter.plot()
 
 
 
 
 
+# #%%
+# # %%
+# # Incorrect for now!
+# grad1 = model.getGradientMinusLogLikelihood(x)
 
+# # Correct
+# grad2 = jax.grad(model.getMinusLogLikelihood)(x)
 
-#%%
-# %%
-# Incorrect for now!
-grad1 = model.getGradientMinusLogLikelihood(x)
+# # %%
+# def f(x):
+#     return x[0] * x + x * x[1]
 
-# Correct
-grad2 = jax.grad(model.getMinusLogLikelihood)(x)
-
-# %%
-def f(x):
-    return x[0] * x + x * x[1]
-
-x = jnp.array([1., 2.])
-result = jax.jacobian(f)(x)
-# %%
+# x = jnp.array([1., 2.])
+# result = jax.jacobian(f)(x)
+# # %%
