@@ -1,14 +1,10 @@
 """ 
-Hybrid Rosenbrock code
-Remark: Hybrid Rosenbrock is referred to as "likelihood" in the code.
+Implementation of https://arxiv.org/abs/1903.09556 with JAX
 """
 
 #%%
 import sys
 sys.path.append("..")
-
-
-#%%
 from opt_einsum import contract
 import jax.numpy as jnp
 import numpy as np
@@ -40,6 +36,7 @@ class hybrid_rosenbrock:
     
     def _getDependencyStructure(self, x):
         """Get the matrix representation of the dependency structure denoted in Figure 7 - https://arxiv.org/abs/1903.09556
+        Remark: This method will be used to express $x_{j,i}$, and $b_{j,i}$ in tensor form. This simplifies the implementation!
 
         Args:
             x (array): (DoF,) shaped array
@@ -54,7 +51,8 @@ class hybrid_rosenbrock:
         return structure
 
     def _getResiduals(self, x):
-        """Get residuals so that Hybrid Rosenbrock may be expressed in "least squares" form.
+        """Get residuals so that Hybrid Rosenbrock may be expressed in "least squares" form. That is,
+        $$-\ln \pi(x) = \frac{1}{2} \sum_{d=1}^{DoF} r(x;d)^2$$,
 
         Args:
             x (array): (DoF,) shaped array representing the point at which we wish to evaluate the residual
@@ -79,7 +77,7 @@ class hybrid_rosenbrock:
         """
         return jax.jacobian(self._getResiduals)(x)
 
-    def getMinusLogLikelihood(self, x):
+    def getMinusLogPosterior(self, x):
         """Get the minus log likelihood, also known as the "potential"
 
         Args:
@@ -91,7 +89,7 @@ class hybrid_rosenbrock:
         res = self._getResiduals(x)
         return jnp.sum(res ** 2) / 2 + jnp.log(self.Z)
 
-    def getGradientMinusLogLikelihood(self, x):
+    def getGradientMinusLogPosterior(self, x):
         """Get the gradient of the potential
 
         Args:
@@ -104,7 +102,7 @@ class hybrid_rosenbrock:
         jacRes = self._getJacobianResiduals(x)
         return contract('fi, f -> i', jacRes, res)
     
-    def getGNHessianMinusLogLikelihood(self, x):
+    def getGNHessianMinusLogPosterior(self, x):
         """Get the Gauss-Newton approximation of the potential
         Remark: Yields a positive definite approximation to the Hessian. See introduction to Chapter 10 Nocedal and Wright  
 
@@ -117,7 +115,7 @@ class hybrid_rosenbrock:
         jacRes = self._getJacobianResiduals(x)
         return contract('fi, fj -> ij', jacRes, jacRes)
 
-    def _getMinusLogLikelihood_direct(self, x):
+    def _getMinusLogPosterior_direct(self, x):
         X = self._getDependencyStructure(x)
         return self.b[0] * (x[0] - self.mu) ** 2 + jnp.sum(self.B[:,1:] * (X[:,1:] - X[:,:-1] ** 2) ** 2)
 
@@ -130,7 +128,15 @@ class hybrid_rosenbrock:
         """
         return (jnp.pi ** (self.DoF / 2)) / (jnp.prod(jnp.sqrt(self.b)))
     
-    def newDrawFromLikelihood(self, nSamples):
+    def newDrawFromPosterior(self, nSamples):
+        """Get i.i.d samples from hybrid Rosenbrock
+
+        Args:
+            nSamples (int): The number of samples to draw
+
+        Returns:
+            array: (nSamples, DoF) shaped array, where each row corresponds to a sample.
+        """
         samples = np.zeros((nSamples, self.DoF))
         index_structure = self._getDependencyStructure(np.arange(self.DoF))
         for d in range(self.DoF):
@@ -143,11 +149,47 @@ class hybrid_rosenbrock:
                 samples[:, d] = samples[:, d - 1] ** 2 + np.random.normal(0, 1, nSamples) * standard_deviation
         return samples
 
+    @partial(jax.jit, static_argnums=(0,))
+    def getMinusLogPosterior_ensemble(self, thetas):
+        """Batch evaluation of the potential
+
+        Args:
+            thetas (array): (N, DoF) shaped array, each row represents a point at which to evaluate the potential
+
+        Returns:
+            array: (N,) shaped array of potential avaluated at each row in 'thetas'
+        """
+        return jax.vmap(self.getMinusLogPosterior)(thetas)
+
+    @partial(jax.jit, static_argnums=(0,))
+    def getGradientMinusLogPosterior_ensemble(self, thetas):
+        """Batch evaluation of the gradient of the potential
+
+        Args:
+            thetas (array): (N, DoF) shaped array, each row represents a point at which to evaluate the potential
+
+        Returns:
+            array: (N, DoF) shaped array, each row represents the corresponding gradient evaluation
+        """
+        return jax.vmap(self.getGradientMinusLogPosterior)(thetas)
+
+    @partial(jax.jit, static_argnums=(0,))
+    def getGNHessianMinusLogPosterior_ensemble(self, thetas):
+        """Batch evaluation of the Gauss-Newton approximation to the Hessian of the potential
+
+        Args:
+            thetas (array): (N, DoF) shaped array, each row represents a point at which to evaluate the potential
+
+        Returns:
+            array: (N, d, d) shaped array, each index represents the corresponding GN-Hessian
+        """
+        return jax.vmap(self.getGNHessianMinusLogPosterior)(thetas)
 
 
 
 
 # #%%
+# Define problem
 # import numpy as np
 # n2 = 2
 # n1 = 3
