@@ -44,7 +44,7 @@ class hybrid_rosenbrock:
 
         # Precalculate theta independent objects
         self.jacGraph = self._getJacobianGraph()
-        self.hessRes = self._getHessianResidual()
+        # self.hessRes = self._getHessianResidual()
 
         self.priorDict = None
 #######################################################################################################################
@@ -121,20 +121,20 @@ class hybrid_rosenbrock:
         jacResidual = jacResidual.at[1:, :].set(contract('ab, abe -> abe', jnp.sqrt(self.b), self.jacGraph[:,1:] - jacGraphSquared).reshape(self.DoF - 1, self.DoF))
         return np.sqrt(2) * jacResidual
 
-    def _getHessianResidual(self):
-        """
-        Calculate the Hessian of the residual vector
-        Args:
-            theta (array): DoF sized array, point to evaluate at.
+    # def _getHessianResidual(self):
+    #     """
+    #     Calculate the Hessian of the residual vector
+    #     Args:
+    #         theta (array): DoF sized array, point to evaluate at.
 
-        Returns (array): DoF x DoF x DoF shaped Hessian evaluated at theta
+    #     Returns (array): DoF x DoF x DoF shaped Hessian evaluated at theta
 
-        """
-        # hessRes_num = Jacobian(Jacobian(self._getResidual))(np.zeros(self.DoF))
-        # np.allclose(hessRes_num, hessRes)
-        hessRes = jnp.zeros((self.DoF, self.DoF, self.DoF))
-        hessRes = hessRes.at[1:].set(contract('ji, jif, jie -> jief', -jnp.sqrt(8 * self.b), self.jacGraph[:, :-1], self.jacGraph[:, :-1]).reshape(self.DoF - 1, self.DoF, self.DoF))
-        return hessRes
+    #     """
+    #     # hessRes_num = Jacobian(Jacobian(self._getResidual))(np.zeros(self.DoF))
+    #     # np.allclose(hessRes_num, hessRes)
+    #     hessRes = jnp.zeros((self.DoF, self.DoF, self.DoF))
+    #     hessRes = hessRes.at[1:].set(contract('ji, jif, jie -> jief', -jnp.sqrt(8 * self.b), self.jacGraph[:, :-1], self.jacGraph[:, :-1]).reshape(self.DoF - 1, self.DoF, self.DoF))
+    #     return hessRes
 
     def getMinusLogLikelihood(self, theta):
         """
@@ -281,10 +281,11 @@ class hybrid_rosenbrock:
 
     def getMinusLogPosterior(self, theta):
         return self.getMinusLogLikelihood(theta) + self._getMinusLogPrior(theta)
-    @partial(jax.jit, static_argnums=(0,))
+
+    # @partial(jax.jit, static_argnums=(0,))
     def getGradientMinusLogPosterior(self, theta):
         return self.getGradientMinusLogLikelihood(theta) + self._getGradientMinusLogPrior(theta)
-    @partial(jax.jit, static_argnums=(0,))
+    # @partial(jax.jit, static_argnums=(0,))
     def getGNHessianMinusLogPosterior(self, theta):
         return self.getGNHessianMinusLogLikelihood(theta) + self._getHessianMinusLogPrior(theta)
 
@@ -306,8 +307,8 @@ class hybrid_rosenbrock:
     def getGNHessianMinusLogPosterior_ensemble(self, thetas):
         return jax.vmap(self.getGNHessianMinusLogPosterior)(thetas)
 
-    def getHessianMinusLogPosterior_ensemble(self, thetas):
-        return np.apply_along_axis(self.getHessianMinusLogPosterior, 1, thetas)
+    # def getHessianMinusLogPosterior_ensemble(self, thetas):
+    #     return np.apply_along_axis(self.getHessianMinusLogPosterior, 1, thetas)
 
 def main():
 

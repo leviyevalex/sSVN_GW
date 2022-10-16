@@ -133,3 +133,11 @@ class multivariate_gaussian:
 
 # # Get 3 samples, returning a 3 x 2 tensor.
 # dist.sample([3])
+#%%
+import jax.numpy as jnp
+import numpy as np
+
+H = jnp.array(np.random.rand(5, 5, 2, 2))
+
+res = H.swapaxes(1, 2).reshape(10, 10)
+# %%
