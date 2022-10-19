@@ -155,7 +155,7 @@ class samplers:
                         # self.kernelKwargs['M'] = jnp.mean(GN_Hmlpt, axis=0)
                         kernelKwargs['M'] = M
                         kx, gkx1 = self.__getKernelWithDerivatives_(X, kernelKwargs)
-                        NK = self._reshapeNNDDtoNDND(contract('mn, ij -> mnij', kx, np.eye(self.DoF)))
+                        NK = self._reshapeNNDDtoNDND(contract('mn, ij -> mnij', kx, jnp.eye(self.DoF)))
                         H1 = self._getSteinHessianPosdef(GN_Hmlpt, kx, gkx1)
                         lamb = 0.01
                         # lamb = 0.1
@@ -321,8 +321,8 @@ class samplers:
         Returns: (array) ND x ND SVN Hessian $H$
 
         """
-        H1 = contract("xy, xz, xbd -> yzbd", kx, kx, Hmlpt)
-        H2 = contract('xzi, xzj -> zij', gkx, gkx) # Only calculate block diagonal
+        H1 = contract("xy, xz, xbd -> yzbd", kx, kx, Hmlpt, backend='jax')
+        H2 = contract('xzi, xzj -> zij', gkx, gkx, backend='jax') # Only calculate block diagonal
         # H2 = contract('pni, pmj -> mnij', gkx, gkx) # calculate whole thing
 
         H1 = H1.at[jnp.array(range(self.nParticles)), jnp.array(range(self.nParticles))].add(H2)

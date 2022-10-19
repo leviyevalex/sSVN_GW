@@ -91,10 +91,10 @@ class kernels:
 
     @partial(jax.jit, static_argnums=(0,))
     def k_RBF(self, x, y, params):
-        # U = jax.scipy.linalg.cholesky(params['M'])
-        # x = U @ x 
-        # y = U @ y
-        return jnp.exp(-jnp.dot(x - y, params['M'] @ (x - y)) / (2 * params['h']))
+        U = jax.scipy.linalg.cholesky(params['M'])
+        x = U @ x 
+        y = U @ y
+        return jnp.exp(-jnp.dot(x - y, x - y) / (2 * params['h']))
 
     @partial(jax.jit, static_argnums=(0,))
     def k_RFG(self, x, y, params):
@@ -131,50 +131,50 @@ class kernels:
 #%%
 # UNIT TEST: Compare high performance RBF with vectorized RBF
 
-nParticles = 3
-DoF = 2
-kernel_class = kernels(nParticles=nParticles, DoF=DoF, kernel_type='RBF')
-particles = jnp.array(np.random.rand(nParticles, DoF))
-M = jnp.array([[10., 1], [1, 15]])
-# M = jnp.eye(DoF)
-h=2.
-params = {'M': M, 'h': h}
-k_1, g1k_1 = kernel_class.getKernelWithDerivatives(particles, params)
-k_2, g1k_2 = kernel_class.getKernelWithDerivatives_vectorized(particles, params)
-print(np.allclose(k_1, k_2))
-print(np.allclose(g1k_1, g1k_2))
+# nParticles = 3
+# DoF = 2
+# kernel_class = kernels(nParticles=nParticles, DoF=DoF, kernel_type='RBF')
+# particles = jnp.array(np.random.rand(nParticles, DoF))
+# M = jnp.array([[10., 1], [1, 15]])
+# # M = jnp.eye(DoF)
+# h=2.
+# params = {'M': M, 'h': h}
+# k_1, g1k_1 = kernel_class.getKernelWithDerivatives(particles, params)
+# k_2, g1k_2 = kernel_class.getKernelWithDerivatives_vectorized(particles, params)
+# print(np.allclose(k_1, k_2))
+# print(np.allclose(g1k_1, g1k_2))
 
-#%%
-# # UNIT TEST: Compare high performance RFG with vectorized RFG
+# #%%
+# # # UNIT TEST: Compare high performance RFG with vectorized RFG
 
-nParticles = 3
-DoF = 2
-kernel_class = kernels(nParticles=nParticles, DoF=DoF, kernel_type='RFG')
-particles = jnp.array(np.random.rand(nParticles, DoF))
-M = jnp.array([[10., 1], [1, 15]])
-# M = jnp.eye(DoF)
-h=2.
-params = {'M': M, 'h': h}
-k_1, g1k_1 = kernel_class.getKernelWithDerivatives(particles, params)
-k_2, g1k_2 = kernel_class.getKernelWithDerivatives_vectorized(particles, params)
-print(np.allclose(k_1, k_2))
-print(np.allclose(g1k_1, g1k_2))
+# nParticles = 3
+# DoF = 2
+# kernel_class = kernels(nParticles=nParticles, DoF=DoF, kernel_type='RFG')
+# particles = jnp.array(np.random.rand(nParticles, DoF))
+# M = jnp.array([[10., 1], [1, 15]])
+# # M = jnp.eye(DoF)
+# h=2.
+# params = {'M': M, 'h': h}
+# k_1, g1k_1 = kernel_class.getKernelWithDerivatives(particles, params)
+# k_2, g1k_2 = kernel_class.getKernelWithDerivatives_vectorized(particles, params)
+# print(np.allclose(k_1, k_2))
+# print(np.allclose(g1k_1, g1k_2))
 
-#%%
-# # UNIT TEST: Compare high performance Lp with vectorized Lp
+# #%%
+# # # UNIT TEST: Compare high performance Lp with vectorized Lp
 
-nParticles = 3
-DoF = 2
-kernel_class = kernels(nParticles=nParticles, DoF=DoF, kernel_type='Lp')
-particles = jnp.array(np.random.rand(nParticles, DoF))
-M = jnp.array([[10., 1], [1, 15]])
-# M = jnp.eye(DoF)
-h=2.
-params = {'M': M, 'h': h, 'p':2}
-k_1, g1k_1 = kernel_class.getKernelWithDerivatives(particles, params)
-k_2, g1k_2 = kernel_class.getKernelWithDerivatives_vectorized(particles, params)
-print(np.allclose(k_1, k_2))
-print(np.allclose(g1k_1, g1k_2))
+# nParticles = 3
+# DoF = 2
+# kernel_class = kernels(nParticles=nParticles, DoF=DoF, kernel_type='Lp')
+# particles = jnp.array(np.random.rand(nParticles, DoF))
+# M = jnp.array([[10., 1], [1, 15]])
+# # M = jnp.eye(DoF)
+# h=2.
+# params = {'M': M, 'h': h, 'p':2}
+# k_1, g1k_1 = kernel_class.getKernelWithDerivatives(particles, params)
+# k_2, g1k_2 = kernel_class.getKernelWithDerivatives_vectorized(particles, params)
+# print(np.allclose(k_1, k_2))
+# print(np.allclose(g1k_1, g1k_2))
 
 
 
