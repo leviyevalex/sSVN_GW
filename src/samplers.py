@@ -24,7 +24,7 @@ np.seterr(over='raise')
 np.seterr(invalid='raise')
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 class samplers:
-    def __init__(self, model, nIterations, nParticles, kernel_type, kernelKwargs, profile=None):
+    def __init__(self, model, nIterations, nParticles, kernel_type, profile=None):
         # Quick settings checks
         assert(nParticles > 0)
         assert(nIterations > 0)
@@ -58,11 +58,11 @@ class samplers:
         scipy_cholesky = lambda mat: jax.scipy.linalg.cholesky(mat)
         self.jit_scipy_cholesky = jax.jit(scipy_cholesky)
 
-        self.kernelKwargs = kernelKwargs
+        # self.kernelKwargs = kernelKwargs
         kernel_class = kernels(nParticles=self.nParticles, DoF=self.DoF, kernel_type=kernel_type)
         self._getKernelWithDerivatives = kernel_class.getKernelWithDerivatives
 
-    def apply(self, method='SVGD', eps=0.1):
+    def apply(self, kernelKwargs, method='SVGD', eps=0.1):
         """
         Evolves a set of particles according to (method) with step-size (eps).
         Args:
@@ -153,7 +153,8 @@ class samplers:
                         M = jnp.mean(GN_Hmlpt, axis=0)
                         # self.kernelKwargs['M'] = jnp.eye(self.DoF)
                         # self.kernelKwargs['M'] = jnp.mean(GN_Hmlpt, axis=0)
-                        kx, gkx1 = self.__getKernelWithDerivatives_(X, {'M':M, 'h': self.kernelKwargs['h']})
+                        kernelKwargs['M'] = M
+                        kx, gkx1 = self.__getKernelWithDerivatives_(X, kernelKwargs)
                         NK = self._reshapeNNDDtoNDND(contract('mn, ij -> mnij', kx, np.eye(self.DoF)))
                         H1 = self._getSteinHessianPosdef(GN_Hmlpt, kx, gkx1)
                         lamb = 0.01
