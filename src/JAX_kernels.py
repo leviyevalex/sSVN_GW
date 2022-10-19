@@ -33,6 +33,7 @@ class kernels:
     # Note: Requires a bit more care to implement correctly.
     ###########################################################
 
+    @partial(jax.jit, static_argnums=(0,))
     def getPairwiseDisplacement(self, X):
         return X[:,jnp.newaxis,:] - X[jnp.newaxis,:,:]
 
@@ -127,12 +128,6 @@ class kernels:
         return (k, g1k)
 
 
-#%% Import testing libraries
-
-import jax.numpy as jnp
-import numpy as np
-
-
 #%%
 # UNIT TEST: Compare high performance RBF with vectorized RBF
 
@@ -150,7 +145,7 @@ print(np.allclose(k_1, k_2))
 print(np.allclose(g1k_1, g1k_2))
 
 #%%
-# UNIT TEST: Compare high performance RFG with vectorized RFG
+# # UNIT TEST: Compare high performance RFG with vectorized RFG
 
 nParticles = 3
 DoF = 2
@@ -166,7 +161,7 @@ print(np.allclose(k_1, k_2))
 print(np.allclose(g1k_1, g1k_2))
 
 #%%
-# UNIT TEST: Compare high performance Lp with vectorized Lp
+# # UNIT TEST: Compare high performance Lp with vectorized Lp
 
 nParticles = 3
 DoF = 2
@@ -185,190 +180,5 @@ print(np.allclose(g1k_1, g1k_2))
 
 
 
-# Q: Presumably JAX is calculating things correctly? Why is there disagreement in the derivatives?
-# A: It looks like the derivatives are being calculated correctly when the metric is identity 
-
-# NOTE: There appears to be an error in how I am calculating the derivatives. Maybe its not
-# as simple as transforming coordinates for the derivative! 
-
-# NOTE: Go ahead and rederive the derivatives of the transformed kernel. Make sure it agrees!
-
-
-#%%
-
-# #%% Trying automatic differentiation on the kernel with JIT
-
-# # @partial(jax.jit, static_argnums=(3,))
-# # def gram(x, y, params, func):
-# #     return jax.vmap(lambda x1: jax.vmap(lambda y1: func(x1, y1, **params))(y))(x)
-
-# # @partial(jax.jit, static_argnums=(2,))
-# # def k_rbf(x, y, **kwargs):
-# #     return jnp.exp(-(x-y).T @ kwargs['M'] @ (x-y) / (2 * kwargs['h']))
-
-# #%% Unit test: Setup class
-# nParticles = 500
-# DoF = 15
-# M = jnp.eye(DoF)
-# h=2
-# # kernel_params = {'M':M, 'p':2, 'sigma':2, 'kernel_type':'Lp'} # For Lp
-# # kernel_params = {'M':M, 'p':2, 'sigma':2}
-# # kernel_params = {'M':M, 'h':2 'kernel_type':'RBF'} # For Lp
-# kernel_params = {'M':None, 'h':2} # RBF
-# kernel_class = kernels(nParticles, DoF, kernel_type='RBF')
-# particles = jnp.array(np.random.rand(nParticles, DoF))
-
-# kernel_class.k_RBF(particles[0], particles[1], kernel_params)
-
-
-
-# #%%
-# # @partial(jax.jit, static_argnums=(0,))
-# @jax.jit
-# def k_Lp(x, y, params):
-
-#     M = params['M']
-#     sigma = params['sigma']
-#     p = params['p']
-#     if M is not None:
-#         U = jax.scipy.linalg.cholesky(M)
-#         x = U @ x 
-#         y = U @ y
-#     # return jnp.exp(-jnp.linalg.norm(x-y, ord=p) ** p / (sigma ** p)) # This doesn't JIT compile?
-#     return jnp.exp(-jnp.sum(jnp.abs(x-y) ** p) / (sigma ** p))
-
-# k_Lp(particles[0], particles[1], kernel_params)
-
-
-# #%%
-# # kernel_class.k_Lp(particles[0], particles[1], p, M, sigma)
-# kernel_class.k_Lp(particles[0], particles[1], kernel_params)
-
-
-
-
-
-
-
-
-# #%%
-
-# k, g1k = kernel_class.getKernelWithDerivatives___(particles, kernel_params)
-# #%%
-
-
-
-
-# #%% Calculated traditionally (needs warmup)
-# k_1, g1k_1 = kernel_class.getKernelWithDerivatives(particles, M)
-
-
-# #%% Calculated using vectorization and jax
-# params = {'M':M, 'h':h}
-
-# k_2, g1k_2 = kernel_class.getKernelWithDerivatives___(particles, params)
-
-# # def getKernelWithDerivatives_(particles, params):
-# # k_2 = gram(particles, particles, params, k_rbf)
-# # g1k_2 = gram(particles, particles, params, jax.jacobian(k_rbf))
-#     # return (k, g1k)
-
-# #%% Check that they agree
-# print(np.allclose(k_1, k_2))
-# print(np.allclose(g1k_1, g1k_2))
-
-# #%%
-# @jax.jit
-# def getKernelWithDerivatives_(particles, params):
-#     k_2 = gram(particles, particles, params, k_rbf)
-#     g1k_2 = gram(particles, particles, params, jax.jacobian(k_rbf))
-#     return (k_2, g1k_2)
-
-# #%%
-# getKernelWithDerivatives_(particles, params)
-
-
-
-
-# #%%
-# kernel_class.getKernelWithDerivatives(particles, M)
-# #%%
-# getKernelWithDerivatives_(particles, params)
-
-
-
-
-
-# #%%
-
-
-
-
-# grad_kernels = jax.grad(k_rbf)(particles[0], particles[1], h, M)
-# np.allclose(grad_kernels, g1k[0, 1])
-# #%% Unit test: Lp
-
-# nParticles = 2
-# DoF = 2
-# M = jnp.eye(DoF)
-# h
-# sigma = 4
-# p = 2
-# kernel_class = kernels(nParticles, DoF, kernel_parameters={'h':h, 'kernel_type':'Lp'})
-
-# def k_Lp(x, y, sigma, p, M): # How to confirm that this is being calculated correctly (easily)?
-#     return jnp.exp(-jnp.sum(jnp.abs(x-y) ** p) / (sigma ** p))
-
-# grad_kernels = jax.grad(k_Lp)(particles[0], particles[1], sigma, p, M)
-
-
-# #%%
-
-# # >>> gram(kernel_rbf, {"gamma": 1.0}, X, Y)
-
-# return jax.vmap(lambda x1: jax.vmap(lambda y1: func(params, x1, y1))(y))(x)
-
-
-
-
-
-
-
-
-
-# pairwise_displacements = np.random.rand(5, 5, 3)
-# test1 = contract('mni, mni -> mn', pairwise_displacements, pairwise_displacements)
-# test2 = np.sum(pairwise_displacements ** 2, axis=-1)
-
-
-#%%
-# #%%
-# from jax import random
-# import jax.numpy as jnp
-# key = random.PRNGKey(0)
-# #%%
-# random.uniform(minval=0., maxval=2*jnp.pi, shape=(2,), key=key)
-
-# #%%
-# random.normal(shape=(5, 3), key=key)
-
-
-
-# #%%
-# def test(a, **kwargs):
-#     return kwargs['lala']
-
-# kwargs = {'lala' : 5}
-# test(1, **kwargs)
-
-# #%%
-# import numpy as np
-# a = np.array([[3, 2, 1],
-#               [4, 5, 6]])
-
-# b = np.array([3, 2, 2])
-
-# a / b
-# # %%
 
 # %%
