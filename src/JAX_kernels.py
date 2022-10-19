@@ -55,6 +55,7 @@ class kernels:
         k = jnp.exp(-jnp.sum(jnp.abs(pairwise_displacements) ** params['p'], axis=-1) / params['h'])
         g1k = (-params['p'] / params['h']) * contract('mn, mni -> mni', k, jnp.abs(pairwise_displacements) ** (params['p'] - 1)) * jnp.sign(pairwise_displacements)
         g1k = contract('ij, mni -> mnj', U, g1k)
+        g1k = g1k.at[jnp.array(range(self.nParticles)), jnp.array(range(self.nParticles))].set(0)
         return (k, g1k) # Derivative returned on first slot
 
     @partial(jax.jit, static_argnums=(0,))
