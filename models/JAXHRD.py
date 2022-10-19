@@ -33,6 +33,13 @@ class hybrid_rosenbrock:
         self.B = self._getDependencyStructure(self.b)
 
         self.Z = self.getPartitionFunction() # Inverse of normalization constant
+        self.priorDict = None
+        self.id = 'jax_hybrid_rosenbrock'
+
+        # Record evaluations
+        self.nLikelihoodEvaluations = 0
+        self.nGradLikelihoodEvaluations = 0
+        self.nHessLikelihoodEvaluations = 0
     
     def _getDependencyStructure(self, x):
         """Get the matrix representation of the dependency structure denoted in Figure 7 - https://arxiv.org/abs/1903.09556
@@ -185,9 +192,32 @@ class hybrid_rosenbrock:
         """
         return jax.vmap(self.getGNHessianMinusLogPosterior)(thetas)
 
+    def _newDrawFromPrior(self, nSamples):
+        """
+        Return samples from a uniform prior. Included for convenience.
+        Args:
+            nParticles (int): Number of samples to draw.
+
+        Returns: 
+            array: (nSamples, DoF) shaped array of samples from uniform prior
+
+        """
+        return np.random.uniform(low=-6, high=6, size=(nSamples, self.DoF))
+
+    @partial(jax.jit, static_argnums=(0,))
+    def getDerivativesMinusLogPosterior_ensemble(self, thetas):
+        gmlpt = self.getGradientMinusLogPosterior_ensemble(thetas)
+        Hmlpt = self.getGNHessianMinusLogPosterior_ensemble(thetas)
+        return (gmlpt, Hmlpt)
 
 
+#%%
+def f(x, **kwargs):
+    return x ** 2
 
+f(2, h=5, t=3)
+
+#%%
 # #%%
 # Define problem
 # import numpy as np
@@ -256,3 +286,5 @@ class hybrid_rosenbrock:
 # x = jnp.array([1., 2.])
 # result = jax.jacobian(f)(x)
 # # %%
+
+# %%

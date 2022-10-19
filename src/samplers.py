@@ -13,9 +13,10 @@ from scipy import sparse, linalg, spatial
 import scipy.sparse.linalg
 import jax
 import jax.numpy as jnp
-from src.kernels import get_randomRBF_metric as _getKernelWithDerivatives
+# from src.kernels import get_randomRBF_metric as _getKernelWithDerivatives
 from functools import partial
-from src.JAX_kernels import kernels
+# from src.JAX_kernels import kernels
+from src.vectorized_kernels import kernels
 # from sklearn import metrics
 
 log = logging.getLogger(__name__)
@@ -24,7 +25,7 @@ np.seterr(over='raise')
 np.seterr(invalid='raise')
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 class samplers:
-    def __init__(self, model, nIterations, nParticles, kernelKwargs, profile=None):
+    def __init__(self, model, nIterations, nParticles, kernelType, kernelKwargs, profile=None):
         # Quick settings checks
         assert(nParticles > 0)
         assert(nIterations > 0)
@@ -55,15 +56,14 @@ class samplers:
         self.nIterations = nIterations
         self.DoF = model.DoF
         self.dim = self.DoF * self.nParticles
-        # self.kernelKwargs = kernelKwargs
         scipy_cholesky = lambda mat: jax.scipy.linalg.cholesky(mat)
         self.jit_scipy_cholesky = jax.jit(scipy_cholesky)
 
-        kernel_class = kernels(nParticles=self.nParticles, DoF=self.DoF, **kernelKwargs)
+        kernel_class = kernels(nParticles=self.nParticles, DoF=self.DoF, kernel_type=kernelType)
         self._getKernelWithDerivatives = kernel_class.getKernelWithDerivatives
+        self.kernelKwargs = kernelKwargs
 
-
-    def apply(self, h, method='SVGD', eps=0.1):
+    def apply(self, method='SVGD', eps=0.1):
         """
         Evolves a set of particles according to (method) with step-size (eps).
         Args:
@@ -150,8 +150,9 @@ class samplers:
                         update = v_svn * eps
                     elif method == 'sSVN':
                         gmlpt, GN_Hmlpt = self._getDerivativesMinusLogPosterior_(X)
-                        M = jnp.mean(GN_Hmlpt, axis=0)
-                        kx, gkx1 = self.__getKernelWithDerivatives_(X, h, M)
+                        M = jnp.eye(self.DoF)
+                        # M = jnp.mean(GN_Hmlpt, axis=0)
+                        kx, gkx1 = self.__getKernelWithDerivatives_(X, M, self.kernelKwargs)
                         NK = self._reshapeNNDDtoNDND(contract('mn, ij -> mnij', kx, np.eye(self.DoF)))
                         H1 = self._getSteinHessianPosdef(GN_Hmlpt, kx, gkx1)
                         lamb = 0.01
@@ -174,7 +175,7 @@ class samplers:
                             g.create_dataset('X', data=copy.deepcopy(X))
                         else:
                             g.create_dataset('X', data=copy.deepcopy(self._F_inv(X, self.model.lower_bound, self.model.upper_bound)))
-                        g.create_dataset('h', data=copy.deepcopy(h))
+                        # g.create_dataset('h', data=copy.deepcopy(h))
                         g.create_dataset('eps', data=copy.deepcopy(eps))
                         g.create_dataset('gmlpt', data=copy.deepcopy(gmlpt))
                         g.create_dataset('id', data=copy.deepcopy(self.model.id))
@@ -320,7 +321,7 @@ class samplers:
         """
         H1 = contract("xy, xz, xbd -> yzbd", kx, kx, Hmlpt)
         # H2 = contract('xzi, xzj -> zij', gkx, gkx) # Only calculate block diagonal
-        H2 = contract('pni, pmj -> nmij', gkx, gkx) 
+        H2 = contract('pni, pmj -> mnij', gkx, gkx) 
 
         # H1 = H1.at[range(self.nParticles), range(self.nParticles)].add(H2)
         # H1[range(self.nParticles), range(self.nParticles)] += H2
@@ -482,14 +483,14 @@ class samplers:
 
             return (gmlpt, Hmlpt)
 
-    def __getKernelWithDerivatives_(self, Y, h, M):
+    def __getKernelWithDerivatives_(self, Y, M, params):
         if self.model.priorDict is None:
-            kx, gkx1 = self._getKernelWithDerivatives(Y, h, M)
+            kx, gkx1 = self._getKernelWithDerivatives(Y, M, **params)
             return (kx, gkx1)
         else:
             X = self._F_inv(Y, self.model.lower_bound, self.model.upper_bound)
             dF_inv = self._dF_inv(Y, self.model.lower_bound, self.model.upper_bound)
-            kx, gkx1_ = self._getKernelWithDerivatives(X, h, M)
+            kx, gkx1_ = self._getKernelWithDerivatives(X, M, **params)
             gkx1 = contract('md, mnd -> mnd', dF_inv, gkx1_)
             return (kx, gkx1)
 
