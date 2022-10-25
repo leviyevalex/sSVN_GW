@@ -106,3 +106,25 @@ def extract_moments(file):
                 mean_history[l,d] = mean[d]
                 cov_history[l,d] = cov[d, d]
     return {'mean_history': mean_history, 'cov_history': cov_history, 'DoF':DoF}
+
+def extract_gmlpt_norm(file):
+    with h5py.File(file, 'r') as hf:
+        iters_performed = hf['metadata']['L'][()]
+        norm_history = np.zeros((iters_performed))
+        for l in range(iters_performed):
+            gmlpt = hf['%i' % l]['gmlpt'][()]
+            norm_history[l] = np.linalg.norm(gmlpt)
+        return norm_history
+
+def extract_velocity_norms(file):
+    with h5py.File(file, 'r') as hf:
+        iters_performed = hf['metadata']['L'][()]
+        norm_history_svgd = np.zeros((iters_performed))
+        norm_history_svn = np.zeros((iters_performed))
+        for l in range(iters_performed):
+            v_svgd = hf['%i' % l]['v_svgd'][()]
+            v_svn = hf['%i' % l]['v_svn'][()]
+            norm_history_svgd[l] = np.linalg.norm(v_svgd)
+            norm_history_svn[l] = np.linalg.norm(v_svn)
+        return {'vsvn': norm_history_svn, 'vsvgd': norm_history_svgd}
+

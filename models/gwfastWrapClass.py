@@ -411,7 +411,7 @@ class gwfast_class(object):
 
 
 
-    # @partial(jax.jit, static_argnums=(0,))
+    @partial(jax.jit, static_argnums=(0,))
     def getMinusLogPosterior___(self, thetas):
         """_summary_
 
@@ -429,7 +429,7 @@ class gwfast_class(object):
             log_like = log_like + self._signal_inner_product(residual_dict[det], residual_dict[det], det, 'l')
         return log_like / 2
 
-    # @partial(jax.jit, static_argnums=(0,))
+    @partial(jax.jit, static_argnums=(0,))
     def getDerivativesMinusLogPosterior_ensemble(self, thetas):
         residual_dict = self._getResidual_Vec(thetas) 
         jacResidual_dict = self._getJacobianResidual_Vec(thetas)

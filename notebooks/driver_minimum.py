@@ -68,6 +68,11 @@ grad2 = jacobian(model.getMinusLogPosterior___)(particles)[0,0]
 np.allclose(grad1[0], grad2)
 
 #%%
+from numdifftools import Jacobian, Gradient
+
+Gradient(model.getMinusLogPosterior___)(particles.squeeze())
+
+#%%
 # Fisher tests
 injParams_copy  = copy.deepcopy(injParams)
 injParams_copy['tcoal'] /= model.time_scale # Put back into units of days for gwfast methods.

@@ -180,6 +180,8 @@ class samplers:
                         # g.create_dataset('h', data=copy.deepcopy(h))
                         g.create_dataset('eps', data=copy.deepcopy(eps))
                         g.create_dataset('gmlpt', data=copy.deepcopy(gmlpt))
+                        g.create_dataset('v_svgd', data=copy.deepcopy(v_svgd))
+                        g.create_dataset('v_svn', data=copy.deepcopy(v_svn))
                         g.create_dataset('id', data=copy.deepcopy(self.model.id))
 
                     # Update particles
