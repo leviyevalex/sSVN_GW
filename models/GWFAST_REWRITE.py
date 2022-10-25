@@ -1,29 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #%%
-from argparse import ArgumentDefaultsHelpFormatter
 from random import uniform
-# from tkinter import N
 import jax.numpy as jnp
 import jax
-
 import numpy as np
-import sys
 import os
 import time
-import copy
-import time
 import matplotlib.pyplot as plt
-
-import gwfast.gwfastUtils as utils
-import gwfast.gwfastGlobals as glob
 import gwfast.signal as signal
-
 from gwfast.network import DetNet
-from gwfast.waveforms import TaylorF2_RestrictedPN, IMRPhenomD
-# from astropy.cosmology import Planck18
 from opt_einsum import contract
-
 from functools import partial
 
 # nParticles = 1
@@ -59,11 +46,13 @@ class gwfast_class(object):
         self.grid_type = grid_type
         self.EarthMotion = EarthMotion
         self.injParams = injParams
+        self.DoF = 11
 
         self.gwfast_param_order = ['Mc','eta', 'dL', 'theta', 'phi', 'iota', 'psi', 'tcoal', 'Phicoal', 'chi1z', 'chi2z']
         self.gwfast_params_neglected = ['chi1x', 'chi2x', 'chi1y', 'chi2y', 'LambdaTilde', 'deltaLambda', 'ecc']
         self.dict_params_neglected_1 = {neglected_params: jnp.array([0.]).astype('complex128') for neglected_params in self.gwfast_params_neglected}
         self.dict_params_neglected_N = {neglected_params: jnp.zeros(self.nParticles).astype('complex128') for neglected_params in self.gwfast_params_neglected}
+        self.true_params = jnp.array([self.injParams[param].squeeze() for param in self.gwfast_param_order])
 
         self.time_scale = 3600. * 24. # Multiply to transform from units of days to units of seconds
 
@@ -73,15 +62,17 @@ class gwfast_class(object):
         self._initStrainData(method='sim', add_noise=False)
 
         # Warmup for JIT compile
-        self._warmup_potential(True)
+        # self._warmup_potential(True)
         self._warmup_potential_derivative(True) 
 
     def _warmup_potential(self, warmup):
         if warmup is True:
+            print('Warming up potential')
             self.getDerivativesMinusLogPosterior_ensemble(self._newDrawFromPrior(self.nParticles))
 
     def _warmup_potential_derivative(self, warmup):
         if warmup is True:
+            print('Warming up derivatives')
             self.getDerivativesMinusLogPosterior_ensemble(self._newDrawFromPrior(self.nParticles))
 
     def _initFrequencyGrid(self, grid_to_use):
@@ -101,7 +92,7 @@ class gwfast_class(object):
             self.grid_resolution = int(jnp.floor(jnp.real((1 + (fcut - self.fmin) / self.df))))
             self.fgrid = jnp.linspace(self.fmin, fcut, num=self.grid_resolution)
 
-        self.fgrids = jnp.repeat(self.fgrid, self.N, axis=1)
+        self.fgrids = jnp.repeat(self.fgrid, self.nParticles, axis=1)
 
     def _initDetectors(self): 
         """Initialize detectors and store PSD interpolated over defined frequency grid
@@ -142,7 +133,7 @@ class gwfast_class(object):
 
         """
         if method=='sim':
-            self.strain_data = self._simulate_signal(add_noise)
+            self.strain_data = self._simulate_signal()
             if add_noise is True:
                 # Add Gaussian noise with std given by the detector ASD if needed
                 for det in self.detsInNet.keys():
@@ -201,22 +192,22 @@ class gwfast_class(object):
         """
     
         residual = {}
-        X = X.T.astype('complex128')
+        X_ = X.T.astype('complex128')
         for det in self.detsInNet.keys():
             residual[det] = (self.detsInNet[det].GWstrain(self.fgrids, 
-                                                          Mc      = X[0],
-                                                          eta     = X[1],
-                                                          dL      = X[2],
-                                                          theta   = X[3],
-                                                          phi     = X[4],
-                                                          iota    = X[5],
-                                                          psi     = X[6],
-                                                          tcoal   = X[7] / self.time_scale, # Change units to seconds
-                                                          Phicoal = X[8],
-                                                          chiS    = X[9],
-                                                          chiA    = X[10],
+                                                          Mc      = X_[0],
+                                                          eta     = X_[1],
+                                                          dL      = X_[2],
+                                                          theta   = X_[3],
+                                                          phi     = X_[4],
+                                                          iota    = X_[5],
+                                                          psi     = X_[6],
+                                                          tcoal   = X_[7] / self.time_scale, # Change units to seconds
+                                                          Phicoal = X_[8],
+                                                          chiS    = X_[9],
+                                                          chiA    = X_[10],
                                                           is_chi1chi2 = 'True',
-                                                          **self.dict_params_neglected_N) - self.signal_data[det]).T # Return a N x f matrix
+                                                          **self.dict_params_neglected_N) - self.strain_data[det]).T # Return a N x f matrix
                          
         return residual 
 
@@ -235,21 +226,21 @@ class gwfast_class(object):
         """
 
         residualJac = {}
-        X = X.T.astype('complex128')
+        X_ = X.T.astype('complex128')
         
         for det in self.detsInNet.keys():
             residualJac[det] = self.detsInNet[det]._SignalDerivatives_use(self.fgrids, 
-                                                                          Mc      = X[0],
-                                                                          eta     = X[1],
-                                                                          dL      = X[2],
-                                                                          theta   = X[3],
-                                                                          phi     = X[4],
-                                                                          iota    = X[5],
-                                                                          psi     = X[6],
-                                                                          tcoal   = X[7] / self.time_scale, # Correction 1
-                                                                          Phicoal = X[8],
-                                                                          chiS    = X[9],
-                                                                          chiA    = X[10],
+                                                                          Mc      = X_[0],
+                                                                          eta     = X_[1],
+                                                                          dL      = X_[2],
+                                                                          theta   = X_[3],
+                                                                          phi     = X_[4],
+                                                                          iota    = X_[5],
+                                                                          psi     = X_[6],
+                                                                          tcoal   = X_[7] / self.time_scale, # Correction 1
+                                                                          Phicoal = X_[8],
+                                                                          chiS    = X_[9],
+                                                                          chiA    = X_[10],
                                                                           use_chi1chi2 = True,
                                                                           **self.dict_params_neglected_N) 
 
@@ -315,7 +306,7 @@ class gwfast_class(object):
             return 4 * jnp.trapz(integrand.real, self.fgrid.squeeze())
 
 
-    @partial(jax.jit, static_argnums=(0,))
+    # @partial(jax.jit, static_argnums=(0,))
     def getMinusLogPosterior___(self, thetas):
         """Calculates the potential
 
@@ -336,7 +327,7 @@ class gwfast_class(object):
         """
 
         residual_dict = self._getResidual_Vec(thetas) 
-        log_like = jnp.zeros(self.N)
+        log_like = jnp.zeros(self.nParticles)
         for det in self.detsInNet.keys():
             log_like = log_like + self._signal_inner_product(residual_dict[det], residual_dict[det], det, 'l')
         return log_like / 2
@@ -357,8 +348,8 @@ class gwfast_class(object):
         """
         residual_dict = self._getResidual_Vec(thetas) 
         jacResidual_dict = self._getJacobianResidual_Vec(thetas)
-        grad_log_like = jnp.zeros((self.N, self.DoF))
-        GN = jnp.zeros((self.N, self.DoF, self.DoF))
+        grad_log_like = jnp.zeros((self.nParticles, self.DoF))
+        GN = jnp.zeros((self.nParticles, self.DoF, self.DoF))
         for det in self.detsInNet.keys():
             grad_log_like = grad_log_like + self._signal_inner_product(jacResidual_dict[det], residual_dict[det], det, 'g')
             GN = GN + self._signal_inner_product(jacResidual_dict[det], jacResidual_dict[det], det, 'h')
@@ -375,7 +366,7 @@ class gwfast_class(object):
         return prior_draw
 
     def getCrossSection(self, a, b):
-        ngrid = int(np.sqrt(self.N))
+        ngrid = int(np.sqrt(self.nParticles))
         # a, b are the parameters for which we want the marginals:
         x = np.linspace(self.priorDict[a][0], self.priorDict[a][1], ngrid)
         y = np.linspace(self.priorDict[b][0], self.priorDict[b][1], ngrid)

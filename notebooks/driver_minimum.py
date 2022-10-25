@@ -12,7 +12,8 @@ import gwfast.gwfastUtils as utils
 import gwfast.gwfastGlobals as glob
 from gwfast.network import DetNet
 from gwfast.waveforms import TaylorF2_RestrictedPN, IMRPhenomD
-from models.gwfastWrapClass import gwfast_class
+# from models.gwfastWrapClass import gwfast_class
+from models.GWFAST_REWRITE import gwfast_class
 import jax.numpy as jnp
 from jax import jacobian
 
@@ -55,8 +56,8 @@ LV_detectors['L1']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', 'O3-L1
 
 #%%
 # Define class with relevant methods. 
-model = gwfast_class(LV_detectors, TaylorF2_RestrictedPN(), injParams, priorDict)
-# model = gwfast_class(LV_detectors, IMRPhenomD(), injParams, priorDict)
+# model = gwfast_class(LV_detectors, TaylorF2_RestrictedPN(), injParams, priorDict)
+model = gwfast_class(LV_detectors, IMRPhenomD(), injParams, priorDict)
 
 
 #%%
@@ -70,7 +71,7 @@ np.allclose(grad1[0], grad2)
 #%%
 from numdifftools import Jacobian, Gradient
 
-Gradient(model.getMinusLogPosterior___)(particles.squeeze())
+Jacobian(model.getMinusLogPosterior___)(particles)
 
 #%%
 # Fisher tests
