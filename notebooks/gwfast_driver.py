@@ -3,7 +3,8 @@
 import sys
 sys.path.append("..")
 # 
-from models.gwfastWrapClass import gwfast_class
+# from models.gwfastWrapClass import gwfast_class
+from models.GWFAST_REWRITE import gwfast_class
 from src.samplers import samplers
 from scripts.plot_helper_functions import collect_samples
 import numpy as np
@@ -33,12 +34,6 @@ import jax.numpy as jnp
 # (GW150914) like parameters
 #############################
 
-chi1z = np.array([0.27210419])
-chi2z = np.array([0.33355909])
-
-chiS = (chi1z + chi2z) / 2
-chiA = (chi1z - chi2z) / 2
-
 tGPS = np.array([1.12625946e+09])
 injParams = dict()
 injParams['Mc']      = np.array([34.3089283])        # Units: M_sun
@@ -51,12 +46,8 @@ injParams['psi']     = np.array([0.78539816])        # Units: Rad
 injParams['tcoal']   = np.array([0.])                # Units: Fraction of day 
 # injParams['tcoal'] = np.array(utils.GPSt_to_LMST(tGPS, lat=0., long=0.) * (3600 * 24)) # Coalescence time, in units of fraction of day (GMST is LMST computed at long = 0°) 
 injParams['Phicoal'] = np.array([0.])                # Units: Rad
-# injParams['chiS']    = chiS                         # Units: Unitless
-# injParams['chiA']    = chiA                         # Units: Unitless
-# injParams['chiS']    = chi1z                         # Units: Unitless
-# injParams['chiA']    = chi2z                         # Units: Unitless
-injParams['chi1z']    = chi1z                         # Units: Unitless
-injParams['chi2z']    = chi2z                         # Units: Unitless
+injParams['chi1z']   = np.array([0.27210419])        # Units: Unitless
+injParams['chi2z']   = np.array([0.33355909])        # Units: Unitless
 
 #%%
 #  Setup gravitational wave network problem
@@ -77,16 +68,15 @@ LV_detectors['L1']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detect
 LV_detectors['H1']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['H1'])
 # LV_detectors['Virgo']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['Virgo'])
 
-waveform = TaylorF2_RestrictedPN() # Choice of waveform
-# waveform = IMRPhenomD()
+# waveform = TaylorF2_RestrictedPN() # Choice of waveform
+waveform = IMRPhenomD()
 
-fgrid_dict = {'fmin': 20, 'fmax': 325, 'df': 1./5} # All parameters related to frequency grid.
 
-priorDict = OrderedDict()
+priorDict = {}
 
 priorDict['Mc']      = [29., 39.]          # (1)   # (0)
 priorDict['eta']     = [0.22, 0.25]        # (2)   # (1)
-priorDict['dL']      = [0.1, 3.]           # (3)   # (2)
+priorDict['dL']      = [0.1, 4.]           # (3)   # (2)
 priorDict['theta']   = [0., np.pi]         # (4)   # (3)
 priorDict['phi']     = [0., 2*np.pi]       # (5)   # (4)
 priorDict['iota']    = [0., np.pi]         # (6)   # (5)
@@ -99,9 +89,24 @@ priorDict['chi1z']    = [-1., 1.]           # (10)  # (9)
 priorDict['chi2z']    = [-1., 1.]           # (11)  # (10)
 
 #%%
-nParticles = 1
-model = gwfast_class(LV_detectors, waveform, injParams, priorDict, nParticles=nParticles, **fgrid_dict)
+nParticles = 200 ** 2
+model = gwfast_class(LV_detectors, waveform, injParams, priorDict, nParticles=nParticles)
 print('Using % i bins' % model.grid_resolution)
+
+#%%
+from itertools import combinations
+pairs = list(combinations(model.names_active, 2))
+for pair in pairs:
+    print(pair)
+    model.getCrossSection(pair[0], pair[1])
+
+
+
+
+#%%
+
+model.getCrossSection('dL', 'iota')
+
 #%%
 ###################################################
 # Diagnostics
@@ -110,8 +115,8 @@ print('Using % i bins' % model.grid_resolution)
 net = DetNet(model.detsInNet)
 snr = net.SNR(copy.deepcopy(injParams))
 print('SNR is  ', snr)
-L1_response = model.signal_data['L1']
-power_spectral_density = model.strainGrid['L1']
+L1_response = model.strain_data['L1']
+power_spectral_density = model.PSD_dict['L1']
 fig, axs = plt.subplots(1, 2)
 # axs[0].plot(model.fgrid, L1_response.squeeze())
 axs[0].plot(model.fgrid, (L1_response.squeeze() ** 2 / power_spectral_density))
@@ -128,13 +133,6 @@ grad2 = jacobian(model.getMinusLogPosterior___)(particles)[0,0]
 print(grad1[0])
 print(grad2)
 
-#%%
-# TEST: Keep things deterministic. Calculation in days
-true_particle_days = jnp.array(model.true_params)[np.newaxis,...] + 0.001
-grad1, Fisher1 = model.getDerivativesMinusLogPosterior_ensemble(true_particle_days)
-grad2 = jacobian(model.getMinusLogPosterior___)(true_particle_days)[0,0]
-print(grad1[0])
-print(grad2)
 
 #%%
 # TEST: Keep things deterministic. Calculation in sec
@@ -237,15 +235,9 @@ animation_path1 = animate_driver(contour_file_path1, sampler1)
 
 
 #%%
-model.getMarginal('dL', 'iota')
 
 
 #%%
-from itertools import combinations
-pairs = list(combinations(model.names_active, 2))
-for pair in pairs:
-    print(pair)
-    model.getMarginal(pair[0], pair[1])
 
 #%%
 from numdifftools import Gradient, Hessdiag

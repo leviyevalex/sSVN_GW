@@ -13,7 +13,6 @@ from gwfast.network import DetNet
 from opt_einsum import contract
 from functools import partial
 
-# nParticles = 1
 #%%
 class gwfast_class(object):
     
@@ -52,7 +51,10 @@ class gwfast_class(object):
         self.gwfast_params_neglected = ['chi1x', 'chi2x', 'chi1y', 'chi2y', 'LambdaTilde', 'deltaLambda', 'ecc']
         self.dict_params_neglected_1 = {neglected_params: jnp.array([0.]).astype('complex128') for neglected_params in self.gwfast_params_neglected}
         self.dict_params_neglected_N = {neglected_params: jnp.zeros(self.nParticles).astype('complex128') for neglected_params in self.gwfast_params_neglected}
+
         self.true_params = jnp.array([self.injParams[param].squeeze() for param in self.gwfast_param_order])
+        self.lower_bound = np.array([self.priorDict[param][0] for param in self.gwfast_param_order])
+        self.upper_bound = np.array([self.priorDict[param][1] for param in self.gwfast_param_order])
 
         self.time_scale = 3600. * 24. # Multiply to transform from units of days to units of seconds
 
@@ -62,8 +64,8 @@ class gwfast_class(object):
         self._initStrainData(method='sim', add_noise=False)
 
         # Warmup for JIT compile
-        # self._warmup_potential(True)
-        self._warmup_potential_derivative(True) 
+        self._warmup_potential(False)
+        self._warmup_potential_derivative(False) 
 
     def _warmup_potential(self, warmup):
         if warmup is True:
@@ -307,7 +309,7 @@ class gwfast_class(object):
 
 
     # @partial(jax.jit, static_argnums=(0,))
-    def getMinusLogPosterior___(self, thetas):
+    def getMinusLogPosterior_ensemble(self, thetas):
         """Calculates the potential
 
         Parameters
@@ -372,8 +374,8 @@ class gwfast_class(object):
         y = np.linspace(self.priorDict[b][0], self.priorDict[b][1], ngrid)
         X, Y = np.meshgrid(x, y)
         particle_grid = np.zeros((ngrid ** 2, self.DoF))
-        index1 = self.names_active.index(a)
-        index2 = self.names_active.index(b)
+        index1 = self.gwfast_param_order.index(a)
+        index2 = self.gwfast_param_order.index(b)
         parameter_mesh = np.vstack((np.ndarray.flatten(X), np.ndarray.flatten(Y))).T
         particle_grid[:, index1] = parameter_mesh[:, 0]
         particle_grid[:, index2] = parameter_mesh[:, 1]
