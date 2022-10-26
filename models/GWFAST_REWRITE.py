@@ -64,8 +64,8 @@ class gwfast_class(object):
         self._initStrainData(method='sim', add_noise=False)
 
         # Warmup for JIT compile
-        self._warmup_potential(False)
-        self._warmup_potential_derivative(False) 
+        self._warmup_potential(True)
+        self._warmup_potential_derivative(True) 
 
     def _warmup_potential(self, warmup):
         if warmup is True:
@@ -308,7 +308,7 @@ class gwfast_class(object):
             return 4 * jnp.trapz(integrand.real, self.fgrid.squeeze())
 
 
-    # @partial(jax.jit, static_argnums=(0,))
+    @partial(jax.jit, static_argnums=(0,))
     def getMinusLogPosterior_ensemble(self, thetas):
         """Calculates the potential
 
