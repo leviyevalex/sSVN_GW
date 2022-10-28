@@ -54,8 +54,8 @@ injParams['chi2z']   = np.array([0.33355909])        # Units: Unitless
 
 all_detectors = copy.deepcopy(glob.detectors) # Geometry of every available detector
 
-# LV_detectors = {det:all_detectors[det] for det in ['L1', 'H1', 'Virgo']} # Extract only LIGO/Virgo detectors
-LV_detectors = {det:all_detectors[det] for det in ['L1', 'H1']}
+LV_detectors = {det:all_detectors[det] for det in ['L1', 'H1', 'Virgo']} # Extract only LIGO/Virgo detectors
+# LV_detectors = {det:all_detectors[det] for det in ['L1', 'H1']}
 
 print('Using detectors ' + str(list(LV_detectors.keys())))
 
@@ -66,10 +66,10 @@ detector_ASD['Virgo'] = 'O3-V1_sensitivity_strain_asd.txt'
 
 LV_detectors['L1']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['L1']) # Add paths to detector sensitivities
 LV_detectors['H1']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['H1'])
-# LV_detectors['Virgo']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['Virgo'])
+LV_detectors['Virgo']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['Virgo'])
 
-# waveform = TaylorF2_RestrictedPN() # Choice of waveform
-waveform = IMRPhenomD()
+waveform = TaylorF2_RestrictedPN() # Choice of waveform
+# waveform = IMRPhenomD()
 
 
 priorDict = {}
@@ -81,7 +81,7 @@ priorDict['theta']   = [0., np.pi]         # (4)   # (3)
 priorDict['phi']     = [0., 2*np.pi]       # (5)   # (4)
 priorDict['iota']    = [0., np.pi]         # (6)   # (5)
 priorDict['psi']     = [0., np.pi]         # (7)   # (6)
-priorDict['tcoal']   = [injParams['tcoal'][0] - 0.001, injParams['tcoal'][0] + 0.001]           # (8)   # (7)
+priorDict['tcoal']   = [injParams['tcoal'][0] - 1e-7, injParams['tcoal'][0] + 1e-7]           # (8)   # (7)
 priorDict['Phicoal'] = [0., 0.1]           # (9)   # (8)
 # priorDict['chiS']    = [-1., 1.]           # (10)  # (9)
 # priorDict['chiA']    = [-1., 1.]           # (11)  # (10)
@@ -89,13 +89,13 @@ priorDict['chi1z']    = [-1., 1.]           # (10)  # (9)
 priorDict['chi2z']    = [-1., 1.]           # (11)  # (10)
 
 #%%
-nParticles = 200 ** 2
+nParticles = 1
 model = gwfast_class(LV_detectors, waveform, injParams, priorDict, nParticles=nParticles)
 print('Using % i bins' % model.grid_resolution)
 
 #%%
 from itertools import combinations
-pairs = list(combinations(model.names_active, 2))
+pairs = list(combinations(model.gwfast_param_order, 2))
 for pair in pairs:
     print(pair)
     model.getCrossSection(pair[0], pair[1])

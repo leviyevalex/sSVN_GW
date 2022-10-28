@@ -12,6 +12,8 @@ import gwfast.signal as signal
 from gwfast.network import DetNet
 from opt_einsum import contract
 from functools import partial
+from jax.config import config
+config.update("jax_enable_x64", True)
 
 #%%
 class gwfast_class(object):
@@ -58,7 +60,7 @@ class gwfast_class(object):
 
         self.time_scale = 3600. * 24. # Multiply to transform from units of days to units of seconds
 
-        self.grid_type = 'geometric' # 'linear
+        self.grid_type = 'linear' # 'geometric'
         self._initFrequencyGrid(self.grid_type)
         self._initDetectors()
         self._initStrainData(method='sim', add_noise=False)
@@ -90,7 +92,7 @@ class gwfast_class(object):
             self.grid_resolution = int(100)
             self.fgrid = jnp.geomspace(self.fmin, fcut, num=self.grid_resolution)
         elif grid_to_use == 'linear':
-            self.df = 1./5
+            self.df = 1 / 4. # Sampling rate in Hz 
             self.grid_resolution = int(jnp.floor(jnp.real((1 + (fcut - self.fmin) / self.df))))
             self.fgrid = jnp.linspace(self.fmin, fcut, num=self.grid_resolution)
 
@@ -135,7 +137,7 @@ class gwfast_class(object):
 
         """
         if method=='sim':
-            self.strain_data = self._simulate_signal()
+            self.strain_data = self._simulateSignal()
             if add_noise is True:
                 # Add Gaussian noise with std given by the detector ASD if needed
                 for det in self.detsInNet.keys():
@@ -143,7 +145,7 @@ class gwfast_class(object):
         else:
             raise NotImplementedError
 
-    def _simulate_signal(self):
+    def _simulateSignal(self):
         """Calculates (clean) mock signal in each detector given injected parameters
 
         Parameters
@@ -156,9 +158,9 @@ class gwfast_class(object):
         np.random.seed(None)
 
         # Compute the signal as seen in each detector and store the result
-        signal_data = {}
+        strain_data = {}
         for det in self.detsInNet.keys():
-            signal_data[det] = self.detsInNet[det].GWstrain(self.fgrid, 
+            strain_data[det] = self.detsInNet[det].GWstrain(self.fgrid, 
                                                             Mc      = self.injParams['Mc'].astype('complex128'),
                                                             eta     = self.injParams['eta'].astype('complex128'),
                                                             dL      = self.injParams['dL'].astype('complex128'),
@@ -173,7 +175,7 @@ class gwfast_class(object):
                                                             is_chi1chi2 = 'True',
                                                             **self.dict_params_neglected_1)
 
-        return signal_data
+        return strain_data
 
     def _getResidual_Vec(self, X):
         """A vectorized method which calculates the residual between the the template with batch parameters 'X' and signal 
@@ -250,64 +252,6 @@ class gwfast_class(object):
 
         return residualJac
             
-    def _riemannSum(self, integrand, grid, axis=-1):
-        """Approximate integral using Riemann sum definition
-
-        Parameters
-        ----------
-        integrand : array
-            (..., f) shaped array by default representing the integrand
-        grid : array
-            (f,) shaped array representing the grid
-            
-        axis : int, optional
-            axis of integration, by default -1
-
-        Returns
-        -------
-        array
-            Array with one fewer axis representing the integral
-        """
-        return jnp.sum(integrand[..., :-1] * (grid[1:] - grid[:-1]), axis=axis)
-
-    def _signal_inner_product(self, a, b, det, mode):
-        """Evaluate noise-weighted inner product
-
-        Parameters
-        ----------
-        a : array
-            First element in inner product
-        b : array
-            Second element in inner product
-        det : str
-            String representing which detector noise characteristic to use in weighing procedure. Options = 'L1', 'H1', 'Virgo'
-        mode : str
-            String representing what kind of tensor is in first slot of inner product.
-            'l' = Needed in calculating the likelihood
-            'g' = Needed in calculating the gradient of the likelihood
-            'h' = Needed in calculating the Fisher information
-
-        Returns
-        -------
-        array
-            Returns the noise weighted inner product
-        """
-        quadrature_rule = 'trapezoid' 
-        # quadrature_rule = 'riemann'
-
-        if mode == 'l':
-            integrand = contract('Nf,  Nf,  f -> Nf',   a.conjugate(), b, 1 / self.PSD_dict[det])
-        elif mode == 'g':
-            integrand = contract('dNf, Nf,  f -> Ndf',  a.conjugate(), b, 1 / self.PSD_dict[det])
-        elif mode == 'h':
-            integrand = contract('dNf, bNf, f -> Ndbf', a.conjugate(), b, 1 / self.PSD_dict[det])
-
-        if quadrature_rule == 'riemann':
-            return 4 * self._riemannSum(integrand.real, self.fgrid.squeeze())
-        elif quadrature_rule == 'trapezoid':
-            return 4 * jnp.trapz(integrand.real, self.fgrid.squeeze())
-
-
     @partial(jax.jit, static_argnums=(0,))
     def getMinusLogPosterior_ensemble(self, thetas):
         """Calculates the potential
@@ -327,13 +271,12 @@ class gwfast_class(object):
         (1) arxiv:1809.02293 Eq 42.
 
         """
-
         residual_dict = self._getResidual_Vec(thetas) 
         log_like = jnp.zeros(self.nParticles)
-        for det in self.detsInNet.keys():
-            log_like = log_like + self._signal_inner_product(residual_dict[det], residual_dict[det], det, 'l')
-        return log_like / 2
-
+        for det in self.detsInNet:
+            log_like = log_like + contract('Nf, Nf, f -> N', residual_dict[det].conjugate(), residual_dict[det], 1 / self.PSD_dict[det]).real
+        return self.df * log_like / 2
+    
     @partial(jax.jit, static_argnums=(0,))
     def getDerivativesMinusLogPosterior_ensemble(self, thetas):
         """Method calculating both the gradient of the potential and the Fisher information matrix
@@ -352,10 +295,121 @@ class gwfast_class(object):
         jacResidual_dict = self._getJacobianResidual_Vec(thetas)
         grad_log_like = jnp.zeros((self.nParticles, self.DoF))
         GN = jnp.zeros((self.nParticles, self.DoF, self.DoF))
-        for det in self.detsInNet.keys():
-            grad_log_like = grad_log_like + self._signal_inner_product(jacResidual_dict[det], residual_dict[det], det, 'g')
-            GN = GN + self._signal_inner_product(jacResidual_dict[det], jacResidual_dict[det], det, 'h')
-        return (grad_log_like, GN)
+        for det in self.detsInNet:
+            grad_log_like = grad_log_like + contract('dNf, Nf, f -> Nd', jacResidual_dict[det].conjugate(), residual_dict[det], 1 / self.PSD_dict[det]).real 
+            GN = GN + contract('dNf, bNf, f -> Ndb', jacResidual_dict[det].conjugate(), jacResidual_dict[det], 1 / self.PSD_dict[det]).real
+        return (self.df * grad_log_like, self.df * GN)
+
+
+
+
+
+    # def _riemannSum(self, integrand, grid, axis=-1):
+    #     """Approximate integral using Riemann sum definition
+
+    #     Parameters
+    #     ----------
+    #     integrand : array
+    #         (..., f) shaped array by default representing the integrand
+    #     grid : array
+    #         (f,) shaped array representing the grid
+            
+    #     axis : int, optional
+    #         axis of integration, by default -1
+
+    #     Returns
+    #     -------
+    #     array
+    #         Array with one fewer axis representing the integral
+    #     """
+    #     return jnp.sum(integrand[..., :-1] * (grid[1:] - grid[:-1]), axis=axis)
+
+    # def _signal_inner_product(self, a, b, det, mode):
+    #     """Evaluate noise-weighted inner product
+
+    #     Parameters
+    #     ----------
+    #     a : array
+    #         First element in inner product
+    #     b : array
+    #         Second element in inner product
+    #     det : str
+    #         String representing which detector noise characteristic to use in weighing procedure. Options = 'L1', 'H1', 'Virgo'
+    #     mode : str
+    #         String representing what kind of tensor is in first slot of inner product.
+    #         'l' = Needed in calculating the likelihood
+    #         'g' = Needed in calculating the gradient of the likelihood
+    #         'h' = Needed in calculating the Fisher information
+
+    #     Returns
+    #     -------
+    #     array
+    #         Returns the noise weighted inner product
+    #     """
+    #     quadrature_rule = 'trapezoid' 
+    #     # quadrature_rule = 'riemann'
+
+    #     if mode == 'l':
+    #         integrand = contract('Nf,  Nf,  f -> Nf',   a.conjugate(), b, 1 / self.PSD_dict[det])
+    #     elif mode == 'g':
+    #         integrand = contract('dNf, Nf,  f -> Ndf',  a.conjugate(), b, 1 / self.PSD_dict[det])
+    #     elif mode == 'h':
+    #         integrand = contract('dNf, bNf, f -> Ndbf', a.conjugate(), b, 1 / self.PSD_dict[det])
+
+    #     if quadrature_rule == 'riemann':
+    #         return 4 * self._riemannSum(integrand.real, self.fgrid.squeeze())
+    #     elif quadrature_rule == 'trapezoid':
+    #         return 4 * jnp.trapz(integrand.real, self.fgrid.squeeze())
+
+
+    # # @partial(jax.jit, static_argnums=(0,))
+    # def getMinusLogPosterior_ensemble(self, thetas):
+    #     """Calculates the potential
+
+    #     Parameters
+    #     ----------
+    #     thetas : array
+    #         (N, d) shaped array representing particle positions
+
+    #     Returns
+    #     -------
+    #     array
+    #         (N,) shaped array of potential evaluations
+        
+    #     References
+    #     ----------
+    #     (1) arxiv:1809.02293 Eq 42.
+
+    #     """
+
+    #     residual_dict = self._getResidual_Vec(thetas) 
+    #     log_like = jnp.zeros(self.nParticles)
+    #     for det in self.detsInNet.keys():
+    #         log_like = log_like + self._signal_inner_product(residual_dict[det], residual_dict[det], det, 'l')
+    #     return log_like / 2
+
+    # # @partial(jax.jit, static_argnums=(0,))
+    # def getDerivativesMinusLogPosterior_ensemble(self, thetas):
+    #     """Method calculating both the gradient of the potential and the Fisher information matrix
+
+    #     Parameters
+    #     ----------
+    #     thetas : array
+    #         (N, d) shaped array representing particle positions
+
+    #     Returns
+    #     -------
+    #     tuple
+    #         returns (N, d), (N, d, d) shaped arrays representing the gradient of the potential and the Fisher matrix respectively
+    #     """
+    #     residual_dict = self._getResidual_Vec(thetas) 
+    #     jacResidual_dict = self._getJacobianResidual_Vec(thetas)
+    #     grad_log_like = jnp.zeros((self.nParticles, self.DoF))
+    #     GN = jnp.zeros((self.nParticles, self.DoF, self.DoF))
+    #     for det in self.detsInNet.keys():
+    #         grad_log_like = grad_log_like + self._signal_inner_product(jacResidual_dict[det], residual_dict[det], det, 'g')
+    #         GN = GN + self._signal_inner_product(jacResidual_dict[det], jacResidual_dict[det], det, 'h')
+    #     return (grad_log_like, GN)
 
     def _newDrawFromPrior(self, nSamples):
         prior_draw = np.zeros((nSamples, self.DoF))

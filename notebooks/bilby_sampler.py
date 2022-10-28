@@ -37,6 +37,129 @@ injParams['chi1z']   = np.array([0.27210419])        # Units: Unitless
 injParams['chi2z']   = np.array([0.33355909])        # Units: Unitless
 
 #%%
+# Setting up gravitational wave problem using BILBY alone
+
+# Model details
+approximant = "IMRPhenomD"
+injection_parameters = dict(
+    chirp_mass=1.2,
+    mass_ratio=0.8,
+    chi_1=0.0,
+    chi_2=0.0,
+    ra=3.44616,
+    dec=-0.408084,
+    luminosity_distance=200.0,
+    theta_jn=0.4,
+    psi=0.659,
+    phase=1.3,
+    geocent_time=1187008882)
+
+# Grid details
+minimum_frequency = 20
+reference_frequency = 100
+duration = 256
+sampling_frequency = 4096
+
+# Setup Bilby uniform prior over all parameters.
+
+
+
+
+
+priors = bilby.gw.prior.BBHPriorDict()
+priors.pop("mass_1")
+priors.pop("mass_2")
+priors["mass_ratio"] = bilby.core.prior.Uniform(0.125, 1)
+priors["geocent_time"] = bilby.core.prior.Uniform(injection_parameters["geocent_time"] - 0.1, injection_parameters["geocent_time"] + 0.1)
+
+
+
+
+
+
+
+
+
+
+
+waveform_generator = bilby.gw.WaveformGenerator(duration=duration,
+                                                sampling_frequency=sampling_frequency,
+                                                frequency_domain_source_model=bilby.gw.source.lal_binary_black_hole,
+                                                parameter_conversion=bilby.gw.conversion.convert_to_lal_binary_black_hole_parameters,
+                                                waveform_arguments=waveform_arguments,
+)
+
+ifos = bilby.gw.detector.InterferometerList(["H1", "L1"])
+ifos.set_strain_data_from_power_spectral_densities(
+    sampling_frequency=sampling_frequency,
+    duration=duration,
+    start_time=injection_parameters["geocent_time"] - 2,
+)
+
+ifos.inject_signal(
+    waveform_generator=waveform_generator, parameters=injection_parameters
+)
+
+priors = bilby.gw.prior.BBHPriorDict()
+del priors["ra"], priors["dec"]
+priors["zenith"] = bilby.core.prior.Sine(latex_label="$\\kappa$")
+priors["azimuth"] = bilby.core.prior.Uniform(
+    minimum=0, maximum=2 * np.pi, latex_label="$\\epsilon$", boundary="periodic"
+)
+
+# Initialise the likelihood by passing in the interferometer data (ifos) and
+# the waveoform generator, as well the priors.
+# The explicit distance marginalization is turned on to improve
+# convergence, and the posterior is recovered by the conversion function.
+likelihood = bilby.gw.GravitationalWaveTransient(
+    interferometers=ifos,
+    waveform_generator=waveform_generator,
+    priors=priors,
+    distance_marginalization=True,
+    phase_marginalization=False,
+    time_marginalization=False,
+    reference_frame="H1L1",
+    time_reference="H1",
+)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#%%
 #  Setup gravitational wave network problem
 
 all_detectors = copy.deepcopy(glob.detectors) # Geometry of every available detector

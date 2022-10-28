@@ -17,6 +17,8 @@ import jax.numpy as jnp
 from functools import partial
 from src.JAX_kernels import kernels
 # from sklearn import metrics
+from jax.config import config
+config.update("jax_enable_x64", True)
 
 log = logging.getLogger(__name__)
 # log.addHandler(logging.StreamHandler(stream=sys.stdout))
