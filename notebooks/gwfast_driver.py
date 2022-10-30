@@ -68,8 +68,8 @@ LV_detectors['L1']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detect
 LV_detectors['H1']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['H1'])
 LV_detectors['Virgo']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['Virgo'])
 
-waveform = TaylorF2_RestrictedPN() # Choice of waveform
-# waveform = IMRPhenomD()
+# waveform = TaylorF2_RestrictedPN() # Choice of waveform
+waveform = IMRPhenomD()
 
 
 priorDict = {}
@@ -129,7 +129,7 @@ axs[1].plot(model.fgrid, (L1_response.squeeze()))
 
 particles = jnp.array(model._newDrawFromPrior(nParticles))
 grad1, Fisher1 = model.getDerivativesMinusLogPosterior_ensemble(particles)
-grad2 = jacobian(model.getMinusLogPosterior___)(particles)[0,0]
+grad2 = jacobian(model.getMinusLogPosterior_ensemble)(particles)[0,0]
 print(grad1[0])
 print(grad2)
 
@@ -731,4 +731,39 @@ test_c = contract('dn...,bn...,... -> n...', a1, a2, c1)
 
 test_d = contract()
 
+# %%
+import jax.numpy as jnp
+import matplotlib.pyplot as plt
+from jax.config import config
+config.update("jax_enable_x64", True)
+def _riemannSum(integrand, grid, axis=-1):
+    """Approximate integral using Riemann sum definition
+
+    Parameters
+    ----------
+    integrand : array
+        (..., f) shaped array by default representing the integrand
+    grid : array
+        (f,) shaped array representing the grid
+        
+    axis : int, optional
+        axis of integration, by default -1
+
+    Returns
+    -------
+    array
+        Array with one fewer axis representing the integral
+    """
+    return jnp.sum(integrand[..., :-1] * (grid[1:] - grid[:-1]), axis=axis)
+
+def func(x):
+    return x ** 2
+
+grid = jnp.arange(-1, 1, step=0.001)
+integrand = func(grid)
+
+res = _riemannSum(integrand, grid)
+
+# %%
+plt.plot(grid, integrand)
 # %%

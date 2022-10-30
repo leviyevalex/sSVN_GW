@@ -485,7 +485,7 @@ class samplers:
             gmlpt = gmlpt_X * dF_inv - diagHessF_inv / dF_inv
 
             Hmlpt = contract('Nd, Nb, Ndb -> Ndb', dF_inv, dF_inv, Hmlpt_X)  
-            Hmlpt[:, range(self.DoF), range(self.DoF)] += 2 * np.exp(X) / (1 + np.exp(X)) ** 2
+            Hmlpt[:, range(self.DoF), range(self.DoF)] += 2 * np.exp(Y) / (1 + np.exp(Y)) ** 2
 
             return (gmlpt, Hmlpt)
 

@@ -21,7 +21,9 @@ class multivariate_gaussian:
         self.sigma = sigma 
         self.DoF = sigma.shape[0]
         self.Z = self.getNormalizationConstant(sigma)
-        self.priorDict = None # hack
+        self.priorDict = 1
+        self.lower_bound = np.ones(self.DoF) * (-2)
+        self.upper_bound = np.ones(self.DoF) * (2)
         self.id = 'multivariate_gaussian'
         # Record evaluations
         self.nLikelihoodEvaluations = 0
@@ -59,7 +61,13 @@ class multivariate_gaussian:
             Returns: (array) nSamples x DoF array of representative samples
 
             """
-            return np.random.uniform(low=-6, high=6, size=(nParticles, self.DoF))
+            return np.random.uniform(low=-2, high=2, size=(nParticles, self.DoF))
+
+    # def initPriorDict(self):
+    #     priorDict = {}
+    #     for i in range(self.DoF):
+    #         priorDict['x_%i' % i] = [-2 ,2]
+    #     return priorDict
 
     def newDrawFromLikelihood(self, nParticles):
         return np.random.multivariate_normal(mean=self.mu, cov=np.diag(self.sigma), size=nParticles)

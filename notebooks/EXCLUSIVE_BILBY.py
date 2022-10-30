@@ -145,7 +145,7 @@ def L(theta):
     for i in range(11):
         param_dict[list(prior_ranges.keys())[i]] = theta[i]
     likelihood.parameters = param_dict
-    return likelihood.log_likelihood
+    return likelihood.log_likelihood()
 
 getMinusLogPosterior_ensemble = lambda X: np.apply_along_axis(L, 1, X)
 nParticles = 200 ** 2

@@ -92,8 +92,9 @@ class gwfast_class(object):
             self.grid_resolution = int(100)
             self.fgrid = jnp.geomspace(self.fmin, fcut, num=self.grid_resolution)
         elif grid_to_use == 'linear':
-            self.df = 1 / 4. # Sampling rate in Hz 
+            self.df = 1 / 2. # Sampling rate in Hz 
             self.grid_resolution = int(jnp.floor(jnp.real((1 + (fcut - self.fmin) / self.df))))
+            print('Using % i bins' % self..grid_resolution)
             self.fgrid = jnp.linspace(self.fmin, fcut, num=self.grid_resolution)
 
         self.fgrids = jnp.repeat(self.fgrid, self.nParticles, axis=1)
@@ -304,25 +305,25 @@ class gwfast_class(object):
 
 
 
-    # def _riemannSum(self, integrand, grid, axis=-1):
-    #     """Approximate integral using Riemann sum definition
+    def _riemannSum(self, integrand, grid, axis=-1):
+        """Approximate integral using Riemann sum definition
 
-    #     Parameters
-    #     ----------
-    #     integrand : array
-    #         (..., f) shaped array by default representing the integrand
-    #     grid : array
-    #         (f,) shaped array representing the grid
+        Parameters
+        ----------
+        integrand : array
+            (..., f) shaped array by default representing the integrand
+        grid : array
+            (f,) shaped array representing the grid
             
-    #     axis : int, optional
-    #         axis of integration, by default -1
+        axis : int, optional
+            axis of integration, by default -1
 
-    #     Returns
-    #     -------
-    #     array
-    #         Array with one fewer axis representing the integral
-    #     """
-    #     return jnp.sum(integrand[..., :-1] * (grid[1:] - grid[:-1]), axis=axis)
+        Returns
+        -------
+        array
+            Array with one fewer axis representing the integral
+        """
+        return jnp.sum(integrand[..., :-1] * (grid[1:] - grid[:-1]), axis=axis)
 
     # def _signal_inner_product(self, a, b, det, mode):
     #     """Evaluate noise-weighted inner product
