@@ -82,13 +82,6 @@ class samplers:
         np.random.seed(1) # Enable for reproducibility
         try:
             X = self.__newDrawFromPrior_(self.nParticles) # Initial set of particles
-            # X = self._F(self.model._newDrawFromPrior(self.nParticles), self.model.lower_bound, self.model.upper_bound) # Initial set of particles in unbounded space
-            # print('new load')
-            # h = 2 * self.DoF
-            # h = self.DoF / 100
-            # jax_der = jax.jit(self.model.getDerivativesMinusLogPosterior_ensemble)
-            # print('bandwidth %f' % h)
-            
 
             with trange(self.nIterations) as ITER:
                 for iter_ in ITER:
@@ -450,29 +443,32 @@ class samplers:
     #     ## test_gkx = -2 / h * contract('mn, ie, mni -> mne', kx, U, displacement_tensor)
         return kx, gkx1
 
-    def _F_inv(self, Y, a, b):
-        return (a + b * np.exp(Y)) / (1 + np.exp(Y))
-
-    def _F(self, X, a, b):
-        return np.log((X - a) / (b - X))
-
-    def _dF_inv(self, Y, a, b):
-        return b * np.exp(Y) / (1 + np.exp(Y)) - np.exp(Y) * (a + b * np.exp(Y)) / (1 + np.exp(Y)) ** 2
-
-    def _diagHessF_inv(self, Y, a, b):
-        return - 2 * b * np.exp(2 * Y) / (1 + np.exp(Y)) ** 2 \
-               + b * np.exp(Y) / (1 + np.exp(Y)) \
-               + 2 * np.exp(2 * Y) * (a + b * np.exp(Y)) / (1 + np.exp(Y)) ** 3 \
-               - np.exp(Y) * (a + b * np.exp(Y)) / (1 + np.exp(Y)) ** 2
+    #######################################################
+    # Methods needed to apply sSVN on bounded domains
+    #######################################################
 
     def __newDrawFromPrior_(self, nParticles):
+        X = self.model._newDrawFromPrior(nParticles)
         if self.model.priorDict is None:
-            return self.model._newDrawFromPrior(nParticles)
+            return X
         else:
-            X = self.model._newDrawFromPrior(nParticles)
-            return self._F(X, self.model.lower_bound, self.model.upper_bound)
+            Y = self._F(X, self.model.lower_bound, self.model.upper_bound)
+            return Y
 
-    def _getDerivativesMinusLogPosterior_(self, Y):
+    def _F(self, X, a, b):
+        return jnp.log((X - a) / (b - X))
+
+    def _F_inv(self, Y, a, b):
+        return (a + b * jnp.exp(Y)) / (1 + jnp.exp(Y))
+
+    def _dF_inv(self, Y, a, b):
+        return (b - a) * jnp.exp(Y) / (1 + jnp.exp(Y)) ** 2
+
+    def _diagHessF_inv(self, Y, a, b): # Change name to d2F_inv
+        return (b - a) * jnp.exp(Y) * (1 - jnp.exp(Y)) / (1 + jnp.exp(Y)) ** 3
+
+    # @partial(jax.jit, static_argnums=(0,))
+    def _getDerivativesMinusLogPosterior_(self, Y): # Checked (x)
         if self.model.priorDict is None:
             return self.model.getDerivativesMinusLogPosterior_ensemble(Y)
         else:
@@ -482,23 +478,34 @@ class samplers:
             dF_inv = self._dF_inv(Y, self.model.lower_bound, self.model.upper_bound)
             diagHessF_inv = self._diagHessF_inv(Y, self.model.lower_bound, self.model.upper_bound)
 
-            gmlpt = gmlpt_X * dF_inv - diagHessF_inv / dF_inv
+            gmlpt_Y = dF_inv * gmlpt_X - diagHessF_inv / dF_inv
 
-            Hmlpt = contract('Nd, Nb, Ndb -> Ndb', dF_inv, dF_inv, Hmlpt_X)  
-            Hmlpt[:, range(self.DoF), range(self.DoF)] += 2 * np.exp(Y) / (1 + np.exp(Y)) ** 2
+            Hmlpt_Y = contract('Nd, Nb, Ndb -> Ndb', dF_inv, dF_inv, Hmlpt_X, backend='jax')  
+            Hmlpt_Y = Hmlpt_Y.at[:, jnp.array(range(self.DoF)), jnp.array(range(self.DoF))].add(2 * np.exp(Y) / (1 + np.exp(Y)) ** 2)
+            # Hmlpt_Y = Hmlpt_Y.at[:, jnp.array(range(self.DoF)), jnp.array(range(self.DoF))].add(diagHessF_inv * gmlpt_X)
 
-            return (gmlpt, Hmlpt)
+            return (gmlpt_Y, Hmlpt_Y)
 
+    # MODIFIED KERNEL
+    # def __getKernelWithDerivatives_(self, Y, params):
+    #     if self.model.priorDict is None:
+    #         kx, gkx1 = self._getKernelWithDerivatives(Y, params)
+    #         return (kx, gkx1)
+    #     else:
+    #         X = self._F_inv(Y, self.model.lower_bound, self.model.upper_bound)
+    #         dF_inv = self._dF_inv(Y, self.model.lower_bound, self.model.upper_bound)
+    #         k, gk1_ = self._getKernelWithDerivatives(X, params)
+    #         gk1 = contract('md, mnd -> mnd', dF_inv, gk1_)
+    #         return (k, gk1)
+
+    # Standard kernel
     def __getKernelWithDerivatives_(self, Y, params):
-        if self.model.priorDict is None:
-            kx, gkx1 = self._getKernelWithDerivatives(Y, params)
-            return (kx, gkx1)
-        else:
-            X = self._F_inv(Y, self.model.lower_bound, self.model.upper_bound)
-            dF_inv = self._dF_inv(Y, self.model.lower_bound, self.model.upper_bound)
-            kx, gkx1_ = self._getKernelWithDerivatives(X, params)
-            gkx1 = contract('md, mnd -> mnd', dF_inv, gkx1_)
-            return (kx, gkx1)
+        kx, gkx1 = self._getKernelWithDerivatives(Y, params)
+        return (kx, gkx1)
+
+
+
+
 
 
     # def _getKernelWithDerivatives(self, X, h, M=None):
