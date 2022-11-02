@@ -86,6 +86,12 @@ class kernels:
     # Note: Used to test kernels quickly, and for unit tests
     ###########################################################
 
+    def k_hyper(self, y1, y2, params, k):
+        f_inv = lambda y: (params['a'] + params['b'] * jnp.exp(y)) / (1 + jnp.exp(y))
+        x1 = f_inv(y1)
+        x2 = f_inv(y2)
+        return k(x1, x2, params)
+
     @partial(jax.jit, static_argnums=(0,4,))
     def gram(self, x, y, params, func):
         return jax.vmap(lambda x1: jax.vmap(lambda y1: func(x1, y1, params))(y))(x)
@@ -127,6 +133,11 @@ class kernels:
         k = self.gram(particles, particles, params, k_func)
         g1k = self.gram(particles, particles, params, jax.jacobian(k_func))
         return (k, g1k)
+
+
+#%% 
+# UNIT TEST: Make sure hypercube kernel derivative is correctly defined
+
 
 
 #%%

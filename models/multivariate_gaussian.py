@@ -22,6 +22,7 @@ class multivariate_gaussian:
         self.DoF = sigma.shape[0]
         self.Z = self.getNormalizationConstant(sigma)
         self.priorDict = 1
+        # self.priorDict = None
         self.lower_bound = np.ones(self.DoF) * (-2)
         self.upper_bound = np.ones(self.DoF) * (2)
         self.id = 'multivariate_gaussian'
@@ -71,7 +72,7 @@ class multivariate_gaussian:
 
     def newDrawFromLikelihood(self, nParticles):
         return np.random.multivariate_normal(mean=self.mu, cov=np.diag(self.sigma), size=nParticles)
-        raise NotImplementedError
+        # raise NotImplementedError
 
     def _getMinusLogPrior(self, theta):
         return 0
@@ -141,11 +142,11 @@ class multivariate_gaussian:
 
 # # Get 3 samples, returning a 3 x 2 tensor.
 # dist.sample([3])
-#%%
-import jax.numpy as jnp
-import numpy as np
+# %%
+# import jax.numpy as jnp
+# import numpy as np
 
-H = jnp.array(np.random.rand(5, 5, 2, 2))
+# H = jnp.array(np.random.rand(5, 5, 2, 2))
 
-res = H.swapaxes(1, 2).reshape(10, 10)
+# res = H.swapaxes(1, 2).reshape(10, 10)
 # %%

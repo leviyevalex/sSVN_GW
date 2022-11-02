@@ -92,7 +92,7 @@ class gwfast_class(object):
             self.grid_resolution = int(100)
             self.fgrid = jnp.geomspace(self.fmin, fcut, num=self.grid_resolution)
         elif grid_to_use == 'linear':
-            self.df = 1 / 1. # Sampling rate in Hz 
+            self.df = 1 / 1. # Reciprocal of signal duration.
             self.grid_resolution = int(jnp.floor(jnp.real((1 + (fcut - self.fmin) / self.df))))
             print('Using % i bins' % self.grid_resolution)
             self.fgrid = jnp.linspace(self.fmin, fcut, num=self.grid_resolution)

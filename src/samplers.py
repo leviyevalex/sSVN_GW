@@ -144,8 +144,15 @@ class samplers:
                         update = v_svn * eps
                     elif method == 'sSVN':
                         gmlpt, GN_Hmlpt = self._getDerivativesMinusLogPosterior_(X)
+                        # __, GN_Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X) # Modification 1
+
+                        # gmlpt, GN_Hmlpt = self._getDerivativesMinusLogPosterior_(X)
+                        # gmlpt, GN_Hmlpt = self._getDerivativesMinusLogPosterior_(X)
+
                         # M = jnp.eye(self.DoF)
+                        # M = jnp.mean(GN_Hmlpt_X, axis=0) # Modification 2
                         M = jnp.mean(GN_Hmlpt, axis=0)
+
                         # self.kernelKwargs['M'] = jnp.eye(self.DoF)
                         # self.kernelKwargs['M'] = jnp.mean(GN_Hmlpt, axis=0)
                         kernelKwargs['M'] = M

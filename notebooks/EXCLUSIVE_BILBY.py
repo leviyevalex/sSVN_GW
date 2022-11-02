@@ -42,7 +42,7 @@ injection_parameters = dict(chirp_mass            = Mc,              # Question:
                             symmetric_mass_ratio  = eta,             # Alternative: mass_ratio
                             luminosity_distance   = dL,
                             dec                   = np.pi/2 - theta,
-                            ra                    = theta,
+                            ra                    = phi,
                             theta_jn              = iota,
                             psi                   = psi,
                             geocent_time          = tGPS,
