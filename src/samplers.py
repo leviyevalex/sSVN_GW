@@ -143,7 +143,7 @@ class samplers:
                             v_svn = self._getSVN_direction(kx, v_svgd, UH)
                         update = v_svn * eps
                     elif method == 'sSVN':
-                        gmlpt, GN_Hmlpt = self._getDerivativesMinusLogPosterior_(X)
+                        gmlpt, GN_Hmlpt = self._getDerivativesMinusLogPosterior_new(X)
                         # __, GN_Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X) # Modification 1
 
                         # gmlpt, GN_Hmlpt = self._getDerivativesMinusLogPosterior_(X)
@@ -178,7 +178,7 @@ class samplers:
                         if self.model.priorDict == None:
                             g.create_dataset('X', data=copy.deepcopy(X))
                         else:
-                            g.create_dataset('X', data=copy.deepcopy(self._F_inv(X, self.model.lower_bound, self.model.upper_bound)))
+                            g.create_dataset('X', data=copy.deepcopy(self._mapRealsToHypercube(X, self.model.lower_bound, self.model.upper_bound)))
                         # g.create_dataset('h', data=copy.deepcopy(h))
                         g.create_dataset('eps', data=copy.deepcopy(eps))
                         g.create_dataset('gmlpt', data=copy.deepcopy(gmlpt))
@@ -197,7 +197,9 @@ class samplers:
                     if self.model.priorDict == None:
                         g.create_dataset('X', data=copy.deepcopy(X))
                     else:
-                        g.create_dataset('X', data=copy.deepcopy(self._F_inv(X, self.model.lower_bound, self.model.upper_bound)))
+                        g.create_dataset('X', data=copy.deepcopy(self._mapRealsToHypercube(X, self.model.lower_bound, self.model.upper_bound)))
+
+                        # g.create_dataset('X', data=copy.deepcopy(self._F_inv(X, self.model.lower_bound, self.model.upper_bound)))
                     g.create_dataset('nLikelihoodEvals', data=copy.deepcopy(self.model.nLikelihoodEvaluations))
                     g.create_dataset('nGradLikelihoodEvals', data=copy.deepcopy(self.model.nGradLikelihoodEvaluations))
                     g.create_dataset('nParticles', data=copy.deepcopy(self.nParticles))
@@ -208,7 +210,9 @@ class samplers:
                     if self.model.priorDict == None:
                         g1.create_dataset('X', data=X)
                     else:
-                        g1.create_dataset('X', data=copy.deepcopy(self._F_inv(X, self.model.lower_bound, self.model.upper_bound)))
+                        g1.create_dataset('X', data=copy.deepcopy(self._mapRealsToHypercube(X, self.model.lower_bound, self.model.upper_bound)))
+
+                        # g1.create_dataset('X', data=copy.deepcopy(self._F_inv(X, self.model.lower_bound, self.model.upper_bound)))
 
             # Save profiling results
             if self.profile == True:
@@ -459,41 +463,192 @@ class samplers:
         if self.model.priorDict is None:
             return X
         else:
-            Y = self._F(X, self.model.lower_bound, self.model.upper_bound)
+            Y = self._mapHypercubeToReals(X, self.model.lower_bound, self.model.upper_bound)
             return Y
 
-    def _F(self, X, a, b):
-        return jnp.log((X - a) / (b - X))
+    # def _F(self, X, a, b):
+    #     return jnp.log((X - a) / (b - X))
 
-    def _F_inv(self, Y, a, b):
+    # def _F_inv(self, Y, a, b):
+    #     return (a + b * jnp.exp(Y)) / (1 + jnp.exp(Y))
+
+    # def _dF_inv(self, Y, a, b):
+    #     return (b - a) * jnp.exp(Y) / (1 + jnp.exp(Y)) ** 2
+
+    # def _diagHessF_inv(self, Y, a, b): # Change name to d2F_inv
+    #     return (b - a) * jnp.exp(Y) * (1 - jnp.exp(Y)) / (1 + jnp.exp(Y)) ** 3
+
+    # # @partial(jax.jit, static_argnums=(0,))
+    # def _getDerivativesMinusLogPosterior_(self, Y): # Checked (x)
+    #     if self.model.priorDict is None:
+    #         return self.model.getDerivativesMinusLogPosterior_ensemble(Y)
+    #     else:
+    #         X = self._F_inv(Y, self.model.lower_bound, self.model.upper_bound)
+    #         gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
+
+    #         dF_inv = self._dF_inv(Y, self.model.lower_bound, self.model.upper_bound)
+    #         diagHessF_inv = self._diagHessF_inv(Y, self.model.lower_bound, self.model.upper_bound)
+
+    #         gmlpt_Y = dF_inv * gmlpt_X - diagHessF_inv / dF_inv
+
+    #         Hmlpt_Y = contract('Nd, Nb, Ndb -> Ndb', dF_inv, dF_inv, Hmlpt_X, backend='jax')  
+    #         Hmlpt_Y = Hmlpt_Y.at[:, jnp.array(range(self.DoF)), jnp.array(range(self.DoF))].add(2 * np.exp(Y) / (1 + np.exp(Y)) ** 2)
+    #         # Hmlpt_Y = Hmlpt_Y.at[:, jnp.array(range(self.DoF)), jnp.array(range(self.DoF))].add(diagHessF_inv * gmlpt_X)
+
+    #         return (gmlpt_Y, Hmlpt_Y)
+
+
+
+
+    ########################################################################################################
+    # V2
+    ########################################################################################################
+
+
+
+
+
+
+
+    def _mapRealsToHypercube(self, Y, a, b):
+        """Map a set of particles with support on R^d (d-dimensional reals) to H^d (d-dimensional hypercube)
+
+        Parameters
+        ----------
+        Y : array
+            (N,d) shaped array of particles with support in R^d
+        a : array
+            (d,) shaped array of lower bounds constituting H^d
+        b : array
+            (d,) shaped array of upper bounds constituting H^d
+
+        Returns
+        -------
+        array
+            (N,d) shaped array of transformed particles with support in H^d
+
+        Example
+        -------
+        Consider the two dimensional hypercube (square) H^2 = [1, 2] X [3, 4].
+        Then one would set a = array[1, 3], and b = array[2, 4].
+
+        References
+        ----------
+        https://mc-stan.org/docs/2_27/reference-manual/logit-transform-jacobian-section.html
+
+        """
         return (a + b * jnp.exp(Y)) / (1 + jnp.exp(Y))
 
-    def _dF_inv(self, Y, a, b):
-        return (b - a) * jnp.exp(Y) / (1 + jnp.exp(Y)) ** 2
+    def _mapHypercubeToReals(self, X, a, b):
+        """Map a set of particles with support in H^d (d-dimensional hypercube) to R^d (d-dimensional reals)
 
-    def _diagHessF_inv(self, Y, a, b): # Change name to d2F_inv
-        return (b - a) * jnp.exp(Y) * (1 - jnp.exp(Y)) / (1 + jnp.exp(Y)) ** 3
+        Parameters
+        ----------
+        X : array
+            (N,d) shaped array of particles with support in H^d
+        a : array
+            (d,) shaped array of lower bounds constituting H^d
+        b : array
+            (d,) shaped array of upper bounds constituting H^d
 
-    # @partial(jax.jit, static_argnums=(0,))
-    def _getDerivativesMinusLogPosterior_(self, Y): # Checked (x)
+        Returns
+        -------
+        array
+            (N,d) shaped array of transformed particles with support in R^d
+
+        References
+        ----------
+        https://mc-stan.org/docs/2_27/reference-manual/logit-transform-jacobian-section.html
+
+        """
+        return jnp.log((X - a) / (b - X))
+   
+    def _jacMapRealsToHypercube(self, Y, a, b):
+        """Calculate the Jacobian of mapRealsToHypercube (dx/dy)
+
+        Parameters
+        ----------
+        Y : array
+            (N,d) shaped array of particles with support in R^d
+        a : array
+            (d,) shaped array of lower bounds constituting H^d
+        b : array
+            (d,) shaped array of upper bounds constituting H^d
+
+        Returns
+        -------
+        array
+            (N,d) shaped array representing the Jacobian
+
+        Remark
+        ------
+        Normally this map would be (N,d,d) shaped. However, it is diagonal as a consequence of its definition,
+        and therefore we need only return (N,d) entries. 
+        """
+        return (b - a) / (4 * jnp.cosh(Y / 2) ** 2)
+    
+    def _getBoundaryGradientCorrection(self, Y):
+        """Calculates $\nabla_y \ln \det(dx/dy)$, the "correction" in the transformed gradient expression.
+
+        Parameters
+        ----------
+        Y : array
+            (N,d) shaped array of particles with support in R^d
+
+        Returns
+        -------
+        array
+            (N,d) shaped array correction term
+        """
+        return jnp.tanh(Y / 2)
+    
+    def _getBoundaryHessianCorrection(self, Y):
+        """Calculates $\del_{y_i} \del_{y_j} \ln \det(dx/dy)$, the "correction" in the transformed Hessian expression.
+
+        Parameters
+        ----------
+        Y : array
+            (N,d) shaped array of particles with support in R^d
+
+        Returns
+        -------
+        array
+            (N,d) shaped array correction term
+        """
+        return 1 / (2 * jnp.cosh(Y / 2) ** 2)
+
+    def _getDerivativesMinusLogPosterior_new(self, Y): 
+        """Wrapper method to correct for H^d to R^d coordinate transformation
+
+        Parameters
+        ----------
+        Y : array
+            (N,d) shaped array of particles with support in R^d
+
+        Returns
+        -------
+        tuple
+            (N,d) array representing the gradient and (N,d,d) array representing the Hessian in the unbounded space.
+        """
         if self.model.priorDict is None:
             return self.model.getDerivativesMinusLogPosterior_ensemble(Y)
         else:
-            X = self._F_inv(Y, self.model.lower_bound, self.model.upper_bound)
+            X = self._mapRealsToHypercube(Y, self.model.lower_bound, self.model.upper_bound)
             gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
 
-            dF_inv = self._dF_inv(Y, self.model.lower_bound, self.model.upper_bound)
-            diagHessF_inv = self._diagHessF_inv(Y, self.model.lower_bound, self.model.upper_bound)
+            dxdy = self._jacMapRealsToHypercube(Y, self.model.lower_bound, self.model.upper_bound)
+            boundary_correction_grad = self._getBoundaryGradientCorrection(Y)
+            boundary_correction_hess = self._getBoundaryHessianCorrection(Y)
 
-            gmlpt_Y = dF_inv * gmlpt_X - diagHessF_inv / dF_inv
-
-            Hmlpt_Y = contract('Nd, Nb, Ndb -> Ndb', dF_inv, dF_inv, Hmlpt_X, backend='jax')  
-            Hmlpt_Y = Hmlpt_Y.at[:, jnp.array(range(self.DoF)), jnp.array(range(self.DoF))].add(2 * np.exp(Y) / (1 + np.exp(Y)) ** 2)
-            # Hmlpt_Y = Hmlpt_Y.at[:, jnp.array(range(self.DoF)), jnp.array(range(self.DoF))].add(diagHessF_inv * gmlpt_X)
+            gmlpt_Y = dxdy * gmlpt_X + boundary_correction_grad
+            Hmlpt_Y = contract('Ni, Nj, Nij -> Nij', dxdy, dxdy, Hmlpt_X, backend='jax') 
+            Hmlpt_Y = Hmlpt_Y.at[:, jnp.array(range(self.DoF)), jnp.array(range(self.DoF))].add(boundary_correction_hess)
 
             return (gmlpt_Y, Hmlpt_Y)
 
-    # MODIFIED KERNEL
+
+
+    # MODIFIED KERNEL (v1)
     # def __getKernelWithDerivatives_(self, Y, params):
     #     if self.model.priorDict is None:
     #         kx, gkx1 = self._getKernelWithDerivatives(Y, params)
@@ -504,6 +659,39 @@ class samplers:
     #         k, gk1_ = self._getKernelWithDerivatives(X, params)
     #         gk1 = contract('md, mnd -> mnd', dF_inv, gk1_)
     #         return (k, gk1)
+
+    # MODIFIED KERNEL (v2)
+    # def __getKernelWithDerivatives_(self, Y, params):
+    #     if self.model.priorDict is None:
+    #         kx, gkx1 = self._getKernelWithDerivatives(Y, params)
+    #         return (kx, gkx1)
+    #     else:
+    #         # Precondition wrapper
+    #         U = jax.scipy.linalg.cholesky(params['M'])
+    #         Y = contract('ij, Nj -> Ni', jax.scipy.linalg.cholesky(params['M']), Y)
+    #         params['M'] = jnp.eye(self.DoF)
+
+    #         # Original kernel
+    #         X = self._F_inv(Y, self.model.lower_bound, self.model.upper_bound)
+    #         k_X, gk1_X = self._getKernelWithDerivatives(X, params)
+
+    #         # Quantities needed for the transformation
+    #         dxdy = self._dF_inv(Y, self.model.lower_bound, self.model.upper_bound)
+            
+    #         det_dxdy = jnp.prod(dxdy, axis=1)
+            
+    #         d_dxdy = self._diagHessF_inv(Y, self.model.lower_bound, self.model.upper_bound)
+            
+    #         d_det_dxdy = contract('m, mj -> mj', det_dxdy, d_dxdy / dxdy)
+
+    #         # Transformed kernel and its derivative
+    #         k_Y = contract('mn, m, n -> mn', k_X, det_dxdy, det_dxdy)
+
+    #         gk1_Y = contract('md, mnd -> mnd', dxdy, gk1_X)
+    #         gk1_Y = contract('mnd, m, n -> mnd', gk1_Y, det_dxdy, det_dxdy) + contract('mn, md, n -> mnd', k_X, d_det_dxdy, det_dxdy)
+    #         gk1_Y = contract('ij, mni -> mnj', U, gk1_Y) # Final multiplication
+
+            # return (k_Y, gk1_Y)
 
     # Standard kernel
     def __getKernelWithDerivatives_(self, Y, params):
