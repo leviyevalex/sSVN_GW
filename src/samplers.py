@@ -144,7 +144,8 @@ class samplers:
                         update = v_svn * eps
                     elif method == 'sSVN':
                         gmlpt, GN_Hmlpt = self._getDerivativesMinusLogPosterior_new(X)
-                        # __, GN_Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X) # Modification 1
+
+                        # __, GN_Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(self._mapRealsToHypercube(X, self.model.lower_bound, self.model.upper_bound)) # Modification 1
 
                         # gmlpt, GN_Hmlpt = self._getDerivativesMinusLogPosterior_(X)
                         # gmlpt, GN_Hmlpt = self._getDerivativesMinusLogPosterior_(X)
@@ -693,14 +694,27 @@ class samplers:
 
             # return (k_Y, gk1_Y)
 
+#################################################
+#################################################
+#################################################
+
     # Standard kernel
     def __getKernelWithDerivatives_(self, Y, params):
         kx, gkx1 = self._getKernelWithDerivatives(Y, params)
         return (kx, gkx1)
 
+    # Distance aware kernel
+    # def __getKernelWithDerivatives_(self, Y, params):
+    #     X = self._mapRealsToHypercube(Y, self.model.lower_bound, self.model.upper_bound)
+    #     kx, gkx1 = self._getKernelWithDerivatives(X, params)
+    #     dxdy = self._jacMapRealsToHypercube(Y, self.model.lower_bound, self.model.upper_bound)
+    #     gkx1 = contract('mi, mni -> mni', dxdy, gkx1)
+    #     return (kx, gkx1)
 
 
-
+#################################################
+#################################################
+#################################################
 
 
     # def _getKernelWithDerivatives(self, X, h, M=None):
