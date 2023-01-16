@@ -26,7 +26,7 @@ np.seterr(over='raise')
 np.seterr(invalid='raise')
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 class samplers:
-    def __init__(self, model, nIterations, nParticles, kernel_type, profile=None):
+    def __init__(self, model, nIterations, nParticles, kernel_type, profile=None, bounded=None, t=None):
         # Quick settings checks
         assert(nParticles > 0)
         assert(nIterations > 0)
@@ -57,6 +57,10 @@ class samplers:
         self.nIterations = nIterations
         self.DoF = model.DoF
         self.dim = self.DoF * self.nParticles
+
+        self.bounded = bounded
+        self.t = t
+
         scipy_cholesky = lambda mat: jax.scipy.linalg.cholesky(mat)
         self.jit_scipy_cholesky = jax.jit(scipy_cholesky)
 
@@ -80,8 +84,11 @@ class samplers:
             profiler.start()
         # np.random.seed(int(time())) # Enable for randomness
         np.random.seed(1) # Enable for reproducibility
+ 
         try:
-            X = self.__newDrawFromPrior_(self.nParticles) # Initial set of particles
+            # X = self.__newDrawFromPrior_(self.nParticles) # Initial set of particles
+            X = self.model._newDrawFromPrior(self.nParticles) # Initial set of particles
+            eta = self._mapHypercubeToReals(X, self.model.lower_bound, self.model.upper_bound)
 
             with trange(self.nIterations) as ITER:
                 for iter_ in ITER:
@@ -143,14 +150,13 @@ class samplers:
                             v_svn = self._getSVN_direction(kx, v_svgd, UH)
                         update = v_svn * eps
                     elif method == 'sSVN':
-                        gmlpt, GN_Hmlpt = self._getDerivativesMinusLogPosterior_new(X)
-
-                        # __, GN_Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(self._mapRealsToHypercube(X, self.model.lower_bound, self.model.upper_bound)) # Modification 1
+                        gmlpt, GN_Hmlpt = self._getDerivativesMinusLogPosterior_new(X, self.t[iter_])
 
                         # gmlpt, GN_Hmlpt = self._getDerivativesMinusLogPosterior_(X)
                         # gmlpt, GN_Hmlpt = self._getDerivativesMinusLogPosterior_(X)
 
                         # M = jnp.eye(self.DoF)
+                        # __, GN_Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(self._mapRealsToHypercube(X, self.model.lower_bound, self.model.upper_bound)) # Modification 1
                         # M = jnp.mean(GN_Hmlpt_X, axis=0) # Modification 2
                         M = jnp.mean(GN_Hmlpt, axis=0)
 
@@ -168,6 +174,36 @@ class samplers:
                         v_svn = self._getSVN_direction(kx, v_svgd, UH)
                         v_stc = self._getSVN_v_stc(kx, UH)
                         update = (v_svn) * eps + v_stc * np.sqrt(eps)
+                    elif method == 'mirrorSVGD':
+
+                        # Similar to unmirrored case:
+                        gmlpt, Hmlpt = self.model.getDerivativesMinusLogPosterior_ensemble(X)
+                        M = jnp.mean(Hmlpt, axis=0)
+                        kernelKwargs['M'] = M
+                        kx, gkx1 = self.__getKernelWithDerivatives_(X, kernelKwargs)
+
+                        # Quantities needed to calculate k_psi
+                        hess_psi_inv = self.hess_psi_inv(X)
+                        grad_hess_psi_inv = self.grad_hess_psi_inv(X, hess_psi_inv)
+
+                        # Get k_psi
+                        k_psi, grad_k_psi = self.getMirrorKernelWithDerivative(kx, -gkx1, hess_psi_inv, grad_hess_psi_inv)
+
+                        # Calculate dual update
+                        v_svgd = self.v_svgd_psi(k_psi, grad_k_psi, gmlpt)
+
+                        # Adding noise
+                        alpha, L_kx = self._getMinimumPerturbationCholesky(kx)
+                        if alpha != 0:
+                            kx += alpha * np.eye(self.nParticles)
+                        v_stc = self._getSVGD_v_stc(L_kx)
+
+                        # Perform dual update
+                        eta += eps * v_svgd + np.sqrt(eps) * v_stc
+
+                        # Transform back
+                        X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
+
 
                     # Update progress bar
                     # ITER.set_description('Stepsize %f | Median bandwidth: %f | SVN norm: %f | Noise norm: %f | SVGD norm %f | Dampening %f' % (eps, self._bandwidth_MED(X), np.linalg.norm(v_svn), np.linalg.norm(v_stc), np.linalg.norm(v_svgd),  lamb))
@@ -176,29 +212,31 @@ class samplers:
                     # Store relevant per iteration information
                     with h5py.File(self.history_path, 'a') as f:
                         g = f.create_group('%i' % iter_)
-                        if self.model.priorDict == None:
-                            g.create_dataset('X', data=copy.deepcopy(X))
-                        else:
-                            g.create_dataset('X', data=copy.deepcopy(self._mapRealsToHypercube(X, self.model.lower_bound, self.model.upper_bound)))
+                        g.create_dataset('X', data=copy.deepcopy(X))
+                        # if self.model.priorDict == None:
+                        #     g.create_dataset('X', data=copy.deepcopy(X))
+                        # else:
+                        #     g.create_dataset('X', data=copy.deepcopy(self._mapRealsToHypercube(X, self.model.lower_bound, self.model.upper_bound)))
                         # g.create_dataset('h', data=copy.deepcopy(h))
                         g.create_dataset('eps', data=copy.deepcopy(eps))
                         g.create_dataset('gmlpt', data=copy.deepcopy(gmlpt))
                         g.create_dataset('v_svgd', data=copy.deepcopy(v_svgd))
-                        g.create_dataset('v_svn', data=copy.deepcopy(v_svn))
+                        # g.create_dataset('v_svn', data=copy.deepcopy(v_svn))
                         g.create_dataset('id', data=copy.deepcopy(self.model.id))
 
-                    # Update particles
-                    X += update
+                    # Update particles (I'll probably have to individualize this, since mirrored is a bit more involved than this!)
+                    # X += update
                     # Pad particles near boundaries
                     # X = self.model._inBounds(X, self.model.lower_bound, self.model.upper_bound)
 
                 # Dynamics completed: Storing data
                 with h5py.File(self.history_path, 'a') as f:
                     g = f.create_group('metadata')
-                    if self.model.priorDict == None:
-                        g.create_dataset('X', data=copy.deepcopy(X))
-                    else:
-                        g.create_dataset('X', data=copy.deepcopy(self._mapRealsToHypercube(X, self.model.lower_bound, self.model.upper_bound)))
+                    g.create_dataset('X', data=copy.deepcopy(X))
+                    # if self.model.priorDict == None:
+                    #     g.create_dataset('X', data=copy.deepcopy(X))
+                    # else:
+                    #     g.create_dataset('X', data=copy.deepcopy(self._mapRealsToHypercube(X, self.model.lower_bound, self.model.upper_bound)))
 
                         # g.create_dataset('X', data=copy.deepcopy(self._F_inv(X, self.model.lower_bound, self.model.upper_bound)))
                     g.create_dataset('nLikelihoodEvals', data=copy.deepcopy(self.model.nLikelihoodEvaluations))
@@ -208,10 +246,11 @@ class samplers:
                     g.create_dataset('L', data=copy.deepcopy(iter_ + 1))
                     g.create_dataset('method', data=method)
                     g1 = f.create_group('final_updated_particles')
-                    if self.model.priorDict == None:
-                        g1.create_dataset('X', data=X)
-                    else:
-                        g1.create_dataset('X', data=copy.deepcopy(self._mapRealsToHypercube(X, self.model.lower_bound, self.model.upper_bound)))
+                    g1.create_dataset('X', data=X)
+                    # if self.model.priorDict == None:
+                    #     g1.create_dataset('X', data=X)
+                    # else:
+                    #     g1.create_dataset('X', data=copy.deepcopy(self._mapRealsToHypercube(X, self.model.lower_bound, self.model.upper_bound)))
 
                         # g1.create_dataset('X', data=copy.deepcopy(self._F_inv(X, self.model.lower_bound, self.model.upper_bound)))
 
@@ -453,19 +492,19 @@ class samplers:
     #     kx = np.exp(-scipy.spatial.distance_matrix(X, X) ** 2 / h)
     #     gkx1 = -2 * contract('mn, mne -> mne', kx, displacement_tensor) / h
     #     ## test_gkx = -2 / h * contract('mn, ie, mni -> mne', kx, U, displacement_tensor)
-        return kx, gkx1
+        # return kx, gkx1
 
     #######################################################
     # Methods needed to apply sSVN on bounded domains
     #######################################################
 
-    def __newDrawFromPrior_(self, nParticles):
-        X = self.model._newDrawFromPrior(nParticles)
-        if self.model.priorDict is None:
-            return X
-        else:
-            Y = self._mapHypercubeToReals(X, self.model.lower_bound, self.model.upper_bound)
-            return Y
+    # def __newDrawFromPrior_(self, nParticles):
+    #     X = self.model._newDrawFromPrior(nParticles)
+    #     if self.bounded == 'reparam':
+    #         Y = self._mapHypercubeToReals(X, self.model.lower_bound, self.model.upper_bound)
+    #         return Y
+    #     elif self.bounded == 'log_boundary':
+    #         return X
 
     # def _F(self, X, a, b):
     #     return jnp.log((X - a) / (b - X))
@@ -618,7 +657,7 @@ class samplers:
         """
         return 1 / (2 * jnp.cosh(Y / 2) ** 2)
 
-    def _getDerivativesMinusLogPosterior_new(self, Y): 
+    def _getDerivativesMinusLogPosterior_new(self, Y, t): 
         """Wrapper method to correct for H^d to R^d coordinate transformation
 
         Parameters
@@ -631,9 +670,28 @@ class samplers:
         tuple
             (N,d) array representing the gradient and (N,d,d) array representing the Hessian in the unbounded space.
         """
-        if self.model.priorDict is None:
+        if self.bounded == None:
             return self.model.getDerivativesMinusLogPosterior_ensemble(Y)
-        else:
+        elif self.bounded == 'log_boundary':
+
+            gmlpt = jnp.zeros((self.nParticles, self.DoF))
+            hmlpt = jnp.zeros((self.nParticles, self.DoF, self.DoF))
+
+            idx = self.getIndiciesParticlesInBound(Y, self.model.lower_bound, self.model.upper_bound)
+            gB = self._getGradBarrier(Y[idx], self.model.lower_bound, self.model.upper_bound, t)
+            hessB = self._getHessBarrier(Y[idx], self.model.lower_bound, self.model.upper_bound, t)
+
+            gmlpt_idx, hmlpt_idx = self.model.getDerivativesMinusLogPosterior_ensemble(Y[idx])
+
+            gmlpt = gmlpt.at[idx].set(gmlpt_idx + gB)
+
+            hmlpt_idx = hmlpt_idx.at[:, jnp.array(range(self.DoF)), jnp.array(range(self.DoF))].add(hessB)
+
+            hmlpt = hmlpt.at[idx].set(hmlpt_idx)
+
+            return (gmlpt, hmlpt)
+
+        elif self.bounded == 'mirrored':
             X = self._mapRealsToHypercube(Y, self.model.lower_bound, self.model.upper_bound)
             gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
 
@@ -647,6 +705,15 @@ class samplers:
 
             return (gmlpt_Y, Hmlpt_Y)
 
+    def getIndiciesParticlesInBound(self, X, a, b):
+        truth_table = ((X > a) & (X < b))
+        return np.where(np.all(truth_table, axis=1))[0]
+
+    def _getGradBarrier(self, X, a, b, t):
+        return (1 / (b - X) - 1 / (X - a)) / t
+    
+    def _getHessBarrier(self, X, a, b, t):
+        return (1 / (b - X) ** 2 + 1 / (X - a) ** 2) / t
 
 
     # MODIFIED KERNEL (v1)
@@ -783,3 +850,31 @@ class samplers:
 
     def _getPairwiseDisplacement(self, X):
         return X[:,np.newaxis,:] - X[np.newaxis,:,:]
+
+
+    #####################################################
+    # Functions for mirrored extension
+    #####################################################
+    def v_svgd_psi(self, k_psi, grad_k_psi, gmlpt):
+        uphill = contract('xyij, yj -> xi', k_psi, -gmlpt) / self.nParticles
+        repulsion = contract('xyijj -> xi', grad_k_psi) / self.nParticles 
+        return uphill + repulsion
+
+    def h_psi(self, k_psi, hmlpt, grad_kx):
+        h1 = contract('myia, yab, nyjb -> mnij', k_psi, hmlpt, k_psi) / self.nParticles 
+        h2 = contract('myaij, nybji -> mnab', grad_kx, grad_kx) / self.nParticles
+        return h1 + h2
+
+    def hess_psi_inv(self, X):
+        tmp = (self.model.upper_bound - X) * (X - self.model.lower_bound) / (self.model.upper_bound - self.model.lower_bound)
+        return contract('mi, ij -> mij', tmp, jnp.eye(self.DoF))
+
+    def grad_hess_psi_inv(self, X, hess_psi_inv):
+        tmp = (self.model.lower_bound - self.model.upper_bound) * (self.model.lower_bound + self.model.upper_bound - 2 * X) / ((self.model.lower_bound - X) ** 2 * (self.model.upper_bound - X) ** 2)
+        return -contract('maj, mj, mji -> maij', hess_psi_inv, tmp, hess_psi_inv)
+
+    def getMirrorKernelWithDerivative(self, kx, gkx2, hess_psi_inv, grad_hess_psi_inv):
+        k_psi = contract('xy, yij -> xyij', kx, hess_psi_inv) # 
+        grad_k_psi = contract('xyj, yai -> xyaij', gkx2, hess_psi_inv) \
+                   + contract('xy, yaij -> xyaij', kx, grad_hess_psi_inv)
+        return k_psi, grad_k_psi
