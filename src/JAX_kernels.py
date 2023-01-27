@@ -86,11 +86,11 @@ class kernels:
     # Note: Used to test kernels quickly, and for unit tests
     ###########################################################
 
-    def k_hyper(self, y1, y2, params, k):
+    def k_hyper(self, y1, y2, params):
         f_inv = lambda y: (params['a'] + params['b'] * jnp.exp(y)) / (1 + jnp.exp(y))
         x1 = f_inv(y1)
         x2 = f_inv(y2)
-        return k(x1, x2, params)
+        return self.k_RBF(x1, x2, params)
 
     @partial(jax.jit, static_argnums=(0,4,))
     def gram(self, x, y, params, func):
@@ -127,6 +127,8 @@ class kernels:
             k_func = self.k_RBF
         elif self.kernel_type == 'Lp':
             k_func = self.k_Lp
+        elif self.kernel_type == 'hyper':
+            k_func = self.k_hyper
         else:
             raise NotImplementedError()
 
