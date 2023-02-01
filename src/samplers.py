@@ -174,18 +174,27 @@ class samplers:
                         kx, gkx1 = self._getKernelWithDerivatives(X, kernelKwargs)
 
                         # Lift to matrix kernel
-                        matrix_kern = contract('mn, ij -> mnij', kx, np.eye(self.DoF))
-                        grad_matrix_kern = contract('mnk, ij -> mnijk', -1 * gkx1, np.eye(self.DoF))
 
+                        minv = np.linalg.inv(M)
+                        matrix_kern = contract('mn, ij -> mnij', kx, minv)
+                        grad_matrix_kern = contract('mnk, ij -> mnijk', -1 * gkx1, minv)
+
+                        # matrix_kern = contract('mn, ij -> mnij', kx, np.eye(self.DoF))
+                        # grad_matrix_kern = contract('mnk, ij -> mnijk', -1 * gkx1, np.eye(self.DoF))
+
+                        # Get mirror kernel
                         k_psi, grad_k_psi = self.getMatrixMirrorKernel(X, matrix_kern, grad_matrix_kern)
 
                         # Calculate dual update
                         v_svgd = self.getMatrixSVGD_v_drift(k_psi, grad_k_psi, gmlpt)
 
                         # Calculate noise
+                        # K = self._reshapeNNDDtoNDND(matrix_kern) / self.nParticles
+
+                        # v_stc = self.get_vSVGD_stc(kx)
                         K = self._reshapeNNDDtoNDND(matrix_kern) / self.nParticles
 
-                        v_stc = self.get_vSVGD_stc(kx)
+                        v_stc = self.getMatrixSVGD_v_stc(K)
 
                         # Perform dual update
                         eta += eps * v_svgd + np.sqrt(eps) * v_stc
@@ -203,8 +212,14 @@ class samplers:
                         kx, gkx1 = self._getKernelWithDerivatives(X, kernelKwargs)
 
                         # Lift to matrix kernel
-                        matrix_kern = contract('mn, ij -> mnij', kx, np.eye(self.DoF))
-                        grad_matrix_kern = contract('mnk, ij -> mnijk', -1 * gkx1, np.eye(self.DoF))
+
+                        minv = np.linalg.inv(M)
+                        matrix_kern = contract('mn, ij -> mnij', kx, minv)
+                        grad_matrix_kern = contract('mnk, ij -> mnijk', -1 * gkx1, minv)
+
+                        # matrix_kern = contract('mn, ij -> mnij', kx, np.eye(self.DoF))
+                        # grad_matrix_kern = contract('mnk, ij -> mnijk', -1 * gkx1, np.eye(self.DoF))
+
                         k_psi, grad_k_psi = self.getMatrixMirrorKernel(X, matrix_kern, grad_matrix_kern)
 
                         # Calculate dual update
@@ -216,7 +231,8 @@ class samplers:
 
                         h_psi = self.getMatrixSVN_Hessian(k_psi, grad_k_psi, Hmlpt) + 0.01 * self.nParticles * K
 
-                        UH_psi = self.jit_scipy_cholesky(h_psi) # Used in both v_det and v_stc 
+                        # UH_psi = self.jit_scipy_cholesky(h_psi) # Used in both v_det and v_stc 
+                        UH_psi = scipy.linalg.cholesky(h_psi) # Used in both v_det and v_stc 
 
                         v_svn = self.getMatrixSVN_v_drift(UH_psi, v_svgd, K)
 
@@ -238,8 +254,10 @@ class samplers:
                         kx, gkx1 = self._getKernelWithDerivatives(X, kernelKwargs)
 
                         # Lift to matrix kernel
-                        matrix_kern = contract('mn, ij -> mnij', kx, np.eye(self.DoF))
-                        grad_matrix_kern = contract('mnk, ij -> mnijk', -1 * gkx1, np.eye(self.DoF))
+                        # matrix_kern = contract('mn, ij -> mnij', kx, np.eye(self.DoF))
+                        minv = np.linalg.inv(M)
+                        matrix_kern = contract('mn, ij -> mnij', kx, minv)
+                        grad_matrix_kern = contract('mnk, ij -> mnijk', -1 * gkx1, minv)
                         
                         # SVGD diffusion matrix
                         K = self._reshapeNNDDtoNDND(matrix_kern) / self.nParticles
@@ -261,8 +279,13 @@ class samplers:
                         kx, gkx1 = self._getKernelWithDerivatives(X, kernelKwargs)
 
                         # Lift to matrix kernel
-                        matrix_kern = contract('mn, ij -> mnij', kx, np.eye(self.DoF))
-                        grad_matrix_kern = contract('mnk, ij -> mnijk', -1 * gkx1, np.eye(self.DoF))
+
+                        minv = np.linalg.inv(M)
+                        matrix_kern = contract('mn, ij -> mnij', kx, minv)
+                        grad_matrix_kern = contract('mnk, ij -> mnijk', -1 * gkx1, minv)
+
+                        # matrix_kern = contract('mn, ij -> mnij', kx, np.eye(self.DoF))
+                        # grad_matrix_kern = contract('mnk, ij -> mnijk', -1 * gkx1, np.eye(self.DoF))
 
                         # Calculate dual update
                         v_svgd = self.getMatrixSVGD_v_drift(matrix_kern, grad_matrix_kern, gmlpt)
@@ -965,15 +988,15 @@ class samplers:
         a = self.model.lower_bound
         b = self.model.upper_bound
 
-        tmp1 = (b - X) * (X - a) / (b - a) # diagonal of $\nabla^2 \psi(x)^{-1}$
-        tmp2 = (a + b - 2 * X) / (b - a)   # diagonal of Jacobian of tmp1
+        tmp = (X - a) * (b - X) / (b - a) # diagonal of $\nabla^2 \psi(x)^{-1}$
+        tmp_prime = (a + b - 2 * X) / (b - a)   # diagonal of Jacobian of tmp1
 
-        k_psi = contract('xyij, yj -> xyij', matrix_kern, tmp1)
+        k_psi = contract('xyij, yj -> xyij', matrix_kern, tmp)
 
-        a = contract('xyijk, yj -> xyijk', grad_matrix_kern, tmp1)
-        b = contract('xyij, yj, jk -> xyijk', matrix_kern, tmp2, np.eye(self.DoF))
+        first = contract('xyijk, yj -> xyijk', grad_matrix_kern, tmp)
+        second = contract('xyij, yj, jk -> xyijk', matrix_kern, tmp_prime, np.eye(self.DoF))
 
-        grad_k_psi = a + b
+        grad_k_psi = first + second
 
         return k_psi, grad_k_psi
 
