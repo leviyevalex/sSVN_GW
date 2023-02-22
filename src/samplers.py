@@ -175,12 +175,12 @@ class samplers:
 
                         # Lift to matrix kernel
 
-                        minv = np.linalg.inv(M)
-                        matrix_kern = contract('mn, ij -> mnij', kx, minv)
-                        grad_matrix_kern = contract('mnk, ij -> mnijk', -1 * gkx1, minv)
+                        # minv = np.linalg.inv(M)
+                        # matrix_kern = contract('mn, ij -> mnij', kx, minv)
+                        # grad_matrix_kern = contract('mnk, ij -> mnijk', -1 * gkx1, minv)
 
-                        # matrix_kern = contract('mn, ij -> mnij', kx, np.eye(self.DoF))
-                        # grad_matrix_kern = contract('mnk, ij -> mnijk', -1 * gkx1, np.eye(self.DoF))
+                        matrix_kern = contract('mn, ij -> mnij', kx, np.eye(self.DoF))
+                        grad_matrix_kern = contract('mnk, ij -> mnijk', -1 * gkx1, np.eye(self.DoF))
 
                         # Get mirror kernel
                         k_psi, grad_k_psi = self.getMatrixMirrorKernel(X, matrix_kern, grad_matrix_kern)
@@ -188,13 +188,10 @@ class samplers:
                         # Calculate dual update
                         v_svgd = self.getMatrixSVGD_v_drift(k_psi, grad_k_psi, gmlpt)
 
-                        # Calculate noise
+                        v_stc = self.get_vSVGD_stc(kx)
                         # K = self._reshapeNNDDtoNDND(matrix_kern) / self.nParticles
 
-                        # v_stc = self.get_vSVGD_stc(kx)
-                        K = self._reshapeNNDDtoNDND(matrix_kern) / self.nParticles
-
-                        v_stc = self.getMatrixSVGD_v_stc(K)
+                        # v_stc = self.getMatrixSVGD_v_stc(K)
 
                         # Perform dual update
                         eta += eps * v_svgd + np.sqrt(eps) * v_stc
@@ -213,26 +210,26 @@ class samplers:
 
                         # Lift to matrix kernel
 
-                        minv = np.linalg.inv(M)
-                        matrix_kern = contract('mn, ij -> mnij', kx, minv)
-                        grad_matrix_kern = contract('mnk, ij -> mnijk', -1 * gkx1, minv)
+                        # minv = np.linalg.inv(M)
+                        # matrix_kern = contract('mn, ij -> mnij', kx, minv)
+                        # grad_matrix_kern = contract('mnk, ij -> mnijk', -1 * gkx1, minv)
 
-                        # matrix_kern = contract('mn, ij -> mnij', kx, np.eye(self.DoF))
-                        # grad_matrix_kern = contract('mnk, ij -> mnijk', -1 * gkx1, np.eye(self.DoF))
+                        matrix_kern = contract('mn, ij -> mnij', kx, np.eye(self.DoF))
+                        grad_matrix_kern = contract('mnk, ij -> mnijk', -1 * gkx1, np.eye(self.DoF))
 
                         k_psi, grad_k_psi = self.getMatrixMirrorKernel(X, matrix_kern, grad_matrix_kern)
 
                         # Calculate dual update
                         v_svgd = self.getMatrixSVGD_v_drift(k_psi, grad_k_psi, gmlpt)
 
-                    # Note: SVN augmentation beings now
-
                         K = self._reshapeNNDDtoNDND(matrix_kern) / self.nParticles
 
-                        h_psi = self.getMatrixSVN_Hessian(k_psi, grad_k_psi, Hmlpt) + 0.01 * self.nParticles * K
+                    # Note: SVN augmentation beings now
 
-                        # UH_psi = self.jit_scipy_cholesky(h_psi) # Used in both v_det and v_stc 
-                        UH_psi = scipy.linalg.cholesky(h_psi) # Used in both v_det and v_stc 
+                        h_psi = self.getMatrixSVN_Hessian(k_psi, grad_k_psi, Hmlpt) + 0.1 * self.nParticles * K
+
+                        UH_psi = self.jit_scipy_cholesky(h_psi) # Used in both v_det and v_stc 
+                        # UH_psi = scipy.linalg.cholesky(h_psi) # Used in both v_det and v_stc 
 
                         v_svn = self.getMatrixSVN_v_drift(UH_psi, v_svgd, K)
 
@@ -278,14 +275,15 @@ class samplers:
                         kernelKwargs['M'] = M
                         kx, gkx1 = self._getKernelWithDerivatives(X, kernelKwargs)
 
-                        # Lift to matrix kernel
+                        # Lift to matrix kernel (Matrix Second order)
 
                         minv = np.linalg.inv(M)
-                        matrix_kern = contract('mn, ij -> mnij', kx, minv)
-                        grad_matrix_kern = contract('mnk, ij -> mnijk', -1 * gkx1, minv)
 
-                        # matrix_kern = contract('mn, ij -> mnij', kx, np.eye(self.DoF))
-                        # grad_matrix_kern = contract('mnk, ij -> mnijk', -1 * gkx1, np.eye(self.DoF))
+                        # matrix_kern = contract('mn, ij -> mnij', kx, minv)
+                        # grad_matrix_kern = contract('mnk, ij -> mnijk', -1 * gkx1, minv)
+
+                        matrix_kern = contract('mn, ij -> mnij', kx, np.eye(self.DoF))
+                        grad_matrix_kern = contract('mnk, ij -> mnijk', -1 * gkx1, np.eye(self.DoF))
 
                         # Calculate dual update
                         v_svgd = self.getMatrixSVGD_v_drift(matrix_kern, grad_matrix_kern, gmlpt)
@@ -302,6 +300,36 @@ class samplers:
 
                         X += eps * v_svn + np.sqrt(eps) * v_stc
 
+                    elif method == 'reparam_sSVN':
+                        gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
+
+                        dxdy = self._jacMapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
+                        boundary_correction_grad = self._getBoundaryGradientCorrection(eta)
+                        boundary_correction_hess = self._getBoundaryHessianCorrection(eta)
+
+                        gmlpt_Y = dxdy * gmlpt_X + boundary_correction_grad
+                        Hmlpt_Y = contract('Ni, Nj, Nij -> Nij', dxdy, dxdy, Hmlpt_X, backend='jax') 
+                        Hmlpt_Y = Hmlpt_Y.at[:, jnp.array(range(self.DoF)), jnp.array(range(self.DoF))].add(boundary_correction_hess)
+
+
+                        M = jnp.mean(Hmlpt_Y, axis=0) # jnp.eye(self.DoF)
+                        kernelKwargs['M'] = M
+                        kx, gkx1 = self.__getKernelWithDerivatives_(eta, kernelKwargs)
+                        NK = self._reshapeNNDDtoNDND(contract('mn, ij -> mnij', kx, jnp.eye(self.DoF)))
+                        H1 = self._getSteinHessianPosdef(Hmlpt_Y, kx, gkx1)
+                        lamb = 0.01 # 0.1
+                        H = H1 + NK * lamb
+                        UH = self.jit_scipy_cholesky(H)
+                        v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt_Y)
+                        v_svn = self._getSVN_direction(kx, v_svgd, UH)
+                        v_stc = self._getSVN_v_stc(kx, UH)
+                        eta += (v_svn) * eps + v_stc * np.sqrt(eps)
+
+                        X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
+
+
+
+
                     # Update progress bar
                     # ITER.set_description('Stepsize %f | Median bandwidth: %f | SVN norm: %f | Noise norm: %f | SVGD norm %f | Dampening %f' % (eps, self._bandwidth_MED(X), np.linalg.norm(v_svn), np.linalg.norm(v_stc), np.linalg.norm(v_svgd),  lamb))
                     ITER.set_description('Stepsize %f | Median bandwidth: %f' % (eps, self._bandwidth_MED(X)))
@@ -316,7 +344,7 @@ class samplers:
                         #     g.create_dataset('X', data=copy.deepcopy(self._mapRealsToHypercube(X, self.model.lower_bound, self.model.upper_bound)))
                         # g.create_dataset('h', data=copy.deepcopy(h))
                         g.create_dataset('eps', data=copy.deepcopy(eps))
-                        g.create_dataset('gmlpt', data=copy.deepcopy(gmlpt))
+                        # g.create_dataset('gmlpt', data=copy.deepcopy(gmlpt))
                         g.create_dataset('v_svgd', data=copy.deepcopy(v_svgd))
                         # g.create_dataset('v_svn', data=copy.deepcopy(v_svn))
                         g.create_dataset('id', data=copy.deepcopy(self.model.id))

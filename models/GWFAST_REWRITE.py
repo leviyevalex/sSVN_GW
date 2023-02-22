@@ -79,25 +79,36 @@ class gwfast_class(object):
             print('Warming up derivatives')
             self.getDerivativesMinusLogPosterior_ensemble(self._newDrawFromPrior(self.nParticles))
 
-    def _initFrequencyGrid(self, grid_to_use):
-        self.fmin = 10
-        self.fmax = 325
+    def _initFrequencyGrid(self):
+        """
+        Setup frequency grid for naive inner product evaluation
+        """
+        
+        self.fmin = 20  # 10
+        self.fmax = 512 # 325
+
         fcut = self.wf_model.fcut(**self.injParams)
         if self.fmax is None:
             self.fmax = fcut
         else:
             fcut = jnp.where(fcut > self.fmax, self.fmax, fcut)
 
-        if grid_to_use == 'geometric':
-            self.grid_resolution = int(100)
-            self.fgrid = jnp.geomspace(self.fmin, fcut, num=self.grid_resolution)
-        elif grid_to_use == 'linear':
-            self.df = 1 / 1. # Reciprocal of signal duration.
-            self.grid_resolution = int(jnp.floor(jnp.real((1 + (fcut - self.fmin) / self.df))))
-            print('Using % i bins' % self.grid_resolution)
-            self.fgrid = jnp.linspace(self.fmin, fcut, num=self.grid_resolution)
+        self.fcut = fcut
+
+        signal_duration = 5. # [s]
+
+        self.df = 1 / signal_duration # Reciprocal of signal duration.
+
+        self.grid_resolution = int(jnp.ceil(jnp.real((1 + (fcut - self.fmin) / self.df))))
+
+        print('Using % i bins' % self.grid_resolution)
+
+        self.fgrid = jnp.linspace(self.fmin, fcut, num=self.grid_resolution)
 
         self.fgrids = jnp.repeat(self.fgrid, self.nParticles, axis=1)
+        # if grid_to_use == 'geometric':
+        #     self.grid_resolution = int(100)
+        #     self.fgrid = jnp.geomspace(self.fmin, fcut, num=self.grid_resolution)
 
     def _initDetectors(self): 
         """Initialize detectors and store PSD interpolated over defined frequency grid
@@ -177,6 +188,44 @@ class gwfast_class(object):
                                                             **self.dict_params_neglected_1)
 
         return strain_data
+
+    # def _getLikelihood(self, X):
+    #     res = self._getResidual_Vec(X)
+    #     return jnp.exp(jnp.norm(res) ** 2 / )
+
+    def signal(self, X, f_grid):
+        fgrids = jnp.repeat(f_grid, self.nParticles, axis=1)
+        signal = {}
+        X_ = X.T.astype('complex128')
+        for det in self.detsInNet.keys():
+            signal[det] = (self.detsInNet[det].GWstrain(fgrids, 
+                                                        Mc      = X_[0],
+                                                        eta     = X_[1],
+                                                        dL      = X_[2],
+                                                        theta   = X_[3],
+                                                        phi     = X_[4],
+                                                        iota    = X_[5],
+                                                        psi     = X_[6],
+                                                        tcoal   = X_[7] / self.time_scale, # Change units to seconds
+                                                        Phicoal = X_[8],
+                                                        chiS    = X_[9],
+                                                        chiA    = X_[10],
+                                                        is_chi1chi2 = 'True',
+                                                        **self.dict_params_neglected_N)).T # Return a N x f matrix
+                         
+        return signal 
+    
+    def r(self, X):
+        """ 
+        Calculate the ratio of signal model with fiducial signal
+        """
+        r = {}
+        for det in self.detsInNet.keys():
+            r[det] = self.signal(X, self.bin_edges) / self.strain_data
+        return r
+
+
+
 
     def _getResidual_Vec(self, X):
         """A vectorized method which calculates the residual between the the template with batch parameters 'X' and signal 
@@ -275,8 +324,9 @@ class gwfast_class(object):
         residual_dict = self._getResidual_Vec(thetas) 
         log_like = jnp.zeros(self.nParticles)
         for det in self.detsInNet:
-            log_like = log_like + contract('Nf, Nf, f -> N', residual_dict[det].conjugate(), residual_dict[det], 1 / self.PSD_dict[det]).real
-        return self.df * log_like / 2
+            log_like = log_like + (residual_dict[det].real ** 2 + residual_dict[det].imag ** 2) / self.PSD_dict[det]
+            # log_like = log_like + contract('Nf, Nf, f -> N', residual_dict[det].conjugate(), residual_dict[det], 1 / self.PSD_dict[det]).real
+        return 0.5 * log_like * self.df
     
     @partial(jax.jit, static_argnums=(0,))
     def getDerivativesMinusLogPosterior_ensemble(self, thetas):
@@ -449,3 +499,50 @@ class gwfast_class(object):
         path = os.path.join('marginals', filename)
         fig.savefig(path)
 
+
+
+    def getHeterodyneBins(self):
+        f_max = self.fmax #512
+        f_min = self.fmin #20
+        gamma = np.array([-5./3, -2./3, 1., 5./3, 7./3])
+        chi = 0.1
+        eps = 0.5
+        num_grid_ticks = 100000
+        f_grid = np.linspace(f_min, f_max, num_grid_ticks) # Begin with dense grid
+        bound = lambda f_minus, f_plus: 2 * np.pi * chi * np.sum((1 - (f_minus / f_plus) ** np.abs(gamma)))
+        bin_edges = [f_min]
+        indicies_kept = [0]
+        i = 0 # grid index
+        j = 0 # bin edge index
+        while i < num_grid_ticks:
+            while i < num_grid_ticks and bound(bin_edges[j], f_grid[i]) < eps:
+                i += 1
+            bin_edges.append(f_grid[i - 1])
+            indicies_kept.append(i - 1)
+            j += 1
+
+    def getSplineData(self):
+        bin_widths = self.bin_edges[1:] - self.bin_edges[:-1]
+        bin_centers = (self.bin_edges[1:] + self.bin_edges[:-1]) / 2
+        r0 = (self.bin_edges[1:] - self.bin_edges[:-1]) / 2 # y intercept
+        r1 = (self.bin_edges[1:] - self.bin_edges[:-1]) / 2 # slopes
+
+
+    def getSummaryData(self):
+        # Init dicts
+        A0 = {}
+        A1 = {}
+        B0 = {}
+        B1 = {}
+        for det in self.detsInNet.keys():
+            A0[det] = np.zeros((self.nbins)).astype('complex128')
+            A1[det] = np.zeros((self.nbins)).astype('complex128')
+            B0[det] = np.zeros((self.nbins))
+            B1[det] = np.zeros((self.nbins))
+        
+        bin_index = np.digitize(self.fgrid_dense, self.bin_edges)
+        for i in range(len(self.f_grid_dense)):
+            A0[det][bin_index[i]] = 4 * self.strain_data[det][i] * self.fiducial[det][i].conjugate() / self.PSD_dict[det][i] * self.df
+            A1[det][bin_index[i]] = 
+            B0[det][bin_index[i]] = 
+            B1[det][bin_index[i]] = 

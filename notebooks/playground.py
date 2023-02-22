@@ -1,8 +1,424 @@
 #%%
+from scipy.stats import norm
+import numpy as np
+import matplotlib.pyplot as plt
+import scipy
+
+#%%
+# Adaptive bin tolerance scheme
+f_max = 512
+f_min = 20
+gamma = np.array([-5./3, -2./3, 1., 5./3, 7./3])
+chi = 0.1
+eps = 0.5
+num_grid_ticks = 100000
+f_grid = np.linspace(f_min, f_max, num_grid_ticks) # Begin with dense grid
+bound = lambda f_minus, f_plus: 2 * np.pi * chi * np.sum((1 - (f_minus / f_plus) ** np.abs(gamma)))
+bin_edges = [f_min]
+indicies_kept = [0]
+max_iter = num_grid_ticks
+i = 0 # grid index
+j = 0 # bin edge index
+while i < num_grid_ticks:
+    while i < num_grid_ticks and bound(bin_edges[j], f_grid[i]) < eps:
+        i += 1
+    bin_edges.append(f_grid[i - 1])
+    indicies_kept.append(i - 1)
+    j += 1
+print(len(bin_edges))
+#%% Calculating summary data
+
+
+#%% 
+
+#%%
+#%%
+# Evidence suggesting a finer sampling at lower frequencies is better
+f_max = 600
+f_min = 20
+gamma = np.array([-5./3, -2./3, 1., 5./3, 7./3]) # Array of powers coming in the different PN corrections
+m = 100
+eps = 0.03
+chi = 0.1
+tau = (f_max - f_min) / m
+b = np.arange(1, m + 1)
+tmp = f_min / (f_max - (m - b) * tau) + (b - 1) * tau / (f_max - (m - b) * tau)
+tmp_1 = tmp[..., np.newaxis] ** np.abs(gamma)
+tmp_2 = 1 - tmp_1
+deltas = 2 * np.pi * chi * np.sum(tmp_2, axis=1)
+fig, ax = plt.subplots()
+ax.plot(b, deltas, c='b')
+ax.plot(b, np.ones(b.shape[0]) * eps, c='r')
+fig.show()
+
+#%%
+f_max = 600
+f_min = 20
+gamma = np.array([-5./3, -2./3, 1., 5./3, 7./3]) # Array of powers coming in the different PN corrections
+# delta_support = np.sum((1 - (f_min / f_max) ** np.abs(gamma)))
+# m = int(np.ceil(delta_support / eps))
+eps = 0.03
+chi = 0.1
+m = 
+
+tau = (f_max - f_min) / m
+b = np.arange(1, m + 1)
+
+tmp = f_min / (f_max - (m - b) * tau) + (b - 1) * tau / (f_max - (m - b) * tau)
+tmp_1 = tmp[..., np.newaxis] ** np.abs(gamma)
+tmp_2 = 1 - tmp_1
+deltas = 2 * np.pi * chi * np.sum(tmp_2, axis=1)
+
+fig, ax = plt.subplots()
+ax.plot(b, deltas, c='b')
+ax.plot(b, np.ones(b.shape[0]) * eps, c='r')
+#%%
+    
+
+# while i < num_grid_ticks:
+#     # print(i)
+#     # print(j)
+#     if bound(bin_edges[j], f_grid[i]) >= eps:
+#         i += 1
+#     else:
+#         while i < num_grid_ticks and bound(bin_edges[j], f_grid[i]) < eps:
+#             i += 1
+#         bin_edges.append(f_grid[i-1])
+#         indicies_kept.append(i-1)
+#         j += 1
+
+
+
+
+#%%
+# Scheme 1
+eps = 0.03
+chi = 0.1
+gamma = np.array([-5./3, -2./3, 1., 5./3, 7./3]) 
+for m in np.arange(20, 1000):
+    tau = (f_max - f_min) / m
+    print(m)
+    bound = 2 * np.pi * chi * np.sum(1 - (f_min / (f_max - (m-1) * tau)) ** np.abs(gamma))
+    if bound < eps:
+        n_target = m
+        break
+
+
+
+
+
+
+#%%
+
+
+
+
+
+
+
+
+#%%
+#########################
+# Preliminary definitions
+#########################
+
+delta = 0.03     # Error tolerance for each bin
+f_min = 20       # 
+f_max = 600      #
+f_grid = np.linspace(f_min, f_max, 10000) # Preliminary dense grid
+gamma = np.array([-5./3, -2./3, 1., 5./3, 7./3]) # Array of powers coming in the different PN corrections
+chi = 0.1
+bound = 2 * np.pi * chi * np.sum((1 - (f_min / f_max) ** np.abs(gamma))) # Get bound over [f_min, f_max]
+n_bins = int(np.ceil(bound / delta)) # 
+
+print(n_bins)
+
+#%%
+tau = (f_max - f_min) / n_bins
+b = np.arange(1, n_bins)
+np.sum(1 - ((f_min + (b - 1) * tau) / (f_min + b * tau))^np.abs(gamma))
+
+
+#%%
+bs = np.arange(1, n_bins)
+tmp_func = lambda b: np.sum(1 - ((f_min + (b - 1) * tau) / (f_min + b * tau))^np.abs(gamma))
+tmp_func(bs)
+#%%
+
+import matplotlib.pyplot as plt
+plt.plot(func(bs))
+
+
+
+
+
+
+#%%
+#%%
+bin_edges = np.linspace(f_min, f_max, n_bins + 1) # n_bins = ticks - 1
+
+frequencies_in_interval = lambda f_minus, f_plus: np.where(np.logical_and(f_minus <= f_grid, f_grid <= f_plus))[0]
+
+f_bin0 = frequencies_in_interval(bin_edges[0], bin_edges[1])
+
+
+#%% Calculating summary data
+
+A0 = 0j
+A1 = 0j
+B1 = 0j
+B2 = 0j
+for b in range(n_bins):
+    index = frequencies_in_interval(bin_edges[b], bin_edges[b+1])
+    tmp1 = d[index] * h0[index].conjugate() / 
+    A0 += 
+
+
+
+dig = np.digitize(f_grid, bin_edges)
+dig[-1] = 
+# f_bar = (f_heterodyned[1:] - f_heterodyned[:-1]) / 2
+
+# np.random.rand(f_dense.size())
+
+# scipy.stats.binned_statistic(x, values, statistic='mean', bins=10, range=None)
+
+A_0 = np.zeros(n_bins) 
+A_1 = np.zeros(n_bins)
+B_0 = np.zeros(n_bins) 
+B_1 = np.zeros(n_bins) 
+
+for i in range(f_grid.size()):
+
+
+
+
+
+#%%
+
+#%%
+import scipy
+# arr = np.sort([20, 2, 7, 1, 34])
+arr = np.sort([1 + 5j, 2, 7, 20, 34])
+
+
+f = lambda x: np.mean(x)
+
+A_0 = lambda f: np.sum()
+
+
+
+a = scipy.stats.binned_statistic(arr, np.arange(5), statistic=f, bins=2)
+
+# a = scipy.stats.binned_statistic(arr, strain * h0.conjugate() / PSD / T, statistic='sum', bins=n_bins)
+
+print(a[0])
+
+
+
+#%%
+
+
+
+#%%
+
+
+
+
+
+#%%
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#%%
+ # make array of frequencies
+
+delta = 0.03
+
+f_min = 20
+f_max = 600
+
+f_nt = np.linspace(f_min, f_max, 10000)
+
+# array of powers coming in the different PN corrections
+ga = np.array([-5./3, -2./3, 1., 5./3, 7./3])
+
+# compute the coefficient from https://arxiv.org/pdf/1806.08792.pdf
+dalpha = 2 * np.pi / np.abs(f_min**ga - f_max**ga)
+dphi = np.sum([np.sign(g) * d * f_nt**g for d, g in zip(dalpha, ga)], axis = 0)
+dphi -= dphi[0]
+
+# construct the frequency bins
+nbin = int(np.ceil(dphi[-1] / delta))
+dphi_grid = np.linspace(dphi[0], dphi[-1], nbin+1)
+fbin = np.interp(dphi_grid, dphi, f_nt)
+
+#%%
+
+
+# set the bin edges to values for which we have template values
+fbin_idxs = np.unique(np.argmin(np.abs(waveform_generator.frequency_array[:, np.newaxis] - self.fbin), axis = 0))
+fbin = waveform_generator.frequency_array[self.fbin_idxs]
+Nbin = len(fbin) - 1 # number of bins
+fm = (fbin[1:] + self.fbin[:-1])/2.
+binwidths = fbin[1:] - self.fbin[:-1] # binwidths
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#%%
+# rv = norm()
+def trunc_gauss_pdf(x, a, b):
+    y = np.zeros(x.shape[0])
+    idx = np.where(np.logical_and(x > a, x < b))
+    y[idx] = norm.pdf(x[idx], loc=0, scale=1)
+    return y
+
+def smoothed_trunc_gauss(x, a, b, t):
+    y = np.zeros(x.shape[0])
+    idx = np.where(np.logical_and(x > a, x < b))
+    y[idx] = norm.pdf(x[idx], loc=0, scale=1) * ((x[idx]-a) * (b-x[idx])) ** (1 / t)
+    return y
+
+
+a = -.5
+b = 1
+x = np.linspace(a - 5, a + 5, 1000)
+y_trunc = trunc_gauss_pdf(x, a, b)
+fig, ax = plt.subplots(1, 1)
+y_smooth_a = smoothed_trunc_gauss(x, a, b, t=100)
+# y_smooth_b = smoothed_trunc_gauss(x, a, b, t=0.1)
+# y_smooth_c = smoothed_trunc_gauss(x, a, b, t=0.01)
+
+# y_b = y * ((x-a) * (b-x)) ** t
+max_trunc = np.max(y_trunc)
+
+plt.plot(x, y_trunc)
+plt.plot(x, y_smooth_a)
+# plt.plot(x, y_smooth_b)
+# plt.plot(x, y_smooth_c)
+
+#%%
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#%%
 import numpy as np
 from numdifftools import Hessian, Jacobian, Gradient
 from models.vM_sphere import vM_sphere
-#%%
+
 kappa = 100
 thetaTrue = np.array([0, np.pi/2])
 model = vM_sphere(kappa=kappa, thetaTrue=thetaTrue)

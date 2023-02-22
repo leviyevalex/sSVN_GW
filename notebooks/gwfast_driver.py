@@ -4,7 +4,7 @@ import sys
 sys.path.append("..")
 # 
 # from models.gwfastWrapClass import gwfast_class
-from models.GWFAST_REWRITE import gwfast_class
+from models.GWFAST_heterodyne import gwfast_class
 from src.samplers import samplers
 from scripts.plot_helper_functions import collect_samples
 import numpy as np
@@ -87,11 +87,41 @@ priorDict['Phicoal'] = [0., 0.1]           # (9)   # (8)
 # priorDict['chiA']    = [-1., 1.]           # (11)  # (10)
 priorDict['chi1z']    = [-1., 1.]           # (10)  # (9)
 priorDict['chi2z']    = [-1., 1.]           # (11)  # (10)
+#%%
+nParticles = 3
+nIterations = 100
+model = gwfast_class(LV_detectors, waveform, injParams, priorDict, nParticles=nParticles)
+# print('Using % i bins' % model.grid_resolution)
+#%%
+
+# model.getSummaryData()
+#%%
+# model._h0()
+X = model._newDrawFromPrior(nParticles)
+model.standard_minusLogLikelihood(X)
 
 #%%
-nParticles = 1
-model = gwfast_class(LV_detectors, waveform, injParams, priorDict, nParticles=nParticles)
-print('Using % i bins' % model.grid_resolution)
+
+#%%
+#%%
+
+
+
+#%%
+kernelKwargs = {'h':model.DoF / 1, 'p':2.} # Lp
+# t = np.ones(nIterations) * 0.01
+# t[int(nIterations / 2):] = 0.5
+# t = np.linspace(0.1, 0.15, nIterations) # Sequence of smoothing parameters
+# sampler1 = samplers(model=model, nIterations=nIterations, nParticles=nParticles, profile=False, kernel_type='Lp', bounded='log_boundary', t=t)
+sampler1 = samplers(model=model, nIterations=nIterations, nParticles=nParticles, profile=False, kernel_type='Lp')
+# sampler1.apply(method='reparam_sSVN', eps=1, kernelKwargs=kernelKwargs)
+sampler1.apply(method='reparam_sSVN', eps=2, kernelKwargs=kernelKwargs)
+#%%
+import corner
+X1 = collect_samples(sampler1.history_path)
+# fig1 = corner.corner(bounded_iid_samples[0:X1.shape[0]])
+corner.corner(X1, hist_kwargs={'density':True})
+
 
 #%%
 from itertools import combinations

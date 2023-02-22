@@ -41,6 +41,9 @@ class hybrid_rosenbrock:
         self.nGradLikelihoodEvaluations = 0
         self.nHessLikelihoodEvaluations = 0
     
+        self.lower_bound = np.ones(self.DoF) * (0.9)
+        self.upper_bound = np.ones(self.DoF) * (1.2)
+
     def _getDependencyStructure(self, x):
         """Get the matrix representation of the dependency structure denoted in Figure 7 - https://arxiv.org/abs/1903.09556
         Remark: This method will be used to express $x_{j,i}$, and $b_{j,i}$ in tensor form. This simplifies the implementation!
@@ -202,7 +205,9 @@ class hybrid_rosenbrock:
             array: (nSamples, DoF) shaped array of samples from uniform prior
 
         """
-        return np.random.uniform(low=-6, high=6, size=(nSamples, self.DoF))
+        # return np.random.uniform(low=-6, high=6, size=(nSamples, self.DoF))
+        return np.random.uniform(low=0.9, high=1.2, size=(nSamples, self.DoF))
+
 
     @partial(jax.jit, static_argnums=(0,))
     def getDerivativesMinusLogPosterior_ensemble(self, thetas):
