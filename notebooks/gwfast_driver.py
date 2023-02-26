@@ -1,5 +1,6 @@
-#%%
-# Export PATH
+#%%################################
+# Export PATH and import libraries
+###################################
 import sys
 sys.path.append("..")
 # 
@@ -28,80 +29,166 @@ from jax import jacobian, grad
 from corner import corner
 import jax
 import jax.numpy as jnp
+# import matplotlib.pyplot as plt
 
-#%%
-#############################
+#%%##########################
 # (GW150914) like parameters
 #############################
-
+# Remarks:
+# (i) `tcoal` is accepted in units of fraction of a day
+# (ii) GPSt_to_LMST returns GMST in units of fraction of day (GMST is LMST computed at long = 0°)
+seconds_per_day = 86400. 
 tGPS = np.array([1.12625946e+09])
+tcoal = float(utils.GPSt_to_LMST(tGPS, lat=0., long=0.) * seconds_per_day)
 injParams = dict()
-injParams['Mc']      = np.array([34.3089283])        # Units: M_sun
-injParams['eta']     = np.array([0.2485773])         # Units: Unitless
-injParams['dL']      = np.array([2.634])             # Units: Gigaparsecs 
-injParams['theta']   = np.array([2.78560281])        # Units: Rad
-injParams['phi']     = np.array([1.67687425])        # Units: Rad
-injParams['iota']    = np.array([2.67548653])        # Units: Rad
-injParams['psi']     = np.array([0.78539816])        # Units: Rad
-injParams['tcoal']   = np.array([0.])                # Units: Fraction of day 
-# injParams['tcoal'] = np.array(utils.GPSt_to_LMST(tGPS, lat=0., long=0.) * (3600 * 24)) # Coalescence time, in units of fraction of day (GMST is LMST computed at long = 0°) 
-injParams['Phicoal'] = np.array([0.])                # Units: Rad
-injParams['chi1z']   = np.array([0.27210419])        # Units: Unitless
-injParams['chi2z']   = np.array([0.33355909])        # Units: Unitless
+injParams['Mc']      = np.array([34.3089283])                                                # [M_solar]
+injParams['eta']     = np.array([0.2485773])                                                 # [Unitless]
+injParams['dL']      = np.array([2.634])                                                     # [Gigaparsecs] 
+injParams['theta']   = np.array([2.78560281])                                                # [Rad]
+injParams['phi']     = np.array([1.67687425])                                                # [Rad]
+injParams['iota']    = np.array([2.67548653])                                                # [Rad]
+injParams['psi']     = np.array([0.78539816])                                                # [Rad]
+injParams['tcoal']   = np.array([tcoal])                                                     # [Sec]
+injParams['Phicoal'] = np.array([0.])                                                        # [Rad]
+injParams['chi1z']   = np.array([0.27210419])                                                # [Unitless]
+injParams['chi2z']   = np.array([0.33355909])                                                # [Unitless]
 
-#%%
-#  Setup gravitational wave network problem
+priorDict = {}
+priorDict['Mc']      = [29., 39.]                                             # (1)   # (0)  # [M_solar]
+priorDict['eta']     = [0.22, 0.25]                                           # (2)   # (1)  # [Unitless]
+priorDict['dL']      = [0.1, 4.]                                              # (3)   # (2)  # [GPC]
+priorDict['theta']   = [0., np.pi]                                            # (4)   # (3)  # [Rad]
+priorDict['phi']     = [0., 2 * np.pi]                                        # (5)   # (4)  # [Rad]
+priorDict['iota']    = [0., np.pi]                                            # (6)   # (5)  # [Rad]
+priorDict['psi']     = [0., np.pi]                                            # (7)   # (6)  # [Rad]
+priorDict['tcoal']   = [tcoal - 1e-7, tcoal + 1e-7]                           # (8)   # (7)  # [Sec]
+priorDict['Phicoal'] = [0., 2 * np.pi]                                        # (9)   # (8)  # [Rad]
+priorDict['chi1z']   = [-1., 1.]                                              # (10)  # (9)  # [Unitless]
+priorDict['chi2z']   = [-1., 1.]                                              # (11)  # (10) # [Unitless]
 
-all_detectors = copy.deepcopy(glob.detectors) # Geometry of every available detector
+#%%########################################
+# Setup gravitational wave network problem
+###########################################
+# Notes:
+# (i)   Geometry of every available detector
+# (ii)  Extract only LIGO/Virgo detectors
+# (iii) Providing ASD path to psd_path with flag "is_ASD = True"
+# (iv)  Add paths to detector sensitivities
+all_detectors = copy.deepcopy(glob.detectors) # (i)
 
-LV_detectors = {det:all_detectors[det] for det in ['L1', 'H1', 'Virgo']} # Extract only LIGO/Virgo detectors
-# LV_detectors = {det:all_detectors[det] for det in ['L1', 'H1']}
+# LV_detectors = {det:all_detectors[det] for det in ['L1', 'H1', 'Virgo']} # (ii)
+LV_detectors = {det:all_detectors[det] for det in ['L1']}
 
 print('Using detectors ' + str(list(LV_detectors.keys())))
 
-detector_ASD = dict() # Remark: Providing ASD path to psd_path with flag "is_ASD = True" in
+detector_ASD = dict() # (iii)
 detector_ASD['L1']    = 'O3-L1-C01_CLEAN_SUB60HZ-1240573680.0_sensitivity_strain_asd.txt'
 detector_ASD['H1']    = 'O3-H1-C01_CLEAN_SUB60HZ-1251752040.0_sensitivity_strain_asd.txt'
 detector_ASD['Virgo'] = 'O3-V1_sensitivity_strain_asd.txt'
 
-LV_detectors['L1']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['L1']) # Add paths to detector sensitivities
-LV_detectors['H1']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['H1'])
-LV_detectors['Virgo']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['Virgo'])
+LV_detectors['L1']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['L1']) # (iv) 
+# LV_detectors['H1']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['H1'])
+# LV_detectors['Virgo']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['Virgo'])
 
 # waveform = TaylorF2_RestrictedPN() # Choice of waveform
 waveform = IMRPhenomD()
 
 
-priorDict = {}
-
-priorDict['Mc']      = [29., 39.]          # (1)   # (0)
-priorDict['eta']     = [0.22, 0.25]        # (2)   # (1)
-priorDict['dL']      = [0.1, 4.]           # (3)   # (2)
-priorDict['theta']   = [0., np.pi]         # (4)   # (3)
-priorDict['phi']     = [0., 2*np.pi]       # (5)   # (4)
-priorDict['iota']    = [0., np.pi]         # (6)   # (5)
-priorDict['psi']     = [0., np.pi]         # (7)   # (6)
-priorDict['tcoal']   = [injParams['tcoal'][0] - 1e-7, injParams['tcoal'][0] + 1e-7]           # (8)   # (7)
-priorDict['Phicoal'] = [0., 0.1]           # (9)   # (8)
-# priorDict['chiS']    = [-1., 1.]           # (10)  # (9)
-# priorDict['chiA']    = [-1., 1.]           # (11)  # (10)
-priorDict['chi1z']    = [-1., 1.]           # (10)  # (9)
-priorDict['chi2z']    = [-1., 1.]           # (11)  # (10)
-#%%
-nParticles = 3
+#%%###############################################
+# Class setup
+##################################################
+nParticles = 5
 nIterations = 100
 model = gwfast_class(LV_detectors, waveform, injParams, priorDict, nParticles=nParticles)
 # print('Using % i bins' % model.grid_resolution)
 #%%
-
+# model.getHeterodyneBins_new(chi=1, eps=0.5)
+# model.getSummaryData()
 # model.getSummaryData()
 #%%
 # model._h0()
 X = model._newDrawFromPrior(nParticles)
-model.standard_minusLogLikelihood(X)
+# test = model.r(X)
+# model.getSummaryData()
+test_a = model.standard_gradientMinusLogLikelihood(X)
+test_b = model.heterodyne_gradientMinusLogLikelihood(X)
+#%%
+np.mean(((test_a - test_b) / test_a * 100), axis=0)
+
 
 #%%
+X = model._newDrawFromPrior(nParticles)
+test1 = model.standard_minusLogLikelihood(X)
+test2 = model.heterodyne_minusLogLikelihood(X) 
+#%%
+percent_change = (test1 - test2) / test1 * 100
+mpc = np.mean(percent_change)
+print(mpc)
+# print('% Difference in heterodyne vs standard likelihoods:', 
+# print(test1)
+# print(test2)
+#%%
+# Heterodyning signals test
+fig, ax = plt.subplots()
+fig1, ax1 = plt.subplots()
+X = model._newDrawFromPrior(nParticles)
+waveforms = model.getSignal(X, model.fgrid_standard)
+slow_varying = {}
+for det in model.NetDict.keys():
+    slow_varying[det] = waveforms[det] / model.h0_standard[det]
+for i in range(nParticles):
+    ax1.plot(model.fgrid_standard, slow_varying['L1'][i]) # Less rapid oscillations
+    ax.plot(model.fgrid_standard, waveforms['L1'][i]) # Very rapid oscillations
+fig.show()
+fig1.show()
+#%%
+fig, ax = plt.subplots()
+X = model._newDrawFromPrior(nParticles)
+waveforms = model.getSignal(X, model.fgrid_standard)
+derivatives = model._getJacobianSignal(X, model.fgrid_standard)
+#%%
+fig, ax = plt.subplots()
+y = np.tile(model.true_params, 5).reshape(5, 11)
+jac_h0_standard = model._getJacobianSignal(y, model.fgrid_standard)
+#%%
+jac_h0_standard['L1'][:,:,-1] = jac_h0_standard['L1'][:,:,-2]
 
+#%%
+fig, ax = plt.subplots()
+fig1, ax1 = plt.subplots()
+n = 5
+slow_varying_h0 = derivatives[det][:,n,:] / model.h0_standard[det]
+slow_varying_jh0 = derivatives[det][:,n,:] / jac_h0_standard[det][:,0,:]
+for d in range(model.DoF):
+    ax.plot(model.fgrid_standard, slow_varying_h0[d].real, label='%i' % d)
+    ax.legend()
+    ax1.plot(model.fgrid_standard, slow_varying_jh0[d].real, label='jac %i' % d)
+    ax1.legend()
+
+fig.show()
+
+
+
+
+
+
+#%%
+for i in range(3):
+    ax.plot(model.fgrid_standard, waveforms['Virgo'][i])
+fig.show()
+#%%
+for det in ['H1', 'L1', 'Virgo']:
+    ax.plot(waveforms[det])
+    
+
+
+
+#%%
+# idx = np.nonzero(signal[det]) 
+# x = np.arange(len(signal[det]))
+# f = jnp.scipy.interp(x[idx],signal[det][idx])
+# ynew = f(x)
+# signal[det] = signal[det].at[-1].set(signal[det][-2]) # (v)
 #%%
 #%%
 

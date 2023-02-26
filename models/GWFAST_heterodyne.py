@@ -45,7 +45,8 @@ class gwfast_class(object):
         self.NetDict = NetDict
         self.EarthMotion = False
         self.injParams = injParams
-        self.time_scale = 3600 * 24. # Multiply to transform from units of days to units of seconds
+        self.seconds_per_day = 86400. 
+
 
         # Parameter order convention
         self.gwfast_param_order = ['Mc','eta', 'dL', 'theta', 'phi', 'iota', 'psi', 'tcoal', 'Phicoal', 'chi1z', 'chi2z']
@@ -60,20 +61,17 @@ class gwfast_class(object):
         self.lower_bound = np.array([self.priorDict[param][0] for param in self.gwfast_param_order])
         self.upper_bound = np.array([self.priorDict[param][1] for param in self.gwfast_param_order])
 
-
         self._initFrequencyGrid()
         self._initDetectors()
         self.h0_standard = self._getInjectedSignals(injParams, self.fgrid_standard)
         self.h0_dense = self._getInjectedSignals(injParams, self.fgrid_dense)
-        # self._initStrainData(method='sim', add_noise=False)
 
-        # self.d_d = self._precomputeDataInnerProduct()
+        # Heterodyned strategy
+        self.d_d = self._precomputeDataInnerProduct()
+        # self.getHeterodyneBins_even_newer(chi=1, eps=0.5)
+        self.getHeterodyneBins_even_newer(chi=0.1, eps=0.2)
+        self.getSummaryData()
 
-
-        # self.getHeterodyneBins()
-        # self._h0() # Setup fiducial signal over dense grid
-
-        # self.getSummaryData()
         # Warmup for JIT compile
         # self._warmup_potential(True)
         # self._warmup_potential_derivative(True) 
@@ -85,12 +83,12 @@ class gwfast_class(object):
         """
         self.fmin = fmin  # 10
         self.fmax = fmax  # 325
-        fcut = self.wf_model.fcut(**self.injParams)
+        fcut = self.wf_model.fcut(**self.injParams)[0]
         if self.fmax is None:
             self.fmax = fcut
         else:
-            fcut = jnp.where(fcut > self.fmax, self.fmax, fcut)
-        self.fcut = float(fcut)
+            fcut = np.where(fcut > self.fmax, self.fmax, fcut)
+        self.fcut = fcut
 
         ###############################
         # Standard frequency grid setup
@@ -99,18 +97,19 @@ class gwfast_class(object):
         # (i) Once nbins_standard is calculated, df_standard must be updated!
         signal_duration = 4. # [s]
         self.df_standard = 1 / signal_duration
-        self.nbins_standard = int(jnp.ceil(((self.fmax - self.fmin) / self.df_standard)))
+        self.nbins_standard = int(np.ceil(((self.fmax - self.fmin) / self.df_standard)))
+        # self.nbins_standard = 9000
         self.df_standard = (self.fmax - self.fmin) / self.nbins_standard # (i)
         print('Standard binning scheme: % i bins' % self.nbins_standard)
-        self.fgrid_standard = jnp.linspace(self.fmin, fcut, num=self.nbins_standard + 1).squeeze()
+        self.fgrid_standard = np.linspace(self.fmin, fcut, num=self.nbins_standard + 1).squeeze()
 
         ########################################
         # Dense frequency setup for heterodyning
         ########################################
-        self.nbins_dense = 1000 # TODO: Make this more dense once not testing
+        self.nbins_dense = 10000 
         self.df_dense = (self.fmax - self.fmin) / self.nbins_dense
         print('Dense bins: % i bins' % self.nbins_dense)
-        self.fgrid_dense = jnp.linspace(self.fmin, fcut, num=self.nbins_dense + 1).squeeze()
+        self.fgrid_dense = np.linspace(self.fmin, fcut, num=self.nbins_dense + 1).squeeze()
 
     def _initDetectors(self): 
         """Initialize detectors and store PSD interpolated over defined frequency grid
@@ -145,7 +144,9 @@ class gwfast_class(object):
         Fiducial signals over dense grid (one for each detector)
         Note: See remarks on self.getSignal
         Remarks:
-        (i) Squeeze to return (f,) shaped array
+        (i)   Squeeze to return (f,) shaped array
+        (ii)  Signal returns a 0 for the maximum frequency. This is a hack which fixes this issue
+        (iii) `tcoal` in GWstrain must be in units of days.
         """
         h0 = {}
         for det in self.detsInNet.keys():
@@ -157,12 +158,14 @@ class gwfast_class(object):
                                                    phi     = injParams['phi'].astype('complex128'),
                                                    iota    = injParams['iota'].astype('complex128'),
                                                    psi     = injParams['psi'].astype('complex128'),
-                                                   tcoal   = injParams['tcoal'].astype('complex128') / self.time_scale, # Change units to seconds
+                                                   tcoal   = injParams['tcoal'].astype('complex128') / self.seconds_per_day, # (iii)
                                                    Phicoal = injParams['Phicoal'].astype('complex128'),
                                                    chiS    = injParams['chi1z'].astype('complex128'),
                                                    chiA    = injParams['chi2z'].astype('complex128'),
                                                    is_chi1chi2 = 'True',
                                                    **self.dict_params_neglected_1).squeeze() # (i)
+
+            h0[det] = h0[det].at[-1].set(h0[det][-2]) # (ii)
 
         return h0
 
@@ -187,7 +190,7 @@ class gwfast_class(object):
                                                         phi     = X_[4],
                                                         iota    = X_[5],
                                                         psi     = X_[6],
-                                                        tcoal   = X_[7] / self.time_scale, # (iii)
+                                                        tcoal   = X_[7] / self.seconds_per_day, # (iii)
                                                         Phicoal = X_[8],
                                                         chiS    = X_[9],
                                                         chiA    = X_[10],
@@ -207,7 +210,7 @@ class gwfast_class(object):
         Returns
         -------
         array
-            (d, N, f) shaped array of derivatives
+            gwfast returns a (d, N, f) shaped array 
         """
         fgrids = jnp.repeat(f_grid[...,np.newaxis], self.nParticles, axis=1)
         jacModel = {}
@@ -221,14 +224,14 @@ class gwfast_class(object):
                                                                        phi     = X_[4],
                                                                        iota    = X_[5],
                                                                        psi     = X_[6],
-                                                                       tcoal   = X_[7] / self.time_scale, # Correction 1
+                                                                       tcoal   = X_[7] / self.seconds_per_day, # Correction 1
                                                                        Phicoal = X_[8],
                                                                        chiS    = X_[9],
                                                                        chiA    = X_[10],
                                                                        use_chi1chi2 = True,
                                                                        **self.dict_params_neglected_N) 
 
-            jacModel[det] = jacModel[det].at[7].divide(self.time_scale) # Correction 2
+            jacModel[det] = jacModel[det].at[7].divide(self.seconds_per_day) # Correction 2
 
         return jacModel
             
@@ -243,6 +246,24 @@ class gwfast_class(object):
             log_likelihood += 0.5 * inner_product
         return log_likelihood
 
+    def standard_gradientMinusLogLikelihood(self, X): # Checks: X
+        grad_log_like = np.zeros((self.nParticles, self.DoF))
+        signal = self.getSignal(X, self.fgrid_standard)
+        jacSignal = self._getJacobianSignal(X, self.fgrid_standard)
+        for det in self.detsInNet.keys():
+            residual = signal[det] - self.h0_standard[det][np.newaxis, ...]
+            inner_product = (4 * np.sum(jacSignal[det].conjugate() * residual[np.newaxis, ...] / self.PSD_standard[det], axis=-1) * self.df_standard).T
+            grad_log_like += inner_product.real
+        return grad_log_like
+    
+    def standard_GNHessianMinusLogLikelihood(self, X): # Checks: X
+        GN = np.zeros((self.nParticles, self.DoF, self.DoF))
+        jacSignal = self._getJacobianSignal(X, self.fgrid_standard)
+        for det in self.detsInNet.keys():
+            inner_product = 4 * contract('iNf, jNf, f -> Nij', jacSignal[det].conjugate(), jacSignal[det], 1 / self.PSD_standard[det]) * self.df_standard
+            GN += inner_product.real
+        return GN
+
 
 
 
@@ -250,35 +271,43 @@ class gwfast_class(object):
 # HETERODYNE METHODS
 #########################################################################
 
-        # inner_product = lambda x, y: 4 * np.sum(x * y.conjugate()[np.newaxis, ...] / self.PSD_standard[np.newaxis, ...], axis=-1) * self.df_standard
-    def getHeterodyneBins(self, chi=0.1, eps=0.5):
-        """ 
-        Get sparse grid for heterodyned scheme
-        """
-        f_max = float(self.fcut) #512
-        f_min = float(self.fmin) #20
+    def _precomputeDataInnerProduct(self):
+        print('Precomputing inner product')
+        inner_product = {}
+        for det in self.detsInNet.keys():
+            inner_product[det] = 4 * np.sum((self.h0_dense[det].real ** 2 + self.h0_dense[det].imag ** 2) / self.PSD_dense[det]) * self.df_dense
+        return inner_product
+
+    def getHeterodyneBins_even_newer(self, chi, eps):
+        print('Getting heterodyned bins')
+
         gamma = np.array([-5./3, -2./3, 1., 5./3, 7./3])
-        # num_grid_ticks = 100000
-        num_grid_ticks = self.n_dense + 1
-        # f_grid = np.linspace(f_min, f_max, num_grid_ticks) # Begin with dense grid
-        f_grid = self.f_grid_dense
-        bound = lambda f_minus, f_plus: 2 * np.pi * chi * np.sum((1 - (f_minus / f_plus) ** np.abs(gamma)))
-        bin_edges = [f_min]
-        indicies_kept = [0]
-        i = 0 # grid index
-        j = 0 # bin edge index
-        while i < num_grid_ticks:
-            while i < num_grid_ticks and bound(bin_edges[j], f_grid[i]) < eps:
-                i += 1
-            bin_edges.append(f_grid[i - 1])
-            indicies_kept.append(i - 1)
+        delta = lambda f_minus, f_plus: 2 * np.pi * chi * np.sum((1 - (f_minus / f_plus) ** np.abs(gamma)))
+        delta0 = delta(self.fgrid_dense[0], self.fgrid_dense[1])
+        if eps < delta0:
+            print('First bin cannot satisfy bound. Changing epsilon from %f to %f' % (eps, delta0))
+            eps = delta0
+
+        subindex = []
+        index_f_minus = 0
+        j = 0
+        while j <= self.nbins_dense:
+            if j == 0 or j == self.nbins_dense:
+                subindex.append(j)
+            else:
+                d = delta(self.fgrid_dense[index_f_minus], self.fgrid_dense[j])
+                if d > eps:
+                    j -= 1
+                    subindex.append(j)
+                    index_f_minus = j
             j += 1
 
-        self.indicies_kept = np.array(indicies_kept)
-        self.bin_edges = np.array(bin_edges)
+        self.indicies_kept = np.array(subindex)
+        self.bin_edges = self.fgrid_dense[self.indicies_kept]
+        self.nbins = len(subindex) - 1
         self.bin_widths = self.bin_edges[1:] - self.bin_edges[:-1]
-        self.bin_centers = (self.bin_edges[1:] + self.bin_edges[:-1]) / 2
-        self.nbins = self.bin_edges.shape[0] - 1
+        print('Heterodyne binning scheme: %i' % self.nbins)
+
 
     def r(self, X):
         """ 
@@ -287,64 +316,133 @@ class gwfast_class(object):
         r = {}
         signal = self.getSignal(X, self.bin_edges)
         for det in self.detsInNet.keys():
-            r[det] = signal[det] / self.h0[det][self.indicies_kept].T
+            r[det] = signal[det] / self.h0_dense[det][self.indicies_kept]
         return r
 
     def getSplineData(self, X):
+        """ 
+        Return N x b matrix
+        """
         r = self.r(X)
         r0 = {}
         r1 = {}
         for det in self.detsInNet.keys():
-            tmp1 = r[det][:, 1:] - r[det][:, :-1]
-            r0[det] = tmp1 / 2               # y intercept
-            r1[det] = tmp1 / self.bin_widths[np.newaxis, ...] # slopes
+            r0[det] = r[det][:, :-1] # y intercept
+            r1[det] = (r[det][:, 1:] - r[det][:, :-1]) / self.bin_widths[np.newaxis, ...] # slopes
         return r0, r1
+
+    def jac_r(self, X):
+        jac_r = {}
+        jacSignal = self._getJacobianSignal(X, self.bin_edges)
+        for det in self.detsInNet.keys():
+            jac_r[det] = jacSignal[det] / self.h0_dense[det][self.indicies_kept]
+        return jac_r
+
+    def getJacSplineData(self, X):
+        jac_r = self.jac_r(X)
+        jac_r0 = {}
+        jac_r1 = {}
+        for det in self.detsInNet.keys():
+            jac_r0[det] = jac_r[det][..., :-1]
+            jac_r1[det] = (jac_r[det][..., 1:] - jac_r[det][..., :-1]) / self.bin_widths
+        return jac_r0, jac_r1
 
     def getSummaryData(self):
         """ 
         Calculate summary data
         """
+        print('Calculating summary data')
         # Init dicts
         self.A0 = {}
         self.A1 = {}
         self.B0 = {}
         self.B1 = {}
+        bin_index = (np.digitize(self.fgrid_dense, self.bin_edges)) - 1 # To index bins from 0 to nbins - 1
+        bin_index[-1] = self.nbins - 1 # Make sure the right endpoint is inclusive!
+
         for det in self.detsInNet.keys():
             self.A0[det] = np.zeros((self.nbins)).astype('complex128')
             self.A1[det] = np.zeros((self.nbins)).astype('complex128')
             self.B0[det] = np.zeros((self.nbins))
             self.B1[det] = np.zeros((self.nbins))
-        
-        bin_index = (np.digitize(self.f_grid_dense, self.bin_edges))[:,0] - 1 # To index bins from 0 to nbins - 1
-        bin_index[-1] = self.nbins - 1 # Make sure the right endpoint is inclusive!
-        for i in range(len(self.f_grid_dense)):
-            b = bin_index[i]
-            # d * h0, in this case d = h0!
-            tmp1 = 4 * self.h0[det][i] * self.h0[det][i].conjugate() / self.PSD_dict_dense[det][i] * self.df
-            tmp2 = 4 * np.abs(self.h0[det][i]) ** 2 / self.PSD_dict_dense[det][i] * self.df 
-            self.A0[det][b] += tmp1
-            self.A1[det][b] += tmp1 * (self.f_grid_dense[i] - self.bin_centers[b])
-            self.B0[det][b] += tmp2
-            self.B1[det][b] += tmp2 * (self.f_grid_dense[i] - self.bin_centers[b])
-
-    def likelihood_heterodyne(self, X):
+            for i in range(len(self.fgrid_dense)):
+                b = bin_index[i]
+                # d * h0, in this case d = h0!
+                tmp1 = 4 * self.h0_dense[det][i] * self.h0_dense[det][i].conjugate() / self.PSD_dense[det][i] * self.df_dense
+                tmp2 = 4 * np.abs(self.h0_dense[det][i]) ** 2 / self.PSD_dense[det][i] * self.df_dense
+                self.A0[det][b] += tmp1
+                self.A1[det][b] += tmp1 * (self.fgrid_dense[i] - self.bin_edges[b])
+                self.B0[det][b] += tmp2
+                self.B1[det][b] += tmp2 * (self.fgrid_dense[i] - self.bin_edges[b])
+        print('Summary data calculation completed')
+    
+    def heterodyne_minusLogLikelihood(self, X):
         r0, r1 = self.getSplineData(X)
         log_like = np.zeros(self.nParticles)
         for det in self.detsInNet.keys():
-            h_d = np.sum(self.A0[det].conjugate()[np.newaxis] * r0[det] + self.A1[det].conjugate()[np.newaxis] * r1[det], axis=1)
+            h_d = np.sum(self.A0[det][np.newaxis] * r0[det].conjugate() + self.A1[det][np.newaxis] * r1[det].conjugate(), axis=1)
             h_h = np.sum(self.B0[det][np.newaxis] * np.abs(r0[det]) ** 2 + 2 * self.B1[det][np.newaxis] * (r0[det].conjugate() * r1[det]).real, axis=1)
-            log_like += h_h - 2 * h_d.real + self.d_d[det]  
+            inner_product = h_h - 2 * h_d.real + self.d_d[det]
+            log_like += 0.5 * inner_product
         return log_like
 
-
-
-
-
-    def _precomputeDataInnerProduct(self):
-        inner_product = {}
+    # def heterodyne_gradientMinusLogLikelihood(self, X):
+    @partial(jax.jit, static_argnums=(0,))
+    def getGradientMinusLogPosterior_ensemble(self, X):
+        r0, r1 = self.getSplineData(X)
+        jac_r0, jac_r1 = self.getJacSplineData(X)
+        grad_log_like = np.zeros((self.nParticles, self.DoF))
         for det in self.detsInNet.keys():
-            inner_product[det] = 4 * np.sum((self.h0.real ** 2 + self.h0.imag ** 2) / self.PSD_dense) * self.df_dense
-        return inner_product
+            tmp1 = jac_r0[det].conjugate() * r1[det][np.newaxis, ...] + jac_r1[det].conjugate() * r0[det][np.newaxis, ...] # (i, N, b) shaped matrix
+
+            jh_h = contract('b, jNb, Nb -> Nj', self.B0[det], jac_r0[det].conjugate(), r0[det], backend='jax') \
+                 + contract('b, jNb -> Nj', self.B0[det], tmp1, backend='jax')
+
+            jh_d = contract('b, jNb -> Nj', self.A0[det], jac_r0[det].conjugate(), backend='jax') \
+                 + contract('b, jNb -> Nj', self.A1[det], jac_r1[det].conjugate(), backend='jax')
+
+            grad_log_like += jh_h.real - jh_d.real
+
+        return grad_log_like
+
+    # def heterodyne_GNHessianMinusLogLikelihood(self, X):
+    @partial(jax.jit, static_argnums=(0,))
+    def getGNHessianMinusLogPosterior_ensemble(self, X):
+        jac_r0, jac_r1 = self.getJacSplineData(X)
+        GN = np.zeros((self.nParticles, self.DoF, self.DoF))
+        for det in self.detsInNet.keys():
+            jh_jh = contract('b, jNb, kNb -> Njk', self.B0[det], jac_r0[det].conjugate(), jac_r0[det], backend='jax') \
+                  + contract('b, jNb, kNb -> Njk', self.B1[det], jac_r0[det].conjugate(), jac_r1[det], backend='jax') \
+                  + contract('b, jNb, kNb -> Njk', self.B1[det], jac_r1[det].conjugate(), jac_r0[det], backend='jax') 
+                            
+            GN += jh_jh.real
+
+        return GN
+
+    @partial(jax.jit, static_argnums=(0,))  
+    def getDerivativesMinusLogPosterior_ensemble(self, X):
+        r0, r1 = self.getSplineData(X)
+        jac_r0, jac_r1 = self.getJacSplineData(X)
+        grad_log_like = jnp.zeros((self.nParticles, self.DoF))
+        GN = jnp.zeros((self.nParticles, self.DoF, self.DoF))
+        for det in self.detsInNet.keys():
+            tmp1 = jac_r0[det].conjugate() * r1[det][np.newaxis, ...] + jac_r1[det].conjugate() * r0[det][np.newaxis, ...] # (i, N, b) shaped matrix
+
+            jh_h = contract('b, jNb, Nb -> Nj', self.B0[det], jac_r0[det].conjugate(), r0[det], backend='jax') \
+                 + contract('b, jNb -> Nj', self.B0[det], tmp1, backend='jax')
+
+            jh_d = contract('b, jNb -> Nj', self.A0[det], jac_r0[det].conjugate(), backend='jax') \
+                 + contract('b, jNb -> Nj', self.A1[det], jac_r1[det].conjugate(), backend='jax')
+
+            grad_log_like += jh_h.real - jh_d.real
+
+            jh_jh = contract('b, jNb, kNb -> Njk', self.B0[det], jac_r0[det].conjugate(), jac_r0[det], backend='jax') \
+                  + contract('b, jNb, kNb -> Njk', self.B1[det], jac_r0[det].conjugate(), jac_r1[det], backend='jax') \
+                  + contract('b, jNb, kNb -> Njk', self.B1[det], jac_r1[det].conjugate(), jac_r0[det], backend='jax') 
+                            
+            GN += jh_jh.real
+
+        return grad_log_like, GN
 
 
 ################################################################
@@ -396,3 +494,86 @@ class gwfast_class(object):
         if warmup is True:
             print('Warming up derivatives')
             self.getDerivativesMinusLogPosterior_ensemble(self._newDrawFromPrior(self.nParticles))
+
+
+
+
+    # def getHeterodyneBins_new(self, chi, eps):
+    #     print('Getting heterodyned bins')
+
+    #     gamma = np.array([-5./3, -2./3, 1., 5./3, 7./3])
+    #     delta = lambda f_minus, f_plus: 2 * np.pi * chi * np.sum((1 - (f_minus / f_plus) ** np.abs(gamma)))
+    #     delta0 = delta(self.fgrid_dense[0], self.fgrid_dense[1])
+    #     if eps < delta0:
+    #         print('First bin cannot satisfy bound. Changing epsilon from %f to %f' % (eps, delta0))
+    #         eps = delta0
+
+    #     bin_edges = [self.fgrid_dense[0]]
+    #     indicies_kept = [0]
+    #     idx_fminus = 0
+    #     for i in np.arange(1, self.nbins_dense - 1):
+    #         next_bin_over_bound = delta(self.fgrid_dense[idx_fminus], self.fgrid_dense[i + 1]) > eps
+    #         if next_bin_over_bound:
+    #             bin_edges.append(self.fgrid_dense[i])
+    #             idx_fminus = i
+    #             indicies_kept.append(i)
+    #     bin_edges.append(self.fgrid_dense[-1])
+    #     indicies_kept.append(self.nbins_dense)
+
+    #     # Store information
+    #     self.nbins = len(bin_edges) - 1
+    #     self.indicies_kept = np.array(indicies_kept)
+    #     self.bin_edges = np.array(bin_edges)
+    #     self.bin_widths = self.bin_edges[1:] - self.bin_edges[:-1]
+    #     self.bin_centers = (self.bin_edges[1:] + self.bin_edges[:-1]) / 2
+    #     print('Heterodyne binning scheme: %i' % self.nbins)
+
+
+    # def getHeterodyneBins(self, chi=5, eps=0.1):
+    #     """ 
+    #     Get sparse grid for heterodyned scheme
+    #     """
+    #     print('Getting heterodyne bins')
+    #     gamma = np.array([-5./3, -2./3, 1., 5./3, 7./3])
+    #     bound = lambda f_minus, f_plus: 2 * np.pi * chi * np.sum((1 - (f_minus / f_plus) ** np.abs(gamma)))
+    #     bin_edges = [self.fmin]
+    #     indicies_kept = [0]
+    #     n_ticks_dense = self.nbins_dense + 1
+    #     i = 0 # grid index
+    #     j = 0 # bin edge index
+    #     while i < n_ticks_dense:
+    #         while i < n_ticks_dense and bound(bin_edges[j], self.fgrid_dense[i]) < eps:
+    #             i += 1
+    #         bin_edges.append(self.fgrid_dense[i - 1])
+    #         indicies_kept.append(i - 1)
+    #         j += 1
+
+    #     self.indicies_kept = np.array(indicies_kept)
+    #     self.bin_edges = np.array(bin_edges)
+    #     self.bin_widths = self.bin_edges[1:] - self.bin_edges[:-1]
+    #     self.bin_centers = (self.bin_edges[1:] + self.bin_edges[:-1]) / 2
+    #     self.nbins = self.bin_edges.shape[0] - 1
+    #     print('Heterodyne binning scheme: %i' % self.nbins)
+
+
+        # inner_product = lambda x, y: 4 * np.sum(x * y.conjugate()[np.newaxis, ...] / self.PSD_standard[np.newaxis, ...], axis=-1) * self.df_standard
+
+        # deltas = 2 * np.pi * chi * np.sum(((1 - (self.fgrid_dense[:-1] / self.fgrid_dense[1:])[...,np.newaxis] ** np.abs(gamma))), axis=-1)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
