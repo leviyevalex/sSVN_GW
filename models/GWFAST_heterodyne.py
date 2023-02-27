@@ -69,7 +69,7 @@ class gwfast_class(object):
         # Heterodyned strategy
         self.d_d = self._precomputeDataInnerProduct()
         # self.getHeterodyneBins_even_newer(chi=1, eps=0.5)
-        self.getHeterodyneBins_even_newer(chi=0.1, eps=0.2)
+        self.getHeterodyneBins_even_newer(chi=1, eps=0.2)
         self.getSummaryData()
 
         # Warmup for JIT compile
@@ -280,10 +280,14 @@ class gwfast_class(object):
 
     def getHeterodyneBins_even_newer(self, chi, eps):
         print('Getting heterodyned bins')
-
+        # Remarks:
+        # (i)  0.5 is a dummy variable for x==0 case (which we dont care for)
         gamma = np.array([-5./3, -2./3, 1., 5./3, 7./3])
-        delta = lambda f_minus, f_plus: 2 * np.pi * chi * np.sum((1 - (f_minus / f_plus) ** np.abs(gamma)))
+        f_star = self.fmax * np.heaviside(gamma, 0.5) + self.fmin * np.heaviside(-gamma, 0.5) # (i) 
+        delta = lambda f_minus, f_plus: 2 * np.pi * chi * np.sum(np.abs((f_plus / f_star) ** gamma - (f_minus/f_star) ** gamma))
+
         delta0 = delta(self.fgrid_dense[0], self.fgrid_dense[1])
+        print('delta0 = %f' % delta0)
         if eps < delta0:
             print('First bin cannot satisfy bound. Changing epsilon from %f to %f' % (eps, delta0))
             eps = delta0
@@ -387,7 +391,7 @@ class gwfast_class(object):
         return log_like
 
     # def heterodyne_gradientMinusLogLikelihood(self, X):
-    @partial(jax.jit, static_argnums=(0,))
+    # @partial(jax.jit, static_argnums=(0,))
     def getGradientMinusLogPosterior_ensemble(self, X):
         r0, r1 = self.getSplineData(X)
         jac_r0, jac_r1 = self.getJacSplineData(X)
@@ -406,10 +410,10 @@ class gwfast_class(object):
         return grad_log_like
 
     # def heterodyne_GNHessianMinusLogLikelihood(self, X):
-    @partial(jax.jit, static_argnums=(0,))
+    # @partial(jax.jit, static_argnums=(0,))
     def getGNHessianMinusLogPosterior_ensemble(self, X):
         jac_r0, jac_r1 = self.getJacSplineData(X)
-        GN = np.zeros((self.nParticles, self.DoF, self.DoF))
+        GN = jnp.zeros((self.nParticles, self.DoF, self.DoF))
         for det in self.detsInNet.keys():
             jh_jh = contract('b, jNb, kNb -> Njk', self.B0[det], jac_r0[det].conjugate(), jac_r0[det], backend='jax') \
                   + contract('b, jNb, kNb -> Njk', self.B1[det], jac_r0[det].conjugate(), jac_r1[det], backend='jax') \
@@ -419,7 +423,7 @@ class gwfast_class(object):
 
         return GN
 
-    @partial(jax.jit, static_argnums=(0,))  
+    # @partial(jax.jit, static_argnums=(0,))  
     def getDerivativesMinusLogPosterior_ensemble(self, X):
         r0, r1 = self.getSplineData(X)
         jac_r0, jac_r1 = self.getJacSplineData(X)

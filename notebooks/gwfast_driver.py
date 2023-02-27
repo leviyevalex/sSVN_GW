@@ -76,8 +76,8 @@ priorDict['chi2z']   = [-1., 1.]                                              # 
 # (iv)  Add paths to detector sensitivities
 all_detectors = copy.deepcopy(glob.detectors) # (i)
 
-# LV_detectors = {det:all_detectors[det] for det in ['L1', 'H1', 'Virgo']} # (ii)
-LV_detectors = {det:all_detectors[det] for det in ['L1']}
+LV_detectors = {det:all_detectors[det] for det in ['L1', 'H1', 'Virgo']} # (ii)
+# LV_detectors = {det:all_detectors[det] for det in ['L1']}
 
 print('Using detectors ' + str(list(LV_detectors.keys())))
 
@@ -87,8 +87,8 @@ detector_ASD['H1']    = 'O3-H1-C01_CLEAN_SUB60HZ-1251752040.0_sensitivity_strain
 detector_ASD['Virgo'] = 'O3-V1_sensitivity_strain_asd.txt'
 
 LV_detectors['L1']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['L1']) # (iv) 
-# LV_detectors['H1']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['H1'])
-# LV_detectors['Virgo']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['Virgo'])
+LV_detectors['H1']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['H1'])
+LV_detectors['Virgo']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['Virgo'])
 
 # waveform = TaylorF2_RestrictedPN() # Choice of waveform
 waveform = IMRPhenomD()
@@ -100,6 +100,27 @@ waveform = IMRPhenomD()
 nParticles = 5
 nIterations = 100
 model = gwfast_class(LV_detectors, waveform, injParams, priorDict, nParticles=nParticles)
+
+
+#%%########################################
+# RUN SAMPLER
+###########################################
+kernelKwargs = {'h':model.DoF / 1, 'p':1.} # Lp
+# t = np.ones(nIterations) * 0.01
+# t[int(nIterations / 2):] = 0.5
+# t = np.linspace(0.1, 0.15, nIterations) # Sequence of smoothing parameters
+# sampler1 = samplers(model=model, nIterations=nIterations, nParticles=nParticles, profile=False, kernel_type='Lp', bounded='log_boundary', t=t)
+sampler1 = samplers(model=model, nIterations=nIterations, nParticles=nParticles, profile=False, kernel_type='Lp')
+# sampler1.apply(method='reparam_sSVN', eps=1, kernelKwargs=kernelKwargs)
+sampler1.apply(method='reparam_sSVN', eps=0.1, kernelKwargs=kernelKwargs)
+
+
+
+
+
+
+
+
 # print('Using % i bins' % model.grid_resolution)
 #%%
 # model.getHeterodyneBins_new(chi=1, eps=0.5)
@@ -108,6 +129,13 @@ model = gwfast_class(LV_detectors, waveform, injParams, priorDict, nParticles=nP
 #%%
 # model._h0()
 X = model._newDrawFromPrior(nParticles)
+testa = model.standard_GNHessianMinusLogLikelihood(X)
+testb = model.heterodyne_GNHessianMinusLogLikelihood(X)
+
+
+
+
+#%%
 # test = model.r(X)
 # model.getSummaryData()
 test_a = model.standard_gradientMinusLogLikelihood(X)
@@ -194,15 +222,7 @@ for det in ['H1', 'L1', 'Virgo']:
 
 
 
-#%%
-kernelKwargs = {'h':model.DoF / 1, 'p':2.} # Lp
-# t = np.ones(nIterations) * 0.01
-# t[int(nIterations / 2):] = 0.5
-# t = np.linspace(0.1, 0.15, nIterations) # Sequence of smoothing parameters
-# sampler1 = samplers(model=model, nIterations=nIterations, nParticles=nParticles, profile=False, kernel_type='Lp', bounded='log_boundary', t=t)
-sampler1 = samplers(model=model, nIterations=nIterations, nParticles=nParticles, profile=False, kernel_type='Lp')
-# sampler1.apply(method='reparam_sSVN', eps=1, kernelKwargs=kernelKwargs)
-sampler1.apply(method='reparam_sSVN', eps=2, kernelKwargs=kernelKwargs)
+
 #%%
 import corner
 X1 = collect_samples(sampler1.history_path)
@@ -327,7 +347,7 @@ gmlpt, hmlpt = model.getDerivativesMinusLogPosterior_ensemble(particles)
 
 #%% RUN SAMPLER
 sampler1 = samplers(model=model, nIterations=100, nParticles=nParticles, profile=False)
-sampler1.apply(method='sSVN', eps=0.1, h=2*model.DoF)
+sampler1.apply(method='reparam_sSVN', eps=0.1, h=model.DoF)
 
 
 
