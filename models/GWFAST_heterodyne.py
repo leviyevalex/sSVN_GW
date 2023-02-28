@@ -69,7 +69,7 @@ class gwfast_class(object):
         # Heterodyned strategy
         self.d_d = self._precomputeDataInnerProduct()
         # self.getHeterodyneBins_even_newer(chi=1, eps=0.5)
-        self.getHeterodyneBins_even_newer(chi=1, eps=0.5)
+        self.getHeterodyneBins_even_newer(chi=1, eps=0.1)
         # self.getSummaryData()
         self.getSummaryData_new()
 
@@ -380,14 +380,14 @@ class gwfast_class(object):
                 self.B1[det][b] = np.sum(tmp2 * (self.fgrid_dense[indicies] - self.bin_edges[b]))
         print('Summary data calculation completed')
     
+    @partial(jax.jit, static_argnums=(0,))
     def heterodyne_minusLogLikelihood(self, X):
         r0, r1 = self.getSplineData(X)
-        log_like = np.zeros(self.nParticles)
+        log_like = jnp.zeros(self.nParticles)
         for det in self.detsInNet.keys():
-            h_d = np.sum(self.A0[det][np.newaxis] * r0[det].conjugate() + self.A1[det][np.newaxis] * r1[det].conjugate(), axis=1)
-            h_h = np.sum(self.B0[det][np.newaxis] * np.abs(r0[det]) ** 2 + 2 * self.B1[det][np.newaxis] * (r0[det].conjugate() * r1[det]).real, axis=1)
-            inner_product = h_h - 2 * h_d.real + self.d_d[det]
-            log_like += 0.5 * inner_product
+            h_d = jnp.sum(self.A0[det][jnp.newaxis] * r0[det].conjugate() + self.A1[det][jnp.newaxis] * r1[det].conjugate(), axis=1)
+            h_h = jnp.sum(self.B0[det][jnp.newaxis] * jnp.abs(r0[det]) ** 2 + 2 * self.B1[det][jnp.newaxis] * (r0[det].conjugate() * r1[det]).real, axis=1)
+            log_like += 0.5 * h_h - h_d.real + 0.5 * self.d_d[det]
         return log_like
 
     # def heterodyne_gradientMinusLogLikelihood(self, X):
@@ -423,7 +423,7 @@ class gwfast_class(object):
 
         return GN
 
-    # @partial(jax.jit, static_argnums=(0,))  
+    @partial(jax.jit, static_argnums=(0,))  
     def getDerivativesMinusLogPosterior_ensemble(self, X):
         r0, r1 = self.getSplineData(X)
         jac_r0, jac_r1 = self.getJacSplineData(X)
@@ -437,7 +437,6 @@ class gwfast_class(object):
             jh_h = contract('b, jNb, Nb -> Nj', self.B0[det], jac_r0[det].conjugate(), r0[det], backend='jax') \
                  + contract('b, jNb, Nb -> Nj', self.B1[det], jac_r0[det].conjugate(), r1[det], backend='jax') \
                  + contract('b, jNb, Nb -> Nj', self.B1[det], jac_r1[det].conjugate(), r0[det], backend='jax')
-
 
             grad_log_like += jh_h.real - jh_d.real
 
