@@ -76,8 +76,8 @@ priorDict['chi2z']   = [-1., 1.]                                              # 
 # (iv)  Add paths to detector sensitivities
 all_detectors = copy.deepcopy(glob.detectors) # (i)
 
-LV_detectors = {det:all_detectors[det] for det in ['L1', 'H1', 'Virgo']} # (ii)
-# LV_detectors = {det:all_detectors[det] for det in ['L1']}
+# LV_detectors = {det:all_detectors[det] for det in ['L1', 'H1', 'Virgo']} # (ii)
+LV_detectors = {det:all_detectors[det] for det in ['L1']}
 
 print('Using detectors ' + str(list(LV_detectors.keys())))
 
@@ -87,8 +87,8 @@ detector_ASD['H1']    = 'O3-H1-C01_CLEAN_SUB60HZ-1251752040.0_sensitivity_strain
 detector_ASD['Virgo'] = 'O3-V1_sensitivity_strain_asd.txt'
 
 LV_detectors['L1']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['L1']) # (iv) 
-LV_detectors['H1']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['H1'])
-LV_detectors['Virgo']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['Virgo'])
+# LV_detectors['H1']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['H1'])
+# LV_detectors['Virgo']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['Virgo'])
 
 # waveform = TaylorF2_RestrictedPN() # Choice of waveform
 waveform = IMRPhenomD()
@@ -130,18 +130,20 @@ sampler1.apply(method='reparam_sSVN', eps=0.1, kernelKwargs=kernelKwargs)
 # model._h0()
 X = model._newDrawFromPrior(nParticles)
 testa = model.standard_GNHessianMinusLogLikelihood(X)
-testb = model.heterodyne_GNHessianMinusLogLikelihood(X)
-
+testb = model.getGNHessianMinusLogPosterior_ensemble(X)
+res = np.mean(((testa - testb) / testa * 100), axis=0)
+print('fisher', res)
 
 
 
 #%%
 # test = model.r(X)
 # model.getSummaryData()
+X = model._newDrawFromPrior(nParticles)
 test_a = model.standard_gradientMinusLogLikelihood(X)
-test_b = model.heterodyne_gradientMinusLogLikelihood(X)
-#%%
-np.mean(((test_a - test_b) / test_a * 100), axis=0)
+test_b = model.getGradientMinusLogPosterior_ensemble(X)
+res = np.mean(((test_a - test_b) / test_a * 100), axis=0)
+print('gradients', res)
 
 
 #%%

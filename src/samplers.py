@@ -311,13 +311,12 @@ class samplers:
                         Hmlpt_Y = contract('Ni, Nj, Nij -> Nij', dxdy, dxdy, Hmlpt_X, backend='jax') 
                         Hmlpt_Y = Hmlpt_Y.at[:, jnp.array(range(self.DoF)), jnp.array(range(self.DoF))].add(boundary_correction_hess)
 
-
                         M = jnp.mean(Hmlpt_Y, axis=0) # jnp.eye(self.DoF)
                         kernelKwargs['M'] = M
                         kx, gkx1 = self.__getKernelWithDerivatives_(eta, kernelKwargs)
                         NK = self._reshapeNNDDtoNDND(contract('mn, ij -> mnij', kx, jnp.eye(self.DoF)))
                         H1 = self._getSteinHessianPosdef(Hmlpt_Y, kx, gkx1)
-                        lamb = 0.01 # 0.1
+                        lamb = 0.1 # 0.1
                         H = H1 + NK * lamb
                         UH = self.jit_scipy_cholesky(H)
                         v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt_Y)
