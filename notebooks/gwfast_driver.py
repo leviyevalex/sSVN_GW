@@ -39,7 +39,8 @@ import jax.numpy as jnp
 # (ii) GPSt_to_LMST returns GMST in units of fraction of day (GMST is LMST computed at long = 0°)
 seconds_per_day = 86400. 
 tGPS = np.array([1.12625946e+09])
-tcoal = float(utils.GPSt_to_LMST(tGPS, lat=0., long=0.) * seconds_per_day)
+# tcoal = float(utils.GPSt_to_LMST(tGPS, lat=0., long=0.) * seconds_per_day) # Units of seconds
+tcoal = float(utils.GPSt_to_LMST(tGPS, lat=0., long=0.)) # [0, 1] Units of fraction of the day
 injParams = dict()
 injParams['Mc']      = np.array([34.3089283])                                                # [M_solar]
 injParams['eta']     = np.array([0.2485773])                                                 # [Unitless]
@@ -76,8 +77,8 @@ priorDict['chi2z']   = [-1., 1.]                                              # 
 # (iv)  Add paths to detector sensitivities
 all_detectors = copy.deepcopy(glob.detectors) # (i)
 
-# LV_detectors = {det:all_detectors[det] for det in ['L1', 'H1', 'Virgo']} # (ii)
-LV_detectors = {det:all_detectors[det] for det in ['L1']}
+LV_detectors = {det:all_detectors[det] for det in ['L1', 'H1', 'Virgo']} # (ii)
+# LV_detectors = {det:all_detectors[det] for det in ['L1']}
 
 print('Using detectors ' + str(list(LV_detectors.keys())))
 
@@ -87,8 +88,8 @@ detector_ASD['H1']    = 'O3-H1-C01_CLEAN_SUB60HZ-1251752040.0_sensitivity_strain
 detector_ASD['Virgo'] = 'O3-V1_sensitivity_strain_asd.txt'
 
 LV_detectors['L1']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['L1']) # (iv) 
-# LV_detectors['H1']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['H1'])
-# LV_detectors['Virgo']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['Virgo'])
+LV_detectors['H1']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['H1'])
+LV_detectors['Virgo']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['Virgo'])
 
 # waveform = TaylorF2_RestrictedPN() # Choice of waveform
 waveform = IMRPhenomD()
@@ -97,14 +98,64 @@ waveform = IMRPhenomD()
 #%%###############################################
 # Class setup
 ##################################################
+model = gwfast_class(LV_detectors, waveform, injParams, priorDict)
+
+
+#%%####################################
+# Likelihood accuracy test
+#######################################
+nParticles = 500
+X = model._newDrawFromPrior(nParticles)
+test1 = model.standard_minusLogLikelihood(X)
+test2 = model.heterodyne_minusLogLikelihood(X) 
+percent_change = (test1 - test2) / test1 * 100
+mpc = np.mean(percent_change)
+print(mpc)
+
+#%%########################################
+# Gradient calculations
+###########################################
 nParticles = 5
-nIterations = 100
-model = gwfast_class(LV_detectors, waveform, injParams, priorDict, nParticles=nParticles)
+X = model._newDrawFromPrior(nParticles)
+test_a = model.standard_gradientMinusLogLikelihood(X)
+test_b = model.getGradientMinusLogPosterior_ensemble(X)
+res = np.mean(((test_a - test_b) / test_a * 100), axis=0)
+print('gradients', res)
+
+#%%#################################
+# Compare fisher calculations
+####################################
+nParticles = 5
+X = model._newDrawFromPrior(nParticles)
+testa = np.array(model.standard_GNHessianMinusLogLikelihood(X))
+testb = np.array(model.getGNHessianMinusLogPosterior_ensemble(X))
+res = np.mean(((testa - testb) / testa * 100), axis=0)
+print('fisher \n', res)
+# Eigenvalues should all be similar and positive
+for i in range(nParticles):
+    eig_a = np.min(np.linalg.eigvals(testa[i])) 
+    eig_b = np.min(np.linalg.eigvals(testb[i])) 
+    print('eiga: %f, eigb: %f' % (eig_a, eig_b))
+
+#%%#################################
+# GWfast Fisher calculation
+####################################
+injParams_copy = copy.deepcopy(injParams)
+# Evaluate at true parameters
+true_particle_sec  = jnp.array(model.true_params[np.newaxis])
+net = DetNet(model.detsInNet)
+injParams_copy['tcoal'] /= model.seconds_per_day # Put back into days
+fisher_gwfast     = net.FisherMatr(copy.deepcopy(injParams_copy), 
+                                   df=None, 
+                                   spacing='geom', 
+                                   use_prec_ang=False)
 
 
 #%%########################################
 # RUN SAMPLER
 ###########################################
+nParticles = 5
+nIterations = 100
 kernelKwargs = {'h':model.DoF / 1, 'p':1.} # Lp
 # t = np.ones(nIterations) * 0.01
 # t[int(nIterations / 2):] = 0.5
@@ -121,42 +172,9 @@ sampler1.apply(method='reparam_sSVN', eps=0.1, kernelKwargs=kernelKwargs)
 
 
 
-# print('Using % i bins' % model.grid_resolution)
-#%%
-# model.getHeterodyneBins_new(chi=1, eps=0.5)
-# model.getSummaryData()
-# model.getSummaryData()
-#%%
-# model._h0()
-X = model._newDrawFromPrior(nParticles)
-testa = model.standard_GNHessianMinusLogLikelihood(X)
-testb = model.getGNHessianMinusLogPosterior_ensemble(X)
-res = np.mean(((testa - testb) / testa * 100), axis=0)
-print('fisher', res)
 
 
 
-#%%
-# test = model.r(X)
-# model.getSummaryData()
-X = model._newDrawFromPrior(nParticles)
-test_a = model.standard_gradientMinusLogLikelihood(X)
-test_b = model.getGradientMinusLogPosterior_ensemble(X)
-res = np.mean(((test_a - test_b) / test_a * 100), axis=0)
-print('gradients', res)
-
-
-#%%
-X = model._newDrawFromPrior(nParticles)
-test1 = model.standard_minusLogLikelihood(X)
-test2 = model.heterodyne_minusLogLikelihood(X) 
-#%%
-percent_change = (test1 - test2) / test1 * 100
-mpc = np.mean(percent_change)
-print(mpc)
-# print('% Difference in heterodyne vs standard likelihoods:', 
-# print(test1)
-# print(test2)
 #%%
 # Heterodyning signals test
 fig, ax = plt.subplots()
@@ -313,21 +331,37 @@ injParams_copy = copy.deepcopy(injParams)
 # Evaluate at true parameters
 true_particle_sec  = jnp.array(model.true_params[np.newaxis])
 # true_particle_days = copy.deepcopy(true_particle_sec)
-grad1, Fisher1    = model.getDerivativesMinusLogPosterior_ensemble(true_particle_sec)
-fisher_mine       = np.array(Fisher1[0])
+# grad1, Fisher1    = model.getDerivativesMinusLogPosterior_ensemble(true_particle_sec)
+# fisher_mine       = np.array(Fisher1[0])
 # fisher_mine[7]   /= 3600 * 24  # Days to seconds transformation (?)
 # fisher_mine.T[7] /= 3600 * 24
-injParams_copy['tcoal'] /= model.time_scale # Put back into days
+net = DetNet(model.detsInNet)
+injParams_copy['tcoal'] /= model.seconds_per_day # Put back into days
 fisher_gwfast     = net.FisherMatr(copy.deepcopy(injParams_copy), 
-                                   res=float(model.grid_resolution), 
+                                   df=None, 
+                                   spacing='geom', 
+                                   use_prec_ang=False)
+
+
+#%%
+fisher_gwfast     = net.FisherMatr(copy.deepcopy(injParams_copy), 
+                                   res=float(100), 
                                    # res=None, 
                                    # df=fgrid_dict['df'], 
                                    df=None, 
                                    spacing='geom', 
                                    use_prec_ang=False)#[model.list_active_indicies][:, model.list_active_indicies]
 
-np.allclose(fisher_gwfast, fisher_mine)
+# np.allclose(fisher_gwfast, fisher_mine)
 #%%
+np.linalg.cholesky((fisher_gwfast + np.abs(np.min(np.linalg.eigvals(fisher_gwfast))) * np.eye(11)))
+
+#%%
+damped_fisher = fisher_gwfast + np.abs(np.min(np.linalg.eigvals(fisher_gwfast))) * np.eye(11)
+np.linalg.eigvals(damped_fisher)
+
+
+
 
 
 #%%

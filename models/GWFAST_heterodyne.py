@@ -18,7 +18,7 @@ config.update("jax_enable_x64", True)
 #%%
 class gwfast_class(object):
     
-    def __init__(self, NetDict, WaveForm, injParams, priorDict, nParticles=1):
+    def __init__(self, NetDict, WaveForm, injParams, priorDict):
         """
         Args:
             NetDict (dict): dictionary containing the specifications of the detectors in the network
@@ -37,7 +37,6 @@ class gwfast_class(object):
         self.nHessLikelihoodEvaluations = 0
         self.id = 'gwfast_model'
         self.priorDict  = priorDict
-        self.nParticles = nParticles
         self.DoF = 11
 
         # gw_fast related attributes
@@ -53,8 +52,8 @@ class gwfast_class(object):
         self.gwfast_params_neglected = ['chi1x', 'chi2x', 'chi1y', 'chi2y', 'LambdaTilde', 'deltaLambda', 'ecc']
 
         # Define dictionary of neglected parameters to keep signal evaluation methods clean
-        self.dict_params_neglected_1 = {neglected_params: jnp.array([0.]).astype('complex128') for neglected_params in self.gwfast_params_neglected}
-        self.dict_params_neglected_N = {neglected_params: jnp.zeros(self.nParticles).astype('complex128') for neglected_params in self.gwfast_params_neglected}
+        # self.dict_params_neglected_1 = {neglected_params: jnp.array([0.]).astype('complex128') for neglected_params in self.gwfast_params_neglected}
+        # self.dict_params_neglected_N = {neglected_params: jnp.zeros(self.nParticles).astype('complex128') for neglected_params in self.gwfast_params_neglected}
 
         # Definitions for easy interfacing
         self.true_params = jnp.array([self.injParams[param].squeeze() for param in self.gwfast_param_order])
@@ -68,15 +67,16 @@ class gwfast_class(object):
 
         # Heterodyned strategy
         self.d_d = self._precomputeDataInnerProduct()
-        # self.getHeterodyneBins_even_newer(chi=1, eps=0.5)
-        self.getHeterodyneBins_even_newer(chi=1, eps=0.1)
-        # self.getSummaryData()
-        self.getSummaryData_new()
+        self.getHeterodyneBins(chi=1, eps=0.1)
+        # self.getHeterodyneBins(chi=1, eps=0.1)
+        self.getSummaryData()
 
         # Warmup for JIT compile
         # self._warmup_potential(True)
         # self._warmup_potential_derivative(True) 
 
+    def _getDictParamsNeglected(self, N):
+        return {neglected_params: jnp.zeros(N).astype('complex128') for neglected_params in self.gwfast_params_neglected}
 
     def _initFrequencyGrid(self, fmin=20, fmax=None): # Checks: X
         """
@@ -149,6 +149,7 @@ class gwfast_class(object):
         (ii)  Signal returns a 0 for the maximum frequency. This is a hack which fixes this issue
         (iii) `tcoal` in GWstrain must be in units of days.
         """
+        dict_params_neglected = self._getDictParamsNeglected(1)
         h0 = {}
         for det in self.detsInNet.keys():
             h0[det] = self.detsInNet[det].GWstrain(fgrid, 
@@ -159,12 +160,12 @@ class gwfast_class(object):
                                                    phi     = injParams['phi'].astype('complex128'),
                                                    iota    = injParams['iota'].astype('complex128'),
                                                    psi     = injParams['psi'].astype('complex128'),
-                                                   tcoal   = injParams['tcoal'].astype('complex128') / self.seconds_per_day, # (iii)
+                                                   tcoal   = injParams['tcoal'].astype('complex128'), #/ self.seconds_per_day, # (iii)
                                                    Phicoal = injParams['Phicoal'].astype('complex128'),
                                                    chiS    = injParams['chi1z'].astype('complex128'),
                                                    chiA    = injParams['chi2z'].astype('complex128'),
                                                    is_chi1chi2 = 'True',
-                                                   **self.dict_params_neglected_1).squeeze() # (i)
+                                                   **dict_params_neglected).squeeze() # (i)
 
             h0[det] = h0[det].at[-1].set(h0[det][-2]) # (ii)
 
@@ -179,7 +180,9 @@ class gwfast_class(object):
         (iii) gwfast.GWstrain expects `tcoal` in units of seconds
         (iv)  Transpose is included to return an N x f matrix
         """
-        fgrids = jnp.repeat(f_grid[...,np.newaxis], self.nParticles, axis=1) # (i)
+        nParticles = X.shape[0]
+        dict_params_neglected = self._getDictParamsNeglected(nParticles)
+        fgrids = jnp.repeat(f_grid[...,np.newaxis], nParticles, axis=1) # (i)
         signal = {}
         X_ = X.T.astype('complex128')
         for det in self.detsInNet.keys():
@@ -191,12 +194,12 @@ class gwfast_class(object):
                                                         phi     = X_[4],
                                                         iota    = X_[5],
                                                         psi     = X_[6],
-                                                        tcoal   = X_[7] / self.seconds_per_day, # (iii)
+                                                        tcoal   = X_[7], #/ self.seconds_per_day, # (iii)
                                                         Phicoal = X_[8],
                                                         chiS    = X_[9],
                                                         chiA    = X_[10],
                                                         is_chi1chi2 = 'True',
-                                                        **self.dict_params_neglected_N)).T # (iv) 
+                                                        **dict_params_neglected)).T # (iv) 
                             
         return signal 
 
@@ -213,7 +216,9 @@ class gwfast_class(object):
         array
             gwfast returns a (d, N, f) shaped array 
         """
-        fgrids = jnp.repeat(f_grid[...,np.newaxis], self.nParticles, axis=1)
+        nParticles = X.shape[0]
+        dict_params_neglected = self._getDictParamsNeglected(nParticles)
+        fgrids = jnp.repeat(f_grid[...,np.newaxis], nParticles, axis=1)
         jacModel = {}
         X_ = X.T.astype('complex128')
         for det in self.detsInNet.keys():
@@ -225,40 +230,44 @@ class gwfast_class(object):
                                                                        phi     = X_[4],
                                                                        iota    = X_[5],
                                                                        psi     = X_[6],
-                                                                       tcoal   = X_[7] / self.seconds_per_day, # Correction 1
+                                                                       tcoal   = X_[7], #/ self.seconds_per_day, # Correction 1
                                                                        Phicoal = X_[8],
                                                                        chiS    = X_[9],
                                                                        chiA    = X_[10],
                                                                        use_chi1chi2 = True,
-                                                                       **self.dict_params_neglected_N) 
+                                                                       **dict_params_neglected) 
 
-            jacModel[det] = jacModel[det].at[7].divide(self.seconds_per_day) # Correction 2
+            #jacModel[det] = jacModel[det].at[7].divide(self.seconds_per_day) # Correction 2
 
         return jacModel
             
+    @partial(jax.jit, static_argnums=(0,))
     def standard_minusLogLikelihood(self, X): # Checks: X
         """ 
         """
-        log_likelihood = np.zeros(self.nParticles)
+        nParticles = X.shape[0]
+        log_likelihood = jnp.zeros(nParticles)
         signal = self.getSignal(X, self.fgrid_standard)
         for det in self.detsInNet.keys():
             residual = signal[det] - self.h0_standard[det][np.newaxis, ...]
-            inner_product = 4 * np.sum((residual.real ** 2 + residual.imag ** 2) / self.PSD_standard[det][np.newaxis, ...], axis=-1) * self.df_standard
+            inner_product = 4 * jnp.sum((residual.real ** 2 + residual.imag ** 2) / self.PSD_standard[det][np.newaxis, ...], axis=-1) * self.df_standard
             log_likelihood += 0.5 * inner_product
         return log_likelihood
 
     def standard_gradientMinusLogLikelihood(self, X): # Checks: X
-        grad_log_like = np.zeros((self.nParticles, self.DoF))
+        nParticles = X.shape[0]
+        grad_log_like = jnp.zeros((nParticles, self.DoF))
         signal = self.getSignal(X, self.fgrid_standard)
         jacSignal = self._getJacobianSignal(X, self.fgrid_standard)
         for det in self.detsInNet.keys():
             residual = signal[det] - self.h0_standard[det][np.newaxis, ...]
-            inner_product = (4 * np.sum(jacSignal[det].conjugate() * residual[np.newaxis, ...] / self.PSD_standard[det], axis=-1) * self.df_standard).T
+            inner_product = (4 * jnp.sum(jacSignal[det].conjugate() * residual[np.newaxis, ...] / self.PSD_standard[det], axis=-1) * self.df_standard).T
             grad_log_like += inner_product.real
         return grad_log_like
     
     def standard_GNHessianMinusLogLikelihood(self, X): # Checks: X
-        GN = np.zeros((self.nParticles, self.DoF, self.DoF))
+        nParticles = X.shape[0]
+        GN = jnp.zeros((nParticles, self.DoF, self.DoF))
         jacSignal = self._getJacobianSignal(X, self.fgrid_standard)
         for det in self.detsInNet.keys():
             inner_product = 4 * contract('iNf, jNf, f -> Nij', jacSignal[det].conjugate(), jacSignal[det], 1 / self.PSD_standard[det]) * self.df_standard
@@ -279,7 +288,7 @@ class gwfast_class(object):
             inner_product[det] = 4 * np.sum((self.h0_dense[det].real ** 2 + self.h0_dense[det].imag ** 2) / self.PSD_dense[det]) * self.df_dense
         return inner_product
 
-    def getHeterodyneBins_even_newer(self, chi, eps):
+    def getHeterodyneBins(self, chi, eps):
         print('Getting heterodyned bins')
         # Remarks:
         # (i)  0.5 is a dummy variable for x==0 case (which we dont care for)
@@ -352,7 +361,7 @@ class gwfast_class(object):
             jac_r1[det] = (jac_r[det][..., 1:] - jac_r[det][..., :-1]) / self.bin_widths
         return jac_r0, jac_r1
 
-    def getSummaryData_new(self):
+    def getSummaryData(self):
         """ 
         Calculate summary data
         """
@@ -382,8 +391,9 @@ class gwfast_class(object):
     
     @partial(jax.jit, static_argnums=(0,))
     def heterodyne_minusLogLikelihood(self, X):
+        nParticles = X.shape[0]
         r0, r1 = self.getSplineData(X)
-        log_like = jnp.zeros(self.nParticles)
+        log_like = jnp.zeros(nParticles)
         for det in self.detsInNet.keys():
             h_d = jnp.sum(self.A0[det][jnp.newaxis] * r0[det].conjugate() + self.A1[det][jnp.newaxis] * r1[det].conjugate(), axis=1)
             h_h = jnp.sum(self.B0[det][jnp.newaxis] * jnp.abs(r0[det]) ** 2 + 2 * self.B1[det][jnp.newaxis] * (r0[det].conjugate() * r1[det]).real, axis=1)
@@ -393,9 +403,10 @@ class gwfast_class(object):
     # def heterodyne_gradientMinusLogLikelihood(self, X):
     # @partial(jax.jit, static_argnums=(0,))
     def getGradientMinusLogPosterior_ensemble(self, X):
+        nParticles = X.shape[0]
         r0, r1 = self.getSplineData(X)
         jac_r0, jac_r1 = self.getJacSplineData(X)
-        grad_log_like = np.zeros((self.nParticles, self.DoF))
+        grad_log_like = np.zeros((nParticles, self.DoF))
         for det in self.detsInNet.keys():
 
             jh_d = contract('b, jNb -> Nj', self.A0[det], jac_r0[det].conjugate(), backend='jax') \
@@ -412,8 +423,9 @@ class gwfast_class(object):
     # def heterodyne_GNHessianMinusLogLikelihood(self, X):
     # @partial(jax.jit, static_argnums=(0,))
     def getGNHessianMinusLogPosterior_ensemble(self, X):
+        nParticles = X.shape[0]
         jac_r0, jac_r1 = self.getJacSplineData(X)
-        GN = jnp.zeros((self.nParticles, self.DoF, self.DoF))
+        GN = jnp.zeros((nParticles, self.DoF, self.DoF))
         for det in self.detsInNet.keys():
             jh_jh = contract('b, jNb, kNb -> Njk', self.B0[det], jac_r0[det].conjugate(), jac_r0[det], backend='jax') \
                   + contract('b, jNb, kNb -> Njk', self.B1[det], jac_r0[det].conjugate(), jac_r1[det], backend='jax') \
@@ -425,9 +437,10 @@ class gwfast_class(object):
 
     @partial(jax.jit, static_argnums=(0,))  
     def getDerivativesMinusLogPosterior_ensemble(self, X):
+        nParticles = X.shape[0]
         r0, r1 = self.getSplineData(X)
         jac_r0, jac_r1 = self.getJacSplineData(X)
-        grad_log_like = jnp.zeros((self.nParticles, self.DoF))
+        grad_log_like = jnp.zeros((nParticles, self.DoF))
         GN = jnp.zeros((self.nParticles, self.DoF, self.DoF))
         for det in self.detsInNet.keys():
 
@@ -453,12 +466,12 @@ class gwfast_class(object):
 # Other methods. Clean up later!!!
 ################################################################
 
-    def _newDrawFromPrior(self, nSamples):
-        prior_draw = np.zeros((nSamples, self.DoF))
+    def _newDrawFromPrior(self, nParticles):
+        prior_draw = np.zeros((nParticles, self.DoF))
         for i, param in enumerate(self.gwfast_param_order): # Assuming uniform on all parameters
             low = self.priorDict[param][0]
             high = self.priorDict[param][1]
-            prior_draw[:, i] = np.random.uniform(low=low, high=high, size=nSamples)
+            prior_draw[:, i] = np.random.uniform(low=low, high=high, size=nParticles)
                    
         return prior_draw
 
