@@ -179,8 +179,8 @@ class samplers:
                         # matrix_kern = contract('mn, ij -> mnij', kx, minv)
                         # grad_matrix_kern = contract('mnk, ij -> mnijk', -1 * gkx1, minv)
 
-                        matrix_kern = contract('mn, ij -> mnij', kx, np.eye(self.DoF))
-                        grad_matrix_kern = contract('mnk, ij -> mnijk', -1 * gkx1, np.eye(self.DoF))
+                        matrix_kern = contract('mn, ij -> mnij', kx, np.eye(self.DoF), backend='jax')
+                        grad_matrix_kern = contract('mnk, ij -> mnijk', -1 * gkx1, np.eye(self.DoF), backend='jax')
 
                         # Get mirror kernel
                         k_psi, grad_k_psi = self.getMatrixMirrorKernel(X, matrix_kern, grad_matrix_kern)
@@ -189,7 +189,7 @@ class samplers:
                         v_svgd = self.getMatrixSVGD_v_drift(k_psi, grad_k_psi, gmlpt)
 
                         v_stc = self.get_vSVGD_stc(kx)
-                        
+
                         # K = self._reshapeNNDDtoNDND(matrix_kern) / self.nParticles
 
                         # v_stc = self.getMatrixSVGD_v_stc(K)
@@ -986,9 +986,10 @@ class samplers:
     # Note: gradient must be taken w.r.t second slot
     #####################################################
 
+    @partial(jax.jit, static_argnums=(0,))
     def getMatrixSVGD_v_drift(self, matrix_kern, grad_matrix_kern, gmlpt): # Checks: XX
-        uphill = contract('xyij, yj -> xi', matrix_kern, -gmlpt) / self.nParticles
-        repulsion = contract('xyijj -> xi', grad_matrix_kern) / self.nParticles 
+        uphill = contract('xyij, yj -> xi', matrix_kern, -gmlpt, backend='jax') / self.nParticles
+        repulsion = contract('xyijj -> xi', grad_matrix_kern, backend='jax') / self.nParticles 
         return uphill + repulsion
 
     def getMatrixSVN_v_drift(self, UH, v_svgd, K): # Checks: X
@@ -1012,6 +1013,7 @@ class samplers:
         tmp1 = scipy.linalg.solve_triangular(UH, B, lower=False)#
         return (np.sqrt(2 * self.nParticles) * K @ tmp1).reshape(self.nParticles, self.DoF)
 
+    @partial(jax.jit, static_argnums=(0,))
     def getMatrixMirrorKernel(self, X, matrix_kern, grad_matrix_kern):
         a = self.model.lower_bound
         b = self.model.upper_bound
@@ -1019,10 +1021,10 @@ class samplers:
         tmp = (X - a) * (b - X) / (b - a) # diagonal of $\nabla^2 \psi(x)^{-1}$
         tmp_prime = (a + b - 2 * X) / (b - a)   # diagonal of Jacobian of tmp1
 
-        k_psi = contract('xyij, yj -> xyij', matrix_kern, tmp)
+        k_psi = contract('xyij, yj -> xyij', matrix_kern, tmp, backend='jax')
 
-        first = contract('xyijk, yj -> xyijk', grad_matrix_kern, tmp)
-        second = contract('xyij, yj, jk -> xyijk', matrix_kern, tmp_prime, np.eye(self.DoF))
+        first = contract('xyijk, yj -> xyijk', grad_matrix_kern, tmp, backend='jax')
+        second = contract('xyij, yj, jk -> xyijk', matrix_kern, tmp_prime, np.eye(self.DoF), backend='jax')
 
         grad_k_psi = first + second
 
