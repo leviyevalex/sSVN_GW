@@ -61,8 +61,8 @@ class samplers:
         self.bounded = bounded
         self.t = t
 
-        scipy_cholesky = lambda mat: jax.scipy.linalg.cholesky(mat)
-        self.jit_scipy_cholesky = jax.jit(scipy_cholesky)
+        # scipy_cholesky = lambda mat: jax.scipy.linalg.cholesky(mat)
+        # self.jit_scipy_cholesky = jax.jit(scipy_cholesky)
 
         # self.kernelKwargs = kernelKwargs
         kernel_class = kernels(nParticles=self.nParticles, DoF=self.DoF, kernel_type=kernel_type)
@@ -89,7 +89,7 @@ class samplers:
             # X = self.__newDrawFromPrior_(self.nParticles) # Initial set of particles
             X = self.model._newDrawFromPrior(self.nParticles) # Initial set of particles
             eta = self._mapHypercubeToReals(X, self.model.lower_bound, self.model.upper_bound)
-
+            key = jax.random.PRNGKey(0)
             with trange(self.nIterations) as ITER:
                 for iter_ in ITER:
                     if method == 'SVGD':
@@ -156,7 +156,7 @@ class samplers:
                         kx, gkx1 = self.__getKernelWithDerivatives_(X, kernelKwargs)
                         NK = self._reshapeNNDDtoNDND(contract('mn, ij -> mnij', kx, jnp.eye(self.DoF)))
                         H1 = self._getSteinHessianPosdef(GN_Hmlpt, kx, gkx1)
-                        lamb = 0.1 # 0.01
+                        lamb = 0.01 # 0.1
                         H = H1 + NK * lamb
                         UH = self.jit_scipy_cholesky(H)
                         v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt)
@@ -164,35 +164,35 @@ class samplers:
                         v_stc = self._getSVN_v_stc(kx, UH)
                         X += (v_svn) * eps + v_stc * np.sqrt(eps)
 
-                    elif method == 'mirrorSVGD':
-                        # Calculate primal derivatives
-                        gmlpt, Hmlpt = self.model.getDerivativesMinusLogPosterior_ensemble(X)
-
-                        # Calculate scalar primal kernel
-                        M = np.eye(self.DoF) #jnp.mean(Hmlpt, axis=0) # 
-                        kernelKwargs['M'] = M
-                        kx, gkx1 = self._getKernelWithDerivatives(X, kernelKwargs)
-
+                        # THIS CODE IS FOR mirror SVGD MATRIX KERNELS. CLEAN UP LATER
                         # Lift to matrix kernel
 
                         # minv = np.linalg.inv(M)
                         # matrix_kern = contract('mn, ij -> mnij', kx, minv)
                         # grad_matrix_kern = contract('mnk, ij -> mnijk', -1 * gkx1, minv)
 
-                        matrix_kern = contract('mn, ij -> mnij', kx, np.eye(self.DoF), backend='jax')
-                        grad_matrix_kern = contract('mnk, ij -> mnijk', -1 * gkx1, np.eye(self.DoF), backend='jax')
+                    elif method == 'mirrorSVGD':
+                        # Calculate derivatives
+                        gmlpt, Hmlpt = self.model.getDerivativesMinusLogPosterior_ensemble(X)
 
-                        # Get mirror kernel
-                        k_psi, grad_k_psi = self.getMatrixMirrorKernel(X, matrix_kern, grad_matrix_kern)
+                        # Calculate matrix kernel
+                        M = jnp.eye(self.DoF) # jnp.mean(Hmlpt, axis=0)  
+                        kernelKwargs['M'] = M
+                        kx_scalar, gkx1_scalar = self._getKernelWithDerivatives(X, kernelKwargs)
 
-                        # Calculate update
-                        v_svgd = self.getMatrixSVGD_v_drift(k_psi, grad_k_psi, gmlpt)
+                        kx_matrix = contract('mn, ij -> mnij', kx_scalar, np.eye(self.DoF), backend='jax')
+                        gkx2_matrix = contract('mnk, ij -> mnijk', -1 * gkx1_scalar, np.eye(self.DoF), backend='jax')
 
-                        v_stc = self.get_vSVGD_stc(kx)
+                        # Get Jacobian adjusted kernel
+                        k_psi, grad_k_psi = self.getMatrixMirrorKernel(X, kx_matrix, gkx2_matrix)
 
-                        # K = self._reshapeNNDDtoNDND(matrix_kern) / self.nParticles
+                        # Calculate SVGD drift
+                        v_svgd = self.getMatrixSVGD_drift(k_psi, grad_k_psi, gmlpt)
 
-                        # v_stc = self.getMatrixSVGD_v_stc(K)
+                        # Calculate SVGD noise
+                        K = self._reshapeNNDDtoNDND(kx_matrix) / self.nParticles
+                        # v_stc = self.getMatrixSVGD_noise(K)
+                        v_stc = self.get_vSVGD_stc(kx_scalar)
 
                         # Perform dual update
                         eta += eps * v_svgd + np.sqrt(eps) * v_stc
@@ -201,40 +201,32 @@ class samplers:
                         X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
 
                     elif method == 'mirrorSVN':                        
-                        # Calculate primal derivatives
+                        # Calculate derivatives
                         gmlpt, Hmlpt = self.model.getDerivativesMinusLogPosterior_ensemble(X)
 
-                        # Calculate scalar primal kernel
+                        # Calculate matrix kernel
                         M = jnp.mean(Hmlpt, axis=0)
                         kernelKwargs['M'] = M
                         kx, gkx1 = self._getKernelWithDerivatives(X, kernelKwargs)
 
-                        # Lift to matrix kernel
+                        kx_matrix = contract('mn, ij -> mnij', kx_scalar, np.eye(self.DoF), backend='jax')
+                        gkx2_matrix = contract('mnk, ij -> mnijk', -1 * gkx1_scalar, np.eye(self.DoF), backend='jax')
 
-                        # minv = np.linalg.inv(M)
-                        # matrix_kern = contract('mn, ij -> mnij', kx, minv)
-                        # grad_matrix_kern = contract('mnk, ij -> mnijk', -1 * gkx1, minv)
+                        # Get Jacobian adjusted kernel
+                        k_psi, grad_k_psi = self.getMatrixMirrorKernel(X, kx_matrix, gkx2_matrix)
 
-                        matrix_kern = contract('mn, ij -> mnij', kx, np.eye(self.DoF))
-                        grad_matrix_kern = contract('mnk, ij -> mnijk', -1 * gkx1, np.eye(self.DoF))
-
-                        k_psi, grad_k_psi = self.getMatrixMirrorKernel(X, matrix_kern, grad_matrix_kern)
-
-                        # Calculate dual update
-                        v_svgd = self.getMatrixSVGD_v_drift(k_psi, grad_k_psi, gmlpt)
+                        # Calculate SVGD drift
+                        v_svgd = self.getMatrixSVGD_drift(k_psi, grad_k_psi, gmlpt)
 
                         K = self._reshapeNNDDtoNDND(matrix_kern) / self.nParticles
+                        h_psi = self.getMatrixSVN_Hessian(k_psi, grad_k_psi, Hmlpt) + 0.01 * self.nParticles * K
+                        UH_psi = jax.scipy.linalg.cholesky(h_psi, lower=False)
 
-                    # Note: SVN augmentation beings now
+                        # Calculate SVN noise
+                        v_stc = self.getMatrixSVN_noise(K, UH_psi)
 
-                        h_psi = self.getMatrixSVN_Hessian(k_psi, grad_k_psi, Hmlpt) + 0.1 * self.nParticles * K
-
-                        UH_psi = self.jit_scipy_cholesky(h_psi) # Used in both v_det and v_stc 
-                        # UH_psi = scipy.linalg.cholesky(h_psi) # Used in both v_det and v_stc 
-
-                        v_svn = self.getMatrixSVN_v_drift(UH_psi, v_svgd, K)
-
-                        v_stc = self.getMatrixSVN_v_stc(K, UH_psi)
+                        # Calculate drift
+                        v_svn = self.getMatrixSVN_drift(UH_psi, v_svgd, K)
 
                         # Perform dual update
                         eta += eps * v_svn + np.sqrt(eps) * v_stc
@@ -301,6 +293,30 @@ class samplers:
 
                         X += eps * v_svn + np.sqrt(eps) * v_stc
 
+                    elif method == 'reparam_sSVGD':
+                        gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
+
+                        dxdy = self._jacMapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
+                        boundary_correction_grad = self._getBoundaryGradientCorrection(eta)
+                        boundary_correction_hess = self._getBoundaryHessianCorrection(eta)
+
+                        gmlpt_Y = dxdy * gmlpt_X + boundary_correction_grad
+                        Hmlpt_Y = contract('Ni, Nj, Nij -> Nij', dxdy, dxdy, Hmlpt_X, backend='jax') 
+                        Hmlpt_Y = Hmlpt_Y.at[:, jnp.array(range(self.DoF)), jnp.array(range(self.DoF))].add(boundary_correction_hess)
+
+                        M = jnp.eye(self.DoF) # jnp.mean(Hmlpt_Y, axis=0) # 
+                        kernelKwargs['M'] = M
+                        kx, gkx1 = self.__getKernelWithDerivatives_(eta, kernelKwargs)
+
+                        v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt_Y)
+
+
+                        v_stc = self.get_vSVGD_stc(kx)
+                        eta += (v_svgd) * eps + v_stc * np.sqrt(eps)
+
+                        X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
+
+
                     elif method == 'reparam_sSVN':
                         gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
 
@@ -315,14 +331,18 @@ class samplers:
                         M = jnp.mean(Hmlpt_Y, axis=0) # jnp.eye(self.DoF)
                         kernelKwargs['M'] = M
                         kx, gkx1 = self.__getKernelWithDerivatives_(eta, kernelKwargs)
-                        NK = self._reshapeNNDDtoNDND(contract('mn, ij -> mnij', kx, jnp.eye(self.DoF)))
+                        NK = self._reshapeNNDDtoNDND(contract('mn, ij -> mnij', kx, jnp.eye(self.DoF), backend='jax'))
                         H1 = self._getSteinHessianPosdef(Hmlpt_Y, kx, gkx1)
-                        lamb = 0.1 # 0.1
+                        lamb = 0.01 # 0.1
                         H = H1 + NK * lamb
-                        UH = self.jit_scipy_cholesky(H)
+                        UH = jax.scipy.linalg.cholesky(H, lower=False)
+
                         v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt_Y)
                         v_svn = self._getSVN_direction(kx, v_svgd, UH)
-                        v_stc = self._getSVN_v_stc(kx, UH)
+
+                        key, subkey = jax.random.split(key)
+                        B = jax.random.normal(subkey, (self.dim,)) # standard normal sample
+                        v_stc = self._getSVN_v_stc(kx, UH, B)
                         eta += (v_svn) * eps + v_stc * np.sqrt(eps)
 
                         X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
@@ -407,7 +427,7 @@ class samplers:
 ########################################################################################################################
 
     # Direction methods (either to make the main code looks clean or so we may reuse it elsewhere)
-
+    @partial(jax.jit, static_argnums=(0,))
     def _getSVGD_direction(self, kx, gkx, gmlpt):
         """
         Get SVGD velocity field
@@ -419,7 +439,7 @@ class samplers:
         Returns:
 
         """
-        v_svgd = -1 * contract('mn, mo -> no', kx, gmlpt) / self.nParticles + np.mean(gkx, axis=0)
+        v_svgd = -1 * contract('mn, mo -> no', kx, gmlpt, backend='jax') / self.nParticles + jnp.mean(gkx, axis=0)
         return v_svgd
 
     def _getSVGD_v_stc(self, L_kx, Bdn=None):
@@ -450,10 +470,11 @@ class samplers:
         """
         # alphas = scipy.linalg.cho_solve((UH, False), v_svgd.flatten()).reshape(self.nParticles, self.DoF)
         alphas = jax.scipy.linalg.cho_solve((UH, False), v_svgd.flatten()).reshape(self.nParticles, self.DoF)
-        v_svn = contract('mn, ni -> mi', kx, alphas)
+        v_svn = contract('mn, ni -> mi', kx, alphas, backend='jax')
         return v_svn
 
-    def _getSVN_v_stc(self, kx, UH):
+    @partial(jax.jit, static_argnums=(0,))
+    def _getSVN_v_stc(self, kx, UH, B):
         """
         Get noise injection velocity field for SVN
         Args:
@@ -463,9 +484,9 @@ class samplers:
         Returns: (array) N x D array, noise injection for SVN
 
         """
-        B = np.random.normal(0, 1, self.dim)
-        tmp1 = scipy.linalg.solve_triangular(UH, B, lower=False).reshape(self.nParticles, self.DoF)
-        return np.sqrt(2 / self.nParticles) * contract('mn, ni -> mi', kx, tmp1)
+        # B = np.random.normal(0, 1, self.dim)
+        tmp1 = jax.scipy.linalg.solve_triangular(UH, B, lower=False).reshape(self.nParticles, self.DoF)
+        return jnp.sqrt(2 / self.nParticles) * contract('mn, ni -> mi', kx, tmp1, backend='jax')
 
     def _getSteinHessianBlockDiagonal(self, Hmlpt, kx, gkx):
         """
@@ -674,7 +695,7 @@ class samplers:
 
 
 
-
+    @partial(jax.jit, static_argnums=(0,))
     def _mapRealsToHypercube(self, Y, a, b):
         """Map a set of particles with support on R^d (d-dimensional reals) to H^d (d-dimensional hypercube)
 
@@ -703,7 +724,7 @@ class samplers:
 
         """
         return (a + b * jnp.exp(Y)) / (1 + jnp.exp(Y))
-
+    @partial(jax.jit, static_argnums=(0,))
     def _mapHypercubeToReals(self, X, a, b):
         """Map a set of particles with support in H^d (d-dimensional hypercube) to R^d (d-dimensional reals)
 
@@ -727,7 +748,7 @@ class samplers:
 
         """
         return jnp.log((X - a) / (b - X))
-   
+    @partial(jax.jit, static_argnums=(0,))
     def _jacMapRealsToHypercube(self, Y, a, b):
         """Calculate the Jacobian of mapRealsToHypercube (dx/dy)
 
@@ -751,7 +772,7 @@ class samplers:
         and therefore we need only return (N,d) entries. 
         """
         return (b - a) / (4 * jnp.cosh(Y / 2) ** 2)
-    
+    @partial(jax.jit, static_argnums=(0,))
     def _getBoundaryGradientCorrection(self, Y):
         """Calculates $\nabla_y \ln \det(dx/dy)$, the "correction" in the transformed gradient expression.
 
@@ -766,7 +787,7 @@ class samplers:
             (N,d) shaped array correction term
         """
         return jnp.tanh(Y / 2)
-    
+    @partial(jax.jit, static_argnums=(0,))
     def _getBoundaryHessianCorrection(self, Y):
         """Calculates $\del_{y_i} \del_{y_j} \ln \det(dx/dy)$, the "correction" in the transformed Hessian expression.
 
@@ -782,53 +803,53 @@ class samplers:
         """
         return 1 / (2 * jnp.cosh(Y / 2) ** 2)
 
-    def _getDerivativesMinusLogPosterior_new(self, Y, t): 
-        """Wrapper method to correct for H^d to R^d coordinate transformation
+    # def _getDerivativesMinusLogPosterior_new(self, Y, t): 
+    #     """Wrapper method to correct for H^d to R^d coordinate transformation
 
-        Parameters
-        ----------
-        Y : array
-            (N,d) shaped array of particles with support in R^d
+    #     Parameters
+    #     ----------
+    #     Y : array
+    #         (N,d) shaped array of particles with support in R^d
 
-        Returns
-        -------
-        tuple
-            (N,d) array representing the gradient and (N,d,d) array representing the Hessian in the unbounded space.
-        """
-        if self.bounded == None:
-            return self.model.getDerivativesMinusLogPosterior_ensemble(Y)
-        elif self.bounded == 'log_boundary':
+    #     Returns
+    #     -------
+    #     tuple
+    #         (N,d) array representing the gradient and (N,d,d) array representing the Hessian in the unbounded space.
+    #     """
+    #     if self.bounded == None:
+    #         return self.model.getDerivativesMinusLogPosterior_ensemble(Y)
+    #     elif self.bounded == 'log_boundary':
 
-            gmlpt = jnp.zeros((self.nParticles, self.DoF))
-            hmlpt = jnp.zeros((self.nParticles, self.DoF, self.DoF))
+    #         gmlpt = jnp.zeros((self.nParticles, self.DoF))
+    #         hmlpt = jnp.zeros((self.nParticles, self.DoF, self.DoF))
 
-            idx = self.getIndiciesParticlesInBound(Y, self.model.lower_bound, self.model.upper_bound)
-            gB = self._getGradBarrier(Y[idx], self.model.lower_bound, self.model.upper_bound, t)
-            hessB = self._getHessBarrier(Y[idx], self.model.lower_bound, self.model.upper_bound, t)
+    #         idx = self.getIndiciesParticlesInBound(Y, self.model.lower_bound, self.model.upper_bound)
+    #         gB = self._getGradBarrier(Y[idx], self.model.lower_bound, self.model.upper_bound, t)
+    #         hessB = self._getHessBarrier(Y[idx], self.model.lower_bound, self.model.upper_bound, t)
 
-            gmlpt_idx, hmlpt_idx = self.model.getDerivativesMinusLogPosterior_ensemble(Y[idx])
+    #         gmlpt_idx, hmlpt_idx = self.model.getDerivativesMinusLogPosterior_ensemble(Y[idx])
 
-            gmlpt = gmlpt.at[idx].set(gmlpt_idx + gB)
+    #         gmlpt = gmlpt.at[idx].set(gmlpt_idx + gB)
 
-            hmlpt_idx = hmlpt_idx.at[:, jnp.array(range(self.DoF)), jnp.array(range(self.DoF))].add(hessB)
+    #         hmlpt_idx = hmlpt_idx.at[:, jnp.array(range(self.DoF)), jnp.array(range(self.DoF))].add(hessB)
 
-            hmlpt = hmlpt.at[idx].set(hmlpt_idx)
+    #         hmlpt = hmlpt.at[idx].set(hmlpt_idx)
 
-            return (gmlpt, hmlpt)
+    #         return (gmlpt, hmlpt)
 
-        elif self.bounded == 'mirrored':
-            X = self._mapRealsToHypercube(Y, self.model.lower_bound, self.model.upper_bound)
-            gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
+    #     elif self.bounded == 'mirrored':
+    #         X = self._mapRealsToHypercube(Y, self.model.lower_bound, self.model.upper_bound)
+    #         gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
 
-            dxdy = self._jacMapRealsToHypercube(Y, self.model.lower_bound, self.model.upper_bound)
-            boundary_correction_grad = self._getBoundaryGradientCorrection(Y)
-            boundary_correction_hess = self._getBoundaryHessianCorrection(Y)
+    #         dxdy = self._jacMapRealsToHypercube(Y, self.model.lower_bound, self.model.upper_bound)
+    #         boundary_correction_grad = self._getBoundaryGradientCorrection(Y)
+    #         boundary_correction_hess = self._getBoundaryHessianCorrection(Y)
 
-            gmlpt_Y = dxdy * gmlpt_X + boundary_correction_grad
-            Hmlpt_Y = contract('Ni, Nj, Nij -> Nij', dxdy, dxdy, Hmlpt_X, backend='jax') 
-            Hmlpt_Y = Hmlpt_Y.at[:, jnp.array(range(self.DoF)), jnp.array(range(self.DoF))].add(boundary_correction_hess)
+    #         gmlpt_Y = dxdy * gmlpt_X + boundary_correction_grad
+    #         Hmlpt_Y = contract('Ni, Nj, Nij -> Nij', dxdy, dxdy, Hmlpt_X, backend='jax') 
+    #         Hmlpt_Y = Hmlpt_Y.at[:, jnp.array(range(self.DoF)), jnp.array(range(self.DoF))].add(boundary_correction_hess)
 
-            return (gmlpt_Y, Hmlpt_Y)
+    #         return (gmlpt_Y, Hmlpt_Y)
 
     def getIndiciesParticlesInBound(self, X, a, b):
         truth_table = ((X > a) & (X < b))
@@ -987,48 +1008,60 @@ class samplers:
     #####################################################
 
     @partial(jax.jit, static_argnums=(0,))
-    def getMatrixSVGD_v_drift(self, matrix_kern, grad_matrix_kern, gmlpt): # Checks: XX
+    def getMatrixMirrorKernel(self, X, matrix_kern, grad_matrix_kern):
+        # Remarks:
+        # (i)   diagonal of $\nabla^2 \psi(x)^{-1}$
+        # (ii)  diagonal of Jacobian of tmp1
+        # (iii) grad_matrix_kern (Derivative should be taken on the second slot)
+
+        a = self.model.lower_bound
+        b = self.model.upper_bound
+
+        tmp = (X - a) * (b - X) / (b - a) # (i)
+        tmp_prime = (a + b - 2 * X) / (b - a) # (ii) 
+
+        k_psi = contract('xyij, yj -> xyij', matrix_kern, tmp, backend='jax')
+
+        grad_k_psi = contract('xyijk, yj -> xyijk', grad_matrix_kern, tmp, backend='jax') \
+                   + contract('xyij, yj, jk -> xyijk', matrix_kern, tmp_prime, np.eye(self.DoF), backend='jax')
+
+        return k_psi, grad_k_psi
+
+    @partial(jax.jit, static_argnums=(0,))
+    def getMatrixSVGD_drift(self, matrix_kern, grad_matrix_kern, gmlpt): # Checks: XX
         uphill = contract('xyij, yj -> xi', matrix_kern, -gmlpt, backend='jax') / self.nParticles
         repulsion = contract('xyijj -> xi', grad_matrix_kern, backend='jax') / self.nParticles 
         return uphill + repulsion
 
-    def getMatrixSVN_v_drift(self, UH, v_svgd, K): # Checks: X
+    @partial(jax.jit, static_argnums=(0,))
+    def getMatrixSVGD_noise(self, K): # Checks: X
+        # LK = self.jit_scipy_cholesky(K).T # Note: scipy cholesky returns upper triangular matrix.
+        B = np.random.normal(0, 1, self.dim)
+        LK = jax.scipy.linalg.cholesky(K, lower=True) 
+        return (np.sqrt(2) * LK @ B).reshape(self.nParticles, self.DoF)
+
+    @partial(jax.jit, static_argnums=(0,))
+    def getMatrixSVN_drift(self, UH, v_svgd, K): # Checks: X
+        # Remarks:
+        # (i) cho_solve expects lower triangular matrix. Pass False if upper triangular
         alphas = jax.scipy.linalg.cho_solve((UH, False), v_svgd.flatten())
         return self.nParticles * (K @ alphas).reshape(self.nParticles, self.DoF)
 
+    @partial(jax.jit, static_argnums=(0,))
     def getMatrixSVN_Hessian(self, matrix_kern, grad_matrix_kern, hmlpt): # Checks: XX
         h1 = contract('myia, yab, nyjb -> mnij', matrix_kern, hmlpt, matrix_kern) / self.nParticles 
         h2 = contract('myaij, mybji -> mab', grad_matrix_kern, grad_matrix_kern) / self.nParticles
-        h1[range(self.nParticles), range(self.nParticles)] += h2
+        h1 = h1.at[jnp.array(range(self.nParticles)), jnp.array(range(self.nParticles))].add(h2)
+        # h1[range(self.nParticles), range(self.nParticles)] += h2
         return self._reshapeNNDDtoNDND(h1)
 
-    def getMatrixSVGD_v_stc(self, K): # Checks: X
-        # This may require jitter!!!!
+    @partial(jax.jit, static_argnums=(0,))
+    def getMatrixSVN_noise(self, K, UH): # Checks: X
         B = np.random.normal(0, 1, self.dim)
-        LK = self.jit_scipy_cholesky(K).T # Note: scipy cholesky returns upper triangular matrix.
-        return (np.sqrt(2) * LK @ B).reshape(self.nParticles, self.DoF)
-
-    def getMatrixSVN_v_stc(self, K, UH): # Checks: X
-        B = np.random.normal(0, 1, self.dim)
-        tmp1 = scipy.linalg.solve_triangular(UH, B, lower=False)#
+        tmp1 = jax.scipy.linalg.solve_triangular(UH, B, lower=False)#
         return (np.sqrt(2 * self.nParticles) * K @ tmp1).reshape(self.nParticles, self.DoF)
 
-    @partial(jax.jit, static_argnums=(0,))
-    def getMatrixMirrorKernel(self, X, matrix_kern, grad_matrix_kern):
-        a = self.model.lower_bound
-        b = self.model.upper_bound
 
-        tmp = (X - a) * (b - X) / (b - a) # diagonal of $\nabla^2 \psi(x)^{-1}$
-        tmp_prime = (a + b - 2 * X) / (b - a)   # diagonal of Jacobian of tmp1
-
-        k_psi = contract('xyij, yj -> xyij', matrix_kern, tmp, backend='jax')
-
-        first = contract('xyijk, yj -> xyijk', grad_matrix_kern, tmp, backend='jax')
-        second = contract('xyij, yj, jk -> xyijk', matrix_kern, tmp_prime, np.eye(self.DoF), backend='jax')
-
-        grad_k_psi = first + second
-
-        return k_psi, grad_k_psi
 
 #######################################################
 
