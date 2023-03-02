@@ -441,7 +441,7 @@ class gwfast_class(object):
         r0, r1 = self.getSplineData(X)
         jac_r0, jac_r1 = self.getJacSplineData(X)
         grad_log_like = jnp.zeros((nParticles, self.DoF))
-        GN = jnp.zeros((self.nParticles, self.DoF, self.DoF))
+        GN = jnp.zeros((nParticles, self.DoF, self.DoF))
         for det in self.detsInNet.keys():
 
             jh_d = contract('b, jNb -> Nj', self.A0[det], jac_r0[det].conjugate(), backend='jax') \
