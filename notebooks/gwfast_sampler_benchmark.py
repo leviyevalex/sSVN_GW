@@ -155,8 +155,8 @@ bilby_likelihood = bilby_gwfast()
 
 
 result = bilby.run_sampler(
-    label='try002',
-    resume=True,
+    label='try004',
+    resume=False,
     plot=True,
     likelihood=bilby_likelihood,
     priors=priors,
@@ -166,7 +166,7 @@ result = bilby.run_sampler(
     seed=1234,
     nlive=200,
     # nlive=1000,
-    nact=15
+    # nact=15
 )
 
 #%%#################################
@@ -234,45 +234,51 @@ fig.savefig('corner_bilby.png')
 
 
 
+#########################################
+#
 
+
+#%%###########################################
+# jaxns
+##############################################
+from jax.config import config
+
+config.update("jax_enable_x64", True)
+
+import pylab as plt
+import tensorflow_probability.substrates.jax as tfp
+from jax import random, numpy as jnp
+from jax import vmap
+
+import jaxns
+from jaxns import ExactNestedSampler
+from jaxns import Model
+from jaxns import PriorModelGen, Prior
+from jaxns import TerminationCondition
+from jaxns import analytic_log_evidence
+
+tfpd = tfp.distributions
+
+#%%
+def log_likelihood(x):
+    X = x[np.newaxis, ...]
+    return -1 * model.heterodyne_minusLogLikelihood(X)
+
+
+def prior_model() -> PriorModelGen:
+    x = yield Prior(tfpd.Uniform(low=model.lower_bound, high=model.upper_bound), name='x')
+    return x
+
+
+model = Model(prior_model=prior_model,
+              log_likelihood=log_likelihood)
+
+ns = exact_ns = ExactNestedSampler(model=model, num_live_points=200, num_parallel_samplers=1,
+                                   max_samples=1e4)
+
+termination_reason, state = exact_ns(random.PRNGKey(42),
+                                     term_cond=TerminationCondition(live_evidence_frac=1e-4))
+results = exact_ns.to_results(state, termination_reason)
+# # %%
 
 # %%
-# from jax.config import config
-
-# config.update("jax_enable_x64", True)
-
-# import pylab as plt
-# import tensorflow_probability.substrates.jax as tfp
-# from jax import random, numpy as jnp
-# from jax import vmap
-
-# import jaxns
-# from jaxns import ExactNestedSampler
-# from jaxns import Model
-# from jaxns import PriorModelGen, Prior
-# from jaxns import TerminationCondition
-# from jaxns import analytic_log_evidence
-
-# tfpd = tfp.distributions
-
-# #%%
-# def log_likelihood(x):
-#     X = x[np.newaxis, ...]
-#     return -1 * model.heterodyne_minusLogLikelihood(X)
-
-
-# def prior_model() -> PriorModelGen:
-#     x = yield Prior(tfpd.Uniform(low=model.lower_bound, high=model.upper_bound), name='x')
-#     return x
-
-
-# model = Model(prior_model=prior_model,
-#               log_likelihood=log_likelihood)
-
-# ns = exact_ns = ExactNestedSampler(model=model, num_live_points=200, num_parallel_samplers=1,
-#                                    max_samples=1e4)
-
-# termination_reason, state = exact_ns(random.PRNGKey(42),
-#                                      term_cond=TerminationCondition(live_evidence_frac=1e-4))
-# results = exact_ns.to_results(state, termination_reason)
-# # %%

@@ -169,7 +169,7 @@ class samplers:
                         gmlpt, Hmlpt = self.model.getDerivativesMinusLogPosterior_ensemble(X)
 
                         # Calculate scalar primal kernel
-                        M = jnp.mean(Hmlpt, axis=0) # np.eye(self.DoF)
+                        M = np.eye(self.DoF) #jnp.mean(Hmlpt, axis=0) # 
                         kernelKwargs['M'] = M
                         kx, gkx1 = self._getKernelWithDerivatives(X, kernelKwargs)
 
@@ -185,10 +185,11 @@ class samplers:
                         # Get mirror kernel
                         k_psi, grad_k_psi = self.getMatrixMirrorKernel(X, matrix_kern, grad_matrix_kern)
 
-                        # Calculate dual update
+                        # Calculate update
                         v_svgd = self.getMatrixSVGD_v_drift(k_psi, grad_k_psi, gmlpt)
 
                         v_stc = self.get_vSVGD_stc(kx)
+                        
                         # K = self._reshapeNNDDtoNDND(matrix_kern) / self.nParticles
 
                         # v_stc = self.getMatrixSVGD_v_stc(K)
