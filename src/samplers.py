@@ -190,9 +190,14 @@ class samplers:
                         v_svgd = self.getMatrixSVGD_drift(k_psi, grad_k_psi, gmlpt)
 
                         # Calculate SVGD noise
-                        K = self._reshapeNNDDtoNDND(kx_matrix) / self.nParticles
+                        # Remark: This first method appears to be numerically unstable!
+                        # K = self._reshapeNNDDtoNDND(kx_matrix) / self.nParticles
                         # v_stc = self.getMatrixSVGD_noise(K)
-                        v_stc = self.get_vSVGD_stc(kx_scalar)
+                        key, subkey = jax.random.split(key)
+                        Bdn = jax.random.normal(subkey, (self.DoF, self.nParticles)) # standard normal sample
+
+                        v_stc = self.getSVGD_v_stc(kx_scalar, Bdn)
+                        # v_stc = self.get_vSVGD_stc(kx_scalar, Bdn)
 
                         # Perform dual update
                         eta += eps * v_svgd + np.sqrt(eps) * v_stc
@@ -442,7 +447,8 @@ class samplers:
         v_svgd = -1 * contract('mn, mo -> no', kx, gmlpt, backend='jax') / self.nParticles + jnp.mean(gkx, axis=0)
         return v_svgd
 
-    def _getSVGD_v_stc(self, L_kx, Bdn=None):
+    @partial(jax.jit, static_argnums=(0,))
+    def getSVGD_v_stc(self, kx, Bdn):
         """
         Get noise injection velocity field for SVGD
         Args:
@@ -452,9 +458,10 @@ class samplers:
         Returns:
 
         """
-        if Bdn is None:
-            Bdn = np.random.normal(0, 1, (self.DoF, self.nParticles))
-        return np.sqrt(2 / self.nParticles) * contract('mn, in -> im', L_kx, Bdn).flatten(order='F').reshape(self.nParticles, self.DoF)
+        # if Bdn is None:
+            # Bdn = np.random.normal(0, 1, (self.DoF, self.nParticles))
+        alpha, L_kx = self._getMinimumPerturbationCholesky(kx)
+        return jnp.sqrt(2 / self.nParticles) * contract('mn, in -> im', L_kx, Bdn, backend='jax').flatten(order='F').reshape(self.nParticles, self.DoF)
 
     @partial(jax.jit, static_argnums=(0,))
     def _getSVN_direction(self, kx, v_svgd, UH):
@@ -533,15 +540,16 @@ class samplers:
             jitter (float): How much to add to x $x + jitter * I$ where $I$ is the identity matrix.
 
         Returns: (float, array) Required jitter to produce decomposition and corresponding lower triangular Cholesky factor
-
+        Remarks:
+        (i) np.linalg.cholesky returns lower triangular matrix!
         """
         try:
-            cholesky = np.linalg.cholesky(x)
+            cholesky = jnp.linalg.cholesky(x)
             return 0, cholesky
         except Exception:
             while jitter < 1.0:
                 try:
-                    cholesky = np.linalg.cholesky(x + jitter * np.eye(x.shape[0]))
+                    cholesky = jnp.linalg.cholesky(x + jitter * np.eye(x.shape[0]))
                     log.warning('CHOLESKY: Matrix not positive-definite. Adding alpha = %.2E' % jitter)
                     return jitter, cholesky
                 except Exception:
@@ -690,11 +698,6 @@ class samplers:
     # V2
     ########################################################################################################
 
-
-
-
-
-
     @partial(jax.jit, static_argnums=(0,))
     def _mapRealsToHypercube(self, Y, a, b):
         """Map a set of particles with support on R^d (d-dimensional reals) to H^d (d-dimensional hypercube)
@@ -724,6 +727,7 @@ class samplers:
 
         """
         return (a + b * jnp.exp(Y)) / (1 + jnp.exp(Y))
+    
     @partial(jax.jit, static_argnums=(0,))
     def _mapHypercubeToReals(self, X, a, b):
         """Map a set of particles with support in H^d (d-dimensional hypercube) to R^d (d-dimensional reals)
@@ -748,6 +752,7 @@ class samplers:
 
         """
         return jnp.log((X - a) / (b - X))
+    
     @partial(jax.jit, static_argnums=(0,))
     def _jacMapRealsToHypercube(self, Y, a, b):
         """Calculate the Jacobian of mapRealsToHypercube (dx/dy)
@@ -772,6 +777,7 @@ class samplers:
         and therefore we need only return (N,d) entries. 
         """
         return (b - a) / (4 * jnp.cosh(Y / 2) ** 2)
+    
     @partial(jax.jit, static_argnums=(0,))
     def _getBoundaryGradientCorrection(self, Y):
         """Calculates $\nabla_y \ln \det(dx/dy)$, the "correction" in the transformed gradient expression.
@@ -787,6 +793,7 @@ class samplers:
             (N,d) shaped array correction term
         """
         return jnp.tanh(Y / 2)
+
     @partial(jax.jit, static_argnums=(0,))
     def _getBoundaryHessianCorrection(self, Y):
         """Calculates $\del_{y_i} \del_{y_j} \ln \det(dx/dy)$, the "correction" in the transformed Hessian expression.
@@ -997,10 +1004,10 @@ class samplers:
     def _getPairwiseDisplacement(self, X):
         return X[:,np.newaxis,:] - X[np.newaxis,:,:]
 
-    def get_vSVGD_stc(self, kx): # Checks: X
-        alpha, L_kx = self._getMinimumPerturbationCholesky(kx)
-        v_stc = self._getSVGD_v_stc(L_kx)
-        return v_stc
+    # def get_vSVGD_stc(self, kx): # Checks: X
+    #     alpha, L_kx = self._getMinimumPerturbationCholesky(kx)
+    #     v_stc = self._getSVGD_v_stc(L_kx)
+    #     return v_stc
 
     #####################################################
     # Matrix and mirrored methods
