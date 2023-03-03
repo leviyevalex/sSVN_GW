@@ -173,7 +173,8 @@ class samplers:
 
                     elif method == 'mirrorSVGD':
                         # Calculate derivatives
-                        gmlpt, Hmlpt = self.model.getDerivativesMinusLogPosterior_ensemble(X)
+                        # gmlpt, Hmlpt = self.model.getDerivativesMinusLogPosterior_ensemble(X)
+                        gmlpt = self.model.getGradientMinusLogPosterior_ensemble(X)
 
                         # Calculate matrix kernel
                         M = jnp.eye(self.DoF) # jnp.mean(Hmlpt, axis=0)  
@@ -447,7 +448,7 @@ class samplers:
         v_svgd = -1 * contract('mn, mo -> no', kx, gmlpt, backend='jax') / self.nParticles + jnp.mean(gkx, axis=0)
         return v_svgd
 
-    @partial(jax.jit, static_argnums=(0,))
+    # @partial(jax.jit, static_argnums=(0,))
     def getSVGD_v_stc(self, kx, Bdn):
         """
         Get noise injection velocity field for SVGD
@@ -544,12 +545,12 @@ class samplers:
         (i) np.linalg.cholesky returns lower triangular matrix!
         """
         try:
-            cholesky = jnp.linalg.cholesky(x)
+            cholesky = np.linalg.cholesky(x)
             return 0, cholesky
         except Exception:
             while jitter < 1.0:
                 try:
-                    cholesky = jnp.linalg.cholesky(x + jitter * np.eye(x.shape[0]))
+                    cholesky = np.linalg.cholesky(x + jitter * np.eye(x.shape[0]))
                     log.warning('CHOLESKY: Matrix not positive-definite. Adding alpha = %.2E' % jitter)
                     return jitter, cholesky
                 except Exception:

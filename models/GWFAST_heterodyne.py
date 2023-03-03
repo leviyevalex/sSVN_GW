@@ -401,7 +401,7 @@ class gwfast_class(object):
         return log_like
 
     # def heterodyne_gradientMinusLogLikelihood(self, X):
-    # @partial(jax.jit, static_argnums=(0,))
+    @partial(jax.jit, static_argnums=(0,))
     def getGradientMinusLogPosterior_ensemble(self, X):
         nParticles = X.shape[0]
         r0, r1 = self.getSplineData(X)
@@ -421,7 +421,7 @@ class gwfast_class(object):
         return grad_log_like
 
     # def heterodyne_GNHessianMinusLogLikelihood(self, X):
-    # @partial(jax.jit, static_argnums=(0,))
+    @partial(jax.jit, static_argnums=(0,))
     def getGNHessianMinusLogPosterior_ensemble(self, X):
         nParticles = X.shape[0]
         jac_r0, jac_r1 = self.getJacSplineData(X)
