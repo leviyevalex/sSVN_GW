@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #%%
+import copy
 from random import uniform
 import jax.numpy as jnp
 import jax
@@ -8,8 +9,11 @@ import numpy as np
 import os
 import time
 import matplotlib.pyplot as plt
+from gwfast.waveforms import TaylorF2_RestrictedPN, IMRPhenomD
 import gwfast.signal as signal
 from gwfast.network import DetNet
+import gwfast.gwfastGlobals as glob
+import gwfast.gwfastUtils as utils
 from opt_einsum import contract
 from functools import partial
 from jax.config import config
@@ -18,7 +22,8 @@ config.update("jax_enable_x64", True)
 #%%
 class gwfast_class(object):
     
-    def __init__(self, NetDict, WaveForm, injParams, priorDict):
+    # def __init__(self, NetDict, WaveForm, injParams, priorDict):
+    def __init__(self, chi, eps):
         """
         Args:
             NetDict (dict): dictionary containing the specifications of the detectors in the network
@@ -36,24 +41,16 @@ class gwfast_class(object):
         self.nGradLikelihoodEvaluations = 0
         self.nHessLikelihoodEvaluations = 0
         self.id = 'gwfast_model'
-        self.priorDict  = priorDict
-        self.DoF = 11
+        self._initParams()
+        # self.priorDict  = priorDict
 
         # gw_fast related attributes
-        self.wf_model = WaveForm
-        self.NetDict = NetDict
         self.EarthMotion = False
-        self.injParams = injParams
-        self.seconds_per_day = 86400. 
-
 
         # Parameter order convention
         self.gwfast_param_order = ['Mc','eta', 'dL', 'theta', 'phi', 'iota', 'psi', 'tcoal', 'Phicoal', 'chi1z', 'chi2z']
         self.gwfast_params_neglected = ['chi1x', 'chi2x', 'chi1y', 'chi2y', 'LambdaTilde', 'deltaLambda', 'ecc']
-
-        # Define dictionary of neglected parameters to keep signal evaluation methods clean
-        # self.dict_params_neglected_1 = {neglected_params: jnp.array([0.]).astype('complex128') for neglected_params in self.gwfast_params_neglected}
-        # self.dict_params_neglected_N = {neglected_params: jnp.zeros(self.nParticles).astype('complex128') for neglected_params in self.gwfast_params_neglected}
+        self.DoF = 11
 
         # Definitions for easy interfacing
         self.true_params = jnp.array([self.injParams[param].squeeze() for param in self.gwfast_param_order])
@@ -62,18 +59,80 @@ class gwfast_class(object):
 
         self._initFrequencyGrid()
         self._initDetectors()
-        self.h0_standard = self._getInjectedSignals(injParams, self.fgrid_standard)
-        self.h0_dense = self._getInjectedSignals(injParams, self.fgrid_dense)
+        self.h0_standard = self._getInjectedSignals(self.injParams, self.fgrid_standard)
+        self.h0_dense = self._getInjectedSignals(self.injParams, self.fgrid_dense)
 
         # Heterodyned strategy
         self.d_d = self._precomputeDataInnerProduct()
-        self.getHeterodyneBins(chi=1, eps=0.1)
-        # self.getHeterodyneBins(chi=1, eps=0.1)
+        self.chi = chi
+        self.eps = eps
+        self.getHeterodyneBins(chi=chi, eps=eps)
         self.getSummaryData()
 
         # Warmup for JIT compile
         # self._warmup_potential(True)
         # self._warmup_potential_derivative(True) 
+
+    def _initParams(self):
+        # Remarks:
+        # (i)   `tcoal` is accepted in units GMST fraction of a day
+        # (ii)  GPSt_to_LMST returns GMST in units of fraction of day (GMST is LMST computed at long = 0°)
+        # (iii) (GW150914) like parameters
+        # (iv)  Use [tcoal - 3e-7, tcoal + 3e-7] prior when in units of days
+        self.seconds_per_day = 86400. 
+        tGPS = np.array([1.12625946e+09])
+        tcoal = float(utils.GPSt_to_LMST(tGPS, lat=0., long=0.)) * self.seconds_per_day # [0, 1] 
+        injParams = dict()
+        injParams['Mc']      = np.array([34.3089283])          # (1)   # (0)               # [M_solar]
+        injParams['eta']     = np.array([0.2485773])           # (2)   # (1)               # [Unitless]
+        injParams['dL']      = np.array([2.634])               # (3)   # (2)               # [Gigaparsecs] 
+        injParams['theta']   = np.array([2.78560281])          # (4)   # (3)               # [Rad]
+        injParams['phi']     = np.array([1.67687425])          # (5)   # (4)               # [Rad]
+        injParams['iota']    = np.array([2.67548653])          # (6)   # (5)               # [Rad]
+        injParams['psi']     = np.array([0.78539816])          # (7)   # (6)               # [Rad]
+        injParams['tcoal']   = np.array([tcoal])               # (8)   # (7)               # []
+        injParams['Phicoal'] = np.array([0.])                  # (9)   # (8)               # [Rad]
+        injParams['chi1z']   = np.array([0.27210419])          # (10)  # (9)               # [Unitless]
+        injParams['chi2z']   = np.array([0.33355909])          # (11)  # (10)              # [Unitless]
+        self.injParams = injParams
+
+        priorDict = {}
+        priorDict['Mc']      = [29., 39.]                      # [M_solar]
+        priorDict['eta']     = [0.22, 0.25]                    # [Unitless]
+        priorDict['dL']      = [0.1, 7.]                       # [GPC]
+        priorDict['theta']   = [0., np.pi]                     # [Rad]
+        priorDict['phi']     = [0., 2 * np.pi]                 # [Rad]
+        priorDict['iota']    = [0., np.pi]                     # [Rad]
+        priorDict['psi']     = [0., np.pi]                     # [Rad]
+        priorDict['tcoal']   = [tcoal - 0.01, tcoal + 0.01]    # []
+        priorDict['Phicoal'] = [0., 2 * np.pi]                 # [Rad]
+        priorDict['chi1z']   = [-1., 1.]                       # [Unitless]
+        priorDict['chi2z']   = [-1., 1.]                       # [Unitless]
+        self.priorDict = priorDict
+
+        ################################################################
+        # Notes:
+        # (i)   Geometry of every available detector
+        # (ii)  Extract only LIGO/Virgo detectors
+        # (iii) Providing ASD path to psd_path with flag "is_ASD = True"
+        # (iv)  Add paths to detector sensitivities
+        ################################################################
+
+        all_detectors = copy.deepcopy(glob.detectors) # (i)
+        dets = ['L1', 'H1', 'Virgo']
+        print('Using detectors', dets)
+        LV_detectors = {det:all_detectors[det] for det in dets} # (ii) # LV_detectors = {det:all_detectors[det] for det in ['L1']}
+        detector_ASD = dict() # (iii)
+        detector_ASD['L1']    = 'O3-L1-C01_CLEAN_SUB60HZ-1240573680.0_sensitivity_strain_asd.txt'
+        detector_ASD['H1']    = 'O3-H1-C01_CLEAN_SUB60HZ-1251752040.0_sensitivity_strain_asd.txt'
+        detector_ASD['Virgo'] = 'O3-V1_sensitivity_strain_asd.txt'
+
+        LV_detectors['L1']['psd_path']    = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['L1']) # (iv) 
+        LV_detectors['H1']['psd_path']    = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['H1'])
+        LV_detectors['Virgo']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['Virgo'])
+        self.NetDict = LV_detectors
+
+        self.wf_model = IMRPhenomD() # TaylorF2_RestrictedPN() # Choice of waveform
 
     def _getDictParamsNeglected(self, N):
         return {neglected_params: jnp.zeros(N).astype('complex128') for neglected_params in self.gwfast_params_neglected}
@@ -81,7 +140,13 @@ class gwfast_class(object):
     def _initFrequencyGrid(self, fmin=20, fmax=None): # Checks: X
         """
         Setup frequency grids that will be used
+        Remarks:                                           
+        (i)   Setup [f_min, f_max] interval
+        (ii)  Standard frequency grid setup
+        (iii) Once nbins_standard is calculated, df_standard must be updated
+        (iv)  Dense frequency setup for heterodyning
         """
+        # (i)
         self.fmin = fmin  # 10
         self.fmax = fmax  # 325
         fcut = self.wf_model.fcut(**self.injParams)[0]
@@ -90,23 +155,16 @@ class gwfast_class(object):
         else:
             fcut = np.where(fcut > self.fmax, self.fmax, fcut)
         self.fcut = fcut
-
-        ###############################
-        # Standard frequency grid setup
-        ###############################
-        # Remarks
-        # (i) Once nbins_standard is calculated, df_standard must be updated!
-        signal_duration = 4. # [s]
+        
+        # (ii)
+        signal_duration = 6. # [s]
         self.df_standard = 1 / signal_duration
-        self.nbins_standard = int(np.ceil(((self.fmax - self.fmin) / self.df_standard)))
-        # self.nbins_standard = 9000
-        self.df_standard = (self.fmax - self.fmin) / self.nbins_standard # (i)
+        self.nbins_standard = int(np.ceil(((self.fmax - self.fmin) / self.df_standard))) # 9000
+        self.df_standard = (self.fmax - self.fmin) / self.nbins_standard # (iii)
         print('Standard binning scheme: % i bins' % self.nbins_standard)
         self.fgrid_standard = np.linspace(self.fmin, fcut, num=self.nbins_standard + 1).squeeze()
 
-        ########################################
-        # Dense frequency setup for heterodyning
-        ########################################
+        # (iv)
         self.nbins_dense = 10000 
         self.df_dense = (self.fmax - self.fmin) / self.nbins_dense
         print('Dense bins: % i bins' % self.nbins_dense)
@@ -140,6 +198,7 @@ class gwfast_class(object):
             self.PSD_standard[det] = jnp.interp(self.fgrid_standard, self.detsInNet[det].strainFreq, self.detsInNet[det].noiseCurve, left=1., right=1.).squeeze()
             self.PSD_dense[det] = jnp.interp(self.fgrid_dense, self.detsInNet[det].strainFreq, self.detsInNet[det].noiseCurve, left=1., right=1.).squeeze()
 
+
     def _getInjectedSignals(self, injParams, fgrid):
         """
         Fiducial signals over dense grid (one for each detector)
@@ -160,7 +219,7 @@ class gwfast_class(object):
                                                    phi     = injParams['phi'].astype('complex128'),
                                                    iota    = injParams['iota'].astype('complex128'),
                                                    psi     = injParams['psi'].astype('complex128'),
-                                                   tcoal   = injParams['tcoal'].astype('complex128'), #/ self.seconds_per_day, # (iii)
+                                                   tcoal   = injParams['tcoal'].astype('complex128') / self.seconds_per_day, # (iii)
                                                    Phicoal = injParams['Phicoal'].astype('complex128'),
                                                    chiS    = injParams['chi1z'].astype('complex128'),
                                                    chiA    = injParams['chi2z'].astype('complex128'),
@@ -194,7 +253,7 @@ class gwfast_class(object):
                                                         phi     = X_[4],
                                                         iota    = X_[5],
                                                         psi     = X_[6],
-                                                        tcoal   = X_[7], #/ self.seconds_per_day, # (iii)
+                                                        tcoal   = X_[7] / self.seconds_per_day, # (iii)
                                                         Phicoal = X_[8],
                                                         chiS    = X_[9],
                                                         chiA    = X_[10],
@@ -230,14 +289,14 @@ class gwfast_class(object):
                                                                        phi     = X_[4],
                                                                        iota    = X_[5],
                                                                        psi     = X_[6],
-                                                                       tcoal   = X_[7], #/ self.seconds_per_day, # Correction 1
+                                                                       tcoal   = X_[7] / self.seconds_per_day, # Correction 1
                                                                        Phicoal = X_[8],
                                                                        chiS    = X_[9],
                                                                        chiA    = X_[10],
                                                                        use_chi1chi2 = True,
                                                                        **dict_params_neglected) 
 
-            #jacModel[det] = jacModel[det].at[7].divide(self.seconds_per_day) # Correction 2
+            jacModel[det] = jacModel[det].at[7].divide(self.seconds_per_day) # Correction 2
 
         return jacModel
             
@@ -273,9 +332,6 @@ class gwfast_class(object):
             inner_product = 4 * contract('iNf, jNf, f -> Nij', jacSignal[det].conjugate(), jacSignal[det], 1 / self.PSD_standard[det]) * self.df_standard
             GN += inner_product.real
         return GN
-
-
-
 
 #########################################################################
 # HETERODYNE METHODS
@@ -401,7 +457,7 @@ class gwfast_class(object):
         return log_like
 
     # def heterodyne_gradientMinusLogLikelihood(self, X):
-    @partial(jax.jit, static_argnums=(0,))
+    # @partial(jax.jit, static_argnums=(0,))
     def getGradientMinusLogPosterior_ensemble(self, X):
         nParticles = X.shape[0]
         r0, r1 = self.getSplineData(X)
@@ -475,8 +531,7 @@ class gwfast_class(object):
                    
         return prior_draw
 
-    def getCrossSection(self, a, b):
-        ngrid = int(np.sqrt(self.nParticles))
+    def getCrossSection(self, a, b, func, ngrid):
         # a, b are the parameters for which we want the marginals:
         x = np.linspace(self.priorDict[a][0], self.priorDict[a][1], ngrid)
         y = np.linspace(self.priorDict[b][0], self.priorDict[b][1], ngrid)
@@ -490,14 +545,14 @@ class gwfast_class(object):
         for i in range(self.DoF): # Fix all other parameters
             if i != index1 and i != index2:
                 particle_grid[:, i] = np.ones(ngrid ** 2) * self.true_params[i]
-        Z = np.exp(-1 * self.getMinusLogPosterior_ensemble(particle_grid).reshape(ngrid,ngrid))
+        Z = np.exp(-1 * func(particle_grid).reshape(ngrid,ngrid))
         fig, ax = plt.subplots(figsize = (5, 5))
         cp = ax.contourf(X, Y, Z)
         # cbar = fig.colorbar(cp)
         plt.colorbar(cp)
         ax.set_xlabel(a)
         ax.set_ylabel(b)
-        ax.set_title('Analytically calculated marginal')
+        ax.set_title('Likelihood cross section')
         filename = a + b + '.png'
         path = os.path.join('marginals', filename)
         fig.savefig(path)
@@ -511,72 +566,6 @@ class gwfast_class(object):
         if warmup is True:
             print('Warming up derivatives')
             self.getDerivativesMinusLogPosterior_ensemble(self._newDrawFromPrior(self.nParticles))
-
-
-
-
-    # def getHeterodyneBins_new(self, chi, eps):
-    #     print('Getting heterodyned bins')
-
-    #     gamma = np.array([-5./3, -2./3, 1., 5./3, 7./3])
-    #     delta = lambda f_minus, f_plus: 2 * np.pi * chi * np.sum((1 - (f_minus / f_plus) ** np.abs(gamma)))
-    #     delta0 = delta(self.fgrid_dense[0], self.fgrid_dense[1])
-    #     if eps < delta0:
-    #         print('First bin cannot satisfy bound. Changing epsilon from %f to %f' % (eps, delta0))
-    #         eps = delta0
-
-    #     bin_edges = [self.fgrid_dense[0]]
-    #     indicies_kept = [0]
-    #     idx_fminus = 0
-    #     for i in np.arange(1, self.nbins_dense - 1):
-    #         next_bin_over_bound = delta(self.fgrid_dense[idx_fminus], self.fgrid_dense[i + 1]) > eps
-    #         if next_bin_over_bound:
-    #             bin_edges.append(self.fgrid_dense[i])
-    #             idx_fminus = i
-    #             indicies_kept.append(i)
-    #     bin_edges.append(self.fgrid_dense[-1])
-    #     indicies_kept.append(self.nbins_dense)
-
-    #     # Store information
-    #     self.nbins = len(bin_edges) - 1
-    #     self.indicies_kept = np.array(indicies_kept)
-    #     self.bin_edges = np.array(bin_edges)
-    #     self.bin_widths = self.bin_edges[1:] - self.bin_edges[:-1]
-    #     self.bin_centers = (self.bin_edges[1:] + self.bin_edges[:-1]) / 2
-    #     print('Heterodyne binning scheme: %i' % self.nbins)
-
-
-    # def getHeterodyneBins(self, chi=5, eps=0.1):
-    #     """ 
-    #     Get sparse grid for heterodyned scheme
-    #     """
-    #     print('Getting heterodyne bins')
-    #     gamma = np.array([-5./3, -2./3, 1., 5./3, 7./3])
-    #     bound = lambda f_minus, f_plus: 2 * np.pi * chi * np.sum((1 - (f_minus / f_plus) ** np.abs(gamma)))
-    #     bin_edges = [self.fmin]
-    #     indicies_kept = [0]
-    #     n_ticks_dense = self.nbins_dense + 1
-    #     i = 0 # grid index
-    #     j = 0 # bin edge index
-    #     while i < n_ticks_dense:
-    #         while i < n_ticks_dense and bound(bin_edges[j], self.fgrid_dense[i]) < eps:
-    #             i += 1
-    #         bin_edges.append(self.fgrid_dense[i - 1])
-    #         indicies_kept.append(i - 1)
-    #         j += 1
-
-    #     self.indicies_kept = np.array(indicies_kept)
-    #     self.bin_edges = np.array(bin_edges)
-    #     self.bin_widths = self.bin_edges[1:] - self.bin_edges[:-1]
-    #     self.bin_centers = (self.bin_edges[1:] + self.bin_edges[:-1]) / 2
-    #     self.nbins = self.bin_edges.shape[0] - 1
-    #     print('Heterodyne binning scheme: %i' % self.nbins)
-
-
-        # inner_product = lambda x, y: 4 * np.sum(x * y.conjugate()[np.newaxis, ...] / self.PSD_standard[np.newaxis, ...], axis=-1) * self.df_standard
-
-        # deltas = 2 * np.pi * chi * np.sum(((1 - (self.fgrid_dense[:-1] / self.fgrid_dense[1:])[...,np.newaxis] ** np.abs(gamma))), axis=-1)
-
 
 
 
