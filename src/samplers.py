@@ -213,7 +213,7 @@ class samplers:
                         # Calculate matrix kernel
                         M = jnp.mean(Hmlpt, axis=0)
                         kernelKwargs['M'] = M
-                        kx, gkx1 = self._getKernelWithDerivatives(X, kernelKwargs)
+                        kx_scalar, gkx1_scalar = self._getKernelWithDerivatives(X, kernelKwargs)
 
                         kx_matrix = contract('mn, ij -> mnij', kx_scalar, np.eye(self.DoF), backend='jax')
                         gkx2_matrix = contract('mnk, ij -> mnijk', -1 * gkx1_scalar, np.eye(self.DoF), backend='jax')
