@@ -85,7 +85,7 @@ class gwfast_class(object):
         injParams = dict()
         injParams['Mc']      = np.array([34.3089283])          # (1)   # (0)               # [M_solar]
         injParams['eta']     = np.array([0.2485773])           # (2)   # (1)               # [Unitless]
-        injParams['dL']      = np.array([2.634])               # (3)   # (2)               # [Gigaparsecs] 
+        injParams['dL']      = np.array([2.634])               # (3)   # (2)               # [Gigaparsecs]  # [2.634]
         injParams['theta']   = np.array([2.78560281])          # (4)   # (3)               # [Rad]
         injParams['phi']     = np.array([1.67687425])          # (5)   # (4)               # [Rad]
         injParams['iota']    = np.array([2.67548653])          # (6)   # (5)               # [Rad]
@@ -97,9 +97,9 @@ class gwfast_class(object):
         self.injParams = injParams
 
         priorDict = {}
-        priorDict['Mc']      = [29., 39.]                      # [M_solar]
-        priorDict['eta']     = [0.22, 0.25]                    # [Unitless]
-        priorDict['dL']      = [0.1, 7.]                       # [GPC]
+        priorDict['Mc']      = [33., 36.]                      # [M_solar]      # [29., 39.]
+        priorDict['eta']     = [0.23, 0.25]                    # [Unitless]
+        priorDict['dL']      = [1., 4.]                        # [GPC]
         priorDict['theta']   = [0., np.pi]                     # [Rad]
         priorDict['phi']     = [0., 2 * np.pi]                 # [Rad]
         priorDict['iota']    = [0., np.pi]                     # [Rad]
