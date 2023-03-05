@@ -224,7 +224,7 @@ class samplers:
                         # Calculate SVGD drift
                         v_svgd = self.getMatrixSVGD_drift(k_psi, grad_k_psi, gmlpt)
 
-                        K = self._reshapeNNDDtoNDND(matrix_kern) / self.nParticles
+                        K = self._reshapeNNDDtoNDND(kx_matrix) / self.nParticles
                         h_psi = self.getMatrixSVN_Hessian(k_psi, grad_k_psi, Hmlpt) + 0.01 * self.nParticles * K
                         UH_psi = jax.scipy.linalg.cholesky(h_psi, lower=False)
 
