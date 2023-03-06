@@ -75,13 +75,26 @@ for pair in pairs:
 #%%################################################
 # Check heterodyned and standard likelihood errors
 ###################################################
-nParticles = 500
+nParticles = 200
 X = model._newDrawFromPrior(nParticles)
 test1 = model.standard_minusLogLikelihood(X)
 test2 = model.heterodyne_minusLogLikelihood(X) 
 percent_change = (test1 - test2) / test1 * 100
 mpc = np.mean(percent_change)
 print(mpc)
+
+#%%################################################
+# Check heterodyned and standard gradient errors
+###################################################
+nParticles = 5
+X = model._newDrawFromPrior(nParticles)
+test1 = model.getGradientMinusLogPosterior_ensemble(X)
+test2 = model.standard_gradientMinusLogLikelihood(X) 
+percent_change = (test1 - test2) / test1 * 100
+mpc = np.mean(percent_change)
+print(mpc)
+
+
 
 #%%###########################################################
 # Do numerical and JAX derivatives agree with one another?

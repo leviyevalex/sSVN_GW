@@ -59,8 +59,21 @@ class gwfast_class(object):
 
         self._initFrequencyGrid()
         self._initDetectors()
-        self.h0_standard = self._getInjectedSignals(self.injParams, self.fgrid_standard)
-        self.h0_dense = self._getInjectedSignals(self.injParams, self.fgrid_dense)
+        self.h0_standard = self._getInjectedSignals(self.injParams, self.fgrid_standard) # Fiducial signal
+        self.h0_dense = self._getInjectedSignals(self.injParams, self.fgrid_dense)       # Fiducial signal
+
+        # Form data used in injection
+        self.d_dense = {}
+        self.d_standard = {}
+        np.random.seed(0)
+        for det in self.detsInNet.keys():
+            # corruption_dense = np.random.normal(size=self.nbins_dense + 1)
+            # corruption_dense = 0
+            # self.d_dense[det] = self.h0_dense[det] + corruption_dense
+            # self.d_standard[det] = np.interp(self.fgrid_standard, self.fgrid_dense, self.d_dense[det]).squeeze()
+            self.d_dense[det] = self.h0_dense[det] 
+            self.d_standard[det] = self.h0_standard[det]
+
 
         # Heterodyned strategy
         self.d_d = self._precomputeDataInnerProduct()
@@ -300,31 +313,44 @@ class gwfast_class(object):
 
         return jacModel
             
+    def _precomputeDataInnerProduct(self): # Checks
+        print('Precomputing squared SNR for likelihood')
+        # Remarks:
+        # (i) The snr is actually sqrt(<d,d>). We are calculating the square! Hence SNR2
+        SNR2 = {}
+        for det in self.detsInNet.keys():
+            SNR2[det] = 4 * np.sum((self.d_dense[det].real ** 2 + self.d_dense[det].imag ** 2) / self.PSD_dense[det]) * self.df_dense
+        return SNR2
+
     @partial(jax.jit, static_argnums=(0,))
-    def standard_minusLogLikelihood(self, X): # Checks: X
+    def standard_minusLogLikelihood(self, X): # Checks: XX
         """ 
         """
         nParticles = X.shape[0]
         log_likelihood = jnp.zeros(nParticles)
-        signal = self.getSignal(X, self.fgrid_standard)
+        template = self.getSignal(X, self.fgrid_standard) # signal template
         for det in self.detsInNet.keys():
-            residual = signal[det] - self.h0_standard[det][np.newaxis, ...]
+            residual = template[det] - self.d_standard[det][np.newaxis, ...]
             inner_product = 4 * jnp.sum((residual.real ** 2 + residual.imag ** 2) / self.PSD_standard[det][np.newaxis, ...], axis=-1) * self.df_standard
             log_likelihood += 0.5 * inner_product
         return log_likelihood
 
-    def standard_gradientMinusLogLikelihood(self, X): # Checks: X
+    def standard_gradientMinusLogLikelihood(self, X): # Checks: XX
+        # Remarks:
+        # (i) Jacobian is (d, N, f) shaped. sum over final axis gives (d, N), then transpose to give (N, d)
         nParticles = X.shape[0]
         grad_log_like = jnp.zeros((nParticles, self.DoF))
-        signal = self.getSignal(X, self.fgrid_standard)
+        template = self.getSignal(X, self.fgrid_standard)
         jacSignal = self._getJacobianSignal(X, self.fgrid_standard)
         for det in self.detsInNet.keys():
-            residual = signal[det] - self.h0_standard[det][np.newaxis, ...]
-            inner_product = (4 * jnp.sum(jacSignal[det].conjugate() * residual[np.newaxis, ...] / self.PSD_standard[det], axis=-1) * self.df_standard).T
+            residual = template[det] - self.d_standard[det][np.newaxis, ...]
+            inner_product = (4 * jnp.sum(jacSignal[det].conjugate() * residual[np.newaxis, ...] / self.PSD_standard[det], axis=-1) * self.df_standard).T # (i)
+            # Confirm that these two give the same result.
+            # inner_product = (4 * contract('dNf, Nf, f -> Nd', jacSignal[det].conjugate(), residual, 1 / self.PSD_standard[det]) * self.df_standard
             grad_log_like += inner_product.real
         return grad_log_like
     
-    def standard_GNHessianMinusLogLikelihood(self, X): # Checks: X
+    def standard_GNHessianMinusLogLikelihood(self, X): # Checks: XX
         nParticles = X.shape[0]
         GN = jnp.zeros((nParticles, self.DoF, self.DoF))
         jacSignal = self._getJacobianSignal(X, self.fgrid_standard)
@@ -333,32 +359,28 @@ class gwfast_class(object):
             GN += inner_product.real
         return GN
 
+
 #########################################################################
 # HETERODYNE METHODS
 #########################################################################
 
-    def _precomputeDataInnerProduct(self):
-        print('Precomputing inner product')
-        inner_product = {}
-        for det in self.detsInNet.keys():
-            inner_product[det] = 4 * np.sum((self.h0_dense[det].real ** 2 + self.h0_dense[det].imag ** 2) / self.PSD_dense[det]) * self.df_dense
-        return inner_product
-
-    def getHeterodyneBins(self, chi, eps):
+    def getHeterodyneBins(self, chi, eps): # Checks X
         print('Getting heterodyned bins')
         # Remarks:
-        # (i)  0.5 is a dummy variable for x==0 case (which we dont care for)
+        # (i)   0.5 is a dummy variable for x==0 case (which we dont care for)
+        # (ii)  Alternatively, we may add frequencies then recover the indicies using np.searchsorted(A,B):
+        # https://stackoverflow.com/questions/33678543/finding-indices-of-matches-of-one-array-in-another-array
+
         gamma = np.array([-5./3, -2./3, 1., 5./3, 7./3])
         f_star = self.fmax * np.heaviside(gamma, 0.5) + self.fmin * np.heaviside(-gamma, 0.5) # (i) 
         delta = lambda f_minus, f_plus: 2 * np.pi * chi * np.sum(np.abs((f_plus / f_star) ** gamma - (f_minus/f_star) ** gamma))
-
         delta0 = delta(self.fgrid_dense[0], self.fgrid_dense[1])
         print('delta0 = %f' % delta0)
         if eps < delta0:
             print('First bin cannot satisfy bound. Changing epsilon from %f to %f' % (eps, delta0))
             eps = delta0
 
-        subindex = []
+        subindex = [] # (ii)
         index_f_minus = 0
         j = 0
         while j <= self.nbins_dense:
@@ -377,45 +399,6 @@ class gwfast_class(object):
         self.nbins = len(subindex) - 1
         self.bin_widths = self.bin_edges[1:] - self.bin_edges[:-1]
         print('Heterodyne binning scheme: %i' % self.nbins)
-
-
-    def r(self, X):
-        """ 
-        Calculate the ratio of signal model with fiducial signal
-        """
-        r = {}
-        signal = self.getSignal(X, self.bin_edges)
-        for det in self.detsInNet.keys():
-            r[det] = signal[det] / self.h0_dense[det][self.indicies_kept]
-        return r
-
-    def getSplineData(self, X):
-        """ 
-        Return N x b matrix
-        """
-        r = self.r(X)
-        r0 = {}
-        r1 = {}
-        for det in self.detsInNet.keys():
-            r0[det] = r[det][:, :-1] # y intercept
-            r1[det] = (r[det][:, 1:] - r[det][:, :-1]) / self.bin_widths[np.newaxis, ...] # slopes
-        return r0, r1
-
-    def jac_r(self, X):
-        jac_r = {}
-        jacSignal = self._getJacobianSignal(X, self.bin_edges)
-        for det in self.detsInNet.keys():
-            jac_r[det] = jacSignal[det] / self.h0_dense[det][self.indicies_kept]
-        return jac_r
-
-    def getJacSplineData(self, X):
-        jac_r = self.jac_r(X)
-        jac_r0 = {}
-        jac_r1 = {}
-        for det in self.detsInNet.keys():
-            jac_r0[det] = jac_r[det][..., :-1]
-            jac_r1[det] = (jac_r[det][..., 1:] - jac_r[det][..., :-1]) / self.bin_widths
-        return jac_r0, jac_r1
 
     def getSummaryData(self):
         """ 
@@ -437,18 +420,51 @@ class gwfast_class(object):
             self.B1[det] = np.zeros((self.nbins))
             for b in range(self.nbins):
                 indicies = np.where(bin_index == b)
-                tmp1 = 4 * self.h0_dense[det][indicies] * self.h0_dense[det][indicies].conjugate() / self.PSD_dense[det][indicies] * self.df_dense
+                tmp1 = 4 * self.h0_dense[det][indicies].conjugate() * self.d_dense[det][indicies] / self.PSD_dense[det][indicies] * self.df_dense
                 tmp2 = 4 * (self.h0_dense[det][indicies].real ** 2 + self.h0_dense[det][indicies].imag ** 2) / self.PSD_dense[det][indicies] * self.df_dense
                 self.A0[det][b] = np.sum(tmp1)
                 self.A1[det][b] = np.sum(tmp1 * (self.fgrid_dense[indicies] - self.bin_edges[b]))
                 self.B0[det][b] = np.sum(tmp2)
                 self.B1[det][b] = np.sum(tmp2 * (self.fgrid_dense[indicies] - self.bin_edges[b]))
         print('Summary data calculation completed')
-    
+
+    def getFirstSplineData(self, X):
+        """ 
+        Return N x b matrix for spline of r := h/h0
+        """
+        # Remarks:
+        # (i)   r is the heterodyne
+        # (ii)  These are the y-intercepts for each bin (N x b)
+        # (iii) These are the slopes for each bin (N x b)
+        r0 = {}
+        r1 = {}
+        h = self.getSignal(X, self.bin_edges)
+        for det in self.detsInNet.keys():
+            r = h[det] / self.h0_dense[det][self.indicies_kept] # (i)
+            r0[det] = r[:, :-1] # (ii)
+            r1[det] = (r[:, 1:] - r[:, :-1]) / self.bin_widths # (iii)
+        return r0, r1
+
+    def getSecondSplineData(self, X):
+        """ 
+        Return matrix of shape (d, N, b) for spline of r_{,j} := h_{,j} / h0
+        Note: Identical as first spline data for first order.
+        """
+        rj0 = {}
+        rj1 = {}
+        hj = self._getJacobianSignal(X, self.bin_edges)
+        for det in self.detsInNet.keys():
+            rj = hj[det] / self.h0_dense[det][self.indicies_kept]
+            rj0[det] = rj[..., :-1]
+            rj1[det] = (rj[..., 1:] - rj[..., :-1]) / self.bin_widths
+        return rj0, rj1
+
     @partial(jax.jit, static_argnums=(0,))
-    def heterodyne_minusLogLikelihood(self, X):
+    def heterodyne_minusLogLikelihood(self, X): # Checks X
+        # Remarks:
+        # (i) Summary data has shape (b,)
         nParticles = X.shape[0]
-        r0, r1 = self.getSplineData(X)
+        r0, r1 = self.getFirstSplineData(X)
         log_like = jnp.zeros(nParticles)
         for det in self.detsInNet.keys():
             h_d = jnp.sum(self.A0[det][jnp.newaxis] * r0[det].conjugate() + self.A1[det][jnp.newaxis] * r1[det].conjugate(), axis=1)
@@ -456,39 +472,34 @@ class gwfast_class(object):
             log_like += 0.5 * h_h - h_d.real + 0.5 * self.d_d[det]
         return log_like
 
-    # def heterodyne_gradientMinusLogLikelihood(self, X):
-    @partial(jax.jit, static_argnums=(0,))
+    # @partial(jax.jit, static_argnums=(0,))
     def getGradientMinusLogPosterior_ensemble(self, X):
+        # Remarks:
+        # (i)   second spline data is (d, N, b) shaped
+
         nParticles = X.shape[0]
-        r0, r1 = self.getSplineData(X)
-        jac_r0, jac_r1 = self.getJacSplineData(X)
+        r0, r1 = self.getFirstSplineData(X)
+        rj0, rj1 = self.getSecondSplineData(X)
         grad_log_like = np.zeros((nParticles, self.DoF))
         for det in self.detsInNet.keys():
+            hj_d = contract('jNb -> Nj', self.A0[det] * rj0[det].conjugate() \
+                                       + self.A1[det] * rj1[det].conjugate(), backend='jax')
 
-            jh_d = contract('b, jNb -> Nj', self.A0[det], jac_r0[det].conjugate(), backend='jax') \
-                 + contract('b, jNb -> Nj', self.A1[det], jac_r1[det].conjugate(), backend='jax')
-
-            jh_h = contract('b, jNb, Nb -> Nj', self.B0[det], jac_r0[det].conjugate(), r0[det], backend='jax') \
-                 + contract('b, jNb, Nb -> Nj', self.B1[det], jac_r0[det].conjugate(), r1[det], backend='jax') \
-                 + contract('b, jNb, Nb -> Nj', self.B1[det], jac_r1[det].conjugate(), r0[det], backend='jax')
-
-            grad_log_like += jh_h.real - jh_d.real
-
+            hj_h = contract('jNb -> Nj', self.B0[det] * rj0[det].conjugate() * r0[det][np.newaxis] 
+                                      +  self.B1[det] *(rj0[det].conjugate() * r1[det][np.newaxis] + rj1[det].conjugate() * r0[det][np.newaxis]), backend='jax')
+            grad_log_like += hj_h.real - hj_d.real
         return grad_log_like
 
-    # def heterodyne_GNHessianMinusLogLikelihood(self, X):
-    @partial(jax.jit, static_argnums=(0,))
+    # @partial(jax.jit, static_argnums=(0,))
     def getGNHessianMinusLogPosterior_ensemble(self, X):
         nParticles = X.shape[0]
-        jac_r0, jac_r1 = self.getJacSplineData(X)
+        rj0, rj1 = self.getSecondSplineData(X)
         GN = jnp.zeros((nParticles, self.DoF, self.DoF))
         for det in self.detsInNet.keys():
-            jh_jh = contract('b, jNb, kNb -> Njk', self.B0[det], jac_r0[det].conjugate(), jac_r0[det], backend='jax') \
-                  + contract('b, jNb, kNb -> Njk', self.B1[det], jac_r0[det].conjugate(), jac_r1[det], backend='jax') \
-                  + contract('b, jNb, kNb -> Njk', self.B1[det], jac_r1[det].conjugate(), jac_r0[det], backend='jax') 
-                            
-            GN += jh_jh.real
-
+            term1 = contract('b, jNb, kNb -> Njk', self.B0[det], rj0[det].conjugate(), rj0[det], backend='jax')
+            term2 = contract('b, jNb, kNb -> Njk', self.B1[det], rj0[det].conjugate(), rj1[det], backend='jax')
+            term3 = contract('Nkj -> Njk', term2.conjugate(), backend='jax')
+            GN += term1.real + term2.real + term3.real
         return GN
 
     @partial(jax.jit, static_argnums=(0,))  
@@ -569,6 +580,15 @@ class gwfast_class(object):
 
 
 
+    def r(self, X):
+        """ 
+        Calculate the ratio of signal model with fiducial signal
+        """
+        r = {}
+        signal = self.getSignal(X, self.bin_edges)
+        for det in self.detsInNet.keys():
+            r[det] = signal[det] / self.h0_dense[det][self.indicies_kept]
+        return r
 
 
 
@@ -582,4 +602,32 @@ class gwfast_class(object):
 
 
 
+    # def getSplineData(self, X):
+    #     """ 
+    #     Return N x b matrix
+    #     """
+    #     r = self.r(X)
+    #     r0 = {}
+    #     r1 = {}
+    #     for det in self.detsInNet.keys():
+    #         r0[det] = r[det][:, :-1] # y intercept
+    #         r1[det] = (r[det][:, 1:] - r[det][:, :-1]) / self.bin_widths[np.newaxis, ...] # slopes
+    #     return r0, r1
 
+
+
+    # def jac_r(self, X):
+    #     jac_r = {}
+    #     jacSignal = self._getJacobianSignal(X, self.bin_edges)
+    #     for det in self.detsInNet.keys():
+    #         jac_r[det] = jacSignal[det] / self.h0_dense[det][self.indicies_kept]
+    #     return jac_r
+
+    # def getJacSplineData(self, X):
+    #     jac_r = self.jac_r(X)
+    #     jac_r0 = {}
+    #     jac_r1 = {}
+    #     for det in self.detsInNet.keys():
+    #         jac_r0[det] = jac_r[det][..., :-1]
+    #         jac_r1[det] = (jac_r[det][..., 1:] - jac_r[det][..., :-1]) / self.bin_widths
+    #     return jac_r0, jac_r1

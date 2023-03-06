@@ -36,13 +36,12 @@ bounded_iid_samples = np.load('rosenbrock_iid_bounded_samples.npy')
 
 
 #%%
-nParticles = 50
+nParticles = 200
 nIterations = 300
 kernelKwargs = {'h':model.DoF / 10, 'p':1.} # Lp
 sampler1 = samplers(model=model, nIterations=nIterations, nParticles=nParticles, profile=False, kernel_type='Lp')
 sampler1.apply(method='mirrorSVGD', eps=1, kernelKwargs=kernelKwargs)
 
-#%%
 # %%capture
 X1 = collect_samples(sampler1.history_path)
 # fig1 = corner.corner(bounded_iid_samples[0:X1.shape[0]])
@@ -56,4 +55,10 @@ fig1 = corner.corner(bounded_iid_samples, hist_kwargs={'density':True})
 
 corner.corner(X1, color='r', fig=fig1, hist_kwargs={'density':True})
 # fig1.savefig('bounded_gaussian_test.png')
+# %%
+key = jax.random.PRNGKey(0)
+#%%
+key, subkey = jax.random.split(key)
+B = jax.random.normal(subkey, (5, 2)) 
+print(B)
 # %%

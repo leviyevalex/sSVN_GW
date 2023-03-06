@@ -310,6 +310,35 @@ class hybrid_rosenbrock:
     # def getHessianMinusLogPosterior_ensemble(self, thetas):
     #     return np.apply_along_axis(self.getHessianMinusLogPosterior, 1, thetas)
 
+    def getCrossSection(self, index1, index2, func, ngrid):
+        import matplotlib.pyplot as plt
+        # a, b are the parameters for which we want the marginals:
+        x = np.linspace(self.priorDict[a][0], self.priorDict[a][1], ngrid)
+        y = np.linspace(self.priorDict[b][0], self.priorDict[b][1], ngrid)
+        X, Y = np.meshgrid(x, y)
+        particle_grid = np.zeros((ngrid ** 2, self.DoF))
+        # index1 = self.gwfast_param_order.index(a)
+        # index2 = self.gwfast_param_order.index(b)
+        parameter_mesh = np.vstack((np.ndarray.flatten(X), np.ndarray.flatten(Y))).T
+        particle_grid[:, index1] = parameter_mesh[:, 0]
+        particle_grid[:, index2] = parameter_mesh[:, 1]
+        for i in range(self.DoF): # Fix all other parameters
+            if i != index1 and i != index2:
+                particle_grid[:, i] = np.ones(ngrid ** 2) * self.mu
+        Z = np.exp(-1 * func(particle_grid).reshape(ngrid,ngrid))
+        fig, ax = plt.subplots(figsize = (5, 5))
+        cp = ax.contourf(X, Y, Z)
+        # cbar = fig.colorbar(cp)
+        plt.colorbar(cp)
+        ax.set_xlabel(a)
+        ax.set_ylabel(b)
+        ax.set_title('Likelihood cross section')
+        filename = a + b + '.png'
+        path = os.path.join('marginals', filename)
+        fig.savefig(path)
+
+
+
 def main():
 
     pass
