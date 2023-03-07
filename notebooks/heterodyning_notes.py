@@ -19,9 +19,7 @@ config.update("jax_enable_x64", True)
 #%%##################################
 # Define class
 #####################################
-
-model = gwfast_class(chi=1, eps=0.1)
-
+model = gwfast_class(chi=1, eps=0.5)
 
 #%%##################################################
 # (1) Lets see what the original function looks like
@@ -30,38 +28,47 @@ ax.plot(model.fgrid_dense, model.h0_dense['L1'])
 fig.show()
 
 #%%############################################
-# (2) Lets see what the r function looks like
+# (2) Lets see what the r heterodyne looks like
 nParticles = 10
 X = model._newDrawFromPrior(nParticles)
-def r(X):
-    """ 
-    Calculate the ratio of signal model with fiducial signal
-    """
-    r = {}
-    signal = model.getSignal(X, model.fgrid_dense)
-    for det in model.detsInNet.keys():
-        r[det] = signal[det] / model.h0_dense[det]
-    return r
 
-heteros = r(X) 
-fig, ax = plt.subplots()
-fig1, ax1 = plt.subplots()
+heteros = model.r_heterodyne(X, model.fgrid_dense) 
 for i in range(nParticles):
+    fig, ax = plt.subplots()
+    fig1, ax1 = plt.subplots()
     ax.plot(model.fgrid_dense, heteros['L1'][i].real)
     ax1.plot(model.fgrid_dense, heteros['L1'][i].imag)
-
-fig.show()
-fig1.show()
+    fig.show()
+    fig1.show()
 
 #%%#############################################################
 # (3) Lets confirm that binning scheme faithfully represents r 
-fig, ax = plt.subplots()
-i=1
-ax.plot(model.fgrid_dense, heteros['L1'][i])
-ax.scatter(model.bin_edges, heteros['L1'][i][model.indicies_kept])
-ax.plot(model.bin_edges, heteros['L1'][i][model.indicies_kept])
+for i in range(nParticles):
+    fig, ax = plt.subplots()
+    ax.plot(model.fgrid_dense, heteros['L1'][i])
+    ax.scatter(model.bin_edges, heteros['L1'][i][model.indicies_kept])
+    ax.plot(model.bin_edges, heteros['L1'][i][model.indicies_kept])
+    fig.show()
 
-fig.show()
+#%%################################################
+# Check heterodyned and standard likelihood errors
+###################################################
+fig, ax = plt.subplots()
+nParticles = 1000
+X = model._newDrawFromPrior(nParticles)
+test1 = model.standard_minusLogLikelihood(X)
+test2 = model.heterodyne_minusLogLikelihood(X) 
+percent_change = (test1 - test2) / test1 * 100
+#%%
+# Remark: Observe that the heterodyne approximates from below!!! 
+fig, ax = plt.subplots()
+counts, bins = np.histogram(percent_change, bins=30)
+ax.stairs(counts, bins, label='eps=%.2f, chi=%.2f' % (model.eps, model.chi))
+ax.set_ylabel('Count')
+ax.set_xlabel('Percentage error')
+ax.set_title('Distribution of likelihood errors over prior support')
+ax.legend()
+
 
 #%%###########################################################
 # Lets see what the cross sections of the likelihood look like
@@ -72,26 +79,19 @@ for pair in pairs:
     print(pair)
     model.getCrossSection(pair[0], pair[1], model.standard_minusLogLikelihood, 100)
 
-#%%################################################
-# Check heterodyned and standard likelihood errors
-###################################################
-nParticles = 200
-X = model._newDrawFromPrior(nParticles)
-test1 = model.standard_minusLogLikelihood(X)
-test2 = model.heterodyne_minusLogLikelihood(X) 
-percent_change = (test1 - test2) / test1 * 100
-mpc = np.mean(percent_change)
-print(mpc)
+
 
 #%%################################################
 # Check heterodyned and standard gradient errors
 ###################################################
 nParticles = 5
 X = model._newDrawFromPrior(nParticles)
+print('Calculating heterodyne gradient')
 test1 = model.getGradientMinusLogPosterior_ensemble(X)
+print('Calculating standard gradient')
 test2 = model.standard_gradientMinusLogLikelihood(X) 
 percent_change = (test1 - test2) / test1 * 100
-mpc = np.mean(percent_change)
+mpc = np.mean(percent_change, axis=-1)
 print(mpc)
 
 

@@ -82,6 +82,8 @@ class gwfast_class(object):
         self.getHeterodyneBins(chi=chi, eps=eps)
         self.getSummaryData()
 
+        # Debugging
+        self.hj0 = None
         # Warmup for JIT compile
         # self._warmup_potential(True)
         # self._warmup_potential_derivative(True) 
@@ -146,9 +148,6 @@ class gwfast_class(object):
         self.NetDict = LV_detectors
 
         self.wf_model = IMRPhenomD() # TaylorF2_RestrictedPN() # Choice of waveform
-
-    def _getDictParamsNeglected(self, N):
-        return {neglected_params: jnp.zeros(N).astype('complex128') for neglected_params in self.gwfast_params_neglected}
 
     def _initFrequencyGrid(self, fmin=20, fmax=None): # Checks: X
         """
@@ -275,6 +274,7 @@ class gwfast_class(object):
                             
         return signal 
 
+    @partial(jax.jit, static_argnums=(0,))
     def _getJacobianSignal(self, X, f_grid):
         """A vectorized method which computes the Jacobian of the signal model
 
@@ -527,6 +527,45 @@ class gwfast_class(object):
             GN += jh_jh.real
 
         return grad_log_like, GN
+
+
+
+#####################################################
+# Methods helpful for debugging integrals evaluations
+#####################################################
+    def r_heterodyne(self, X, fgrid):
+        """ 
+        Calculate proposed heterodyne r(theta) := h(theta) / h0 
+        """
+        r = {}
+        signal = self.getSignal(X, fgrid)
+        for det in self.detsInNet.keys():
+            h0 = np.interp(fgrid, self.fgrid_dense, self.h0_dense[det]).squeeze()
+            r[det] = signal[det] / h0
+        return r
+
+    def derivative_heterodyne(self, X, fgrid):
+        jac_r = {}
+        if self.hj0 == None:
+            self.hj0 = self._getJacobianSignal(self.true_params, fgrid)
+        jacSignal = self._getJacobianSignal(X, fgrid)
+        for det in self.detsInNet.keys():
+            jac_r[det] = jacSignal[det] / self.hj0[det]
+        return jac_r
+
+
+
+
+
+
+
+
+#############
+    # Not important for logic, keep farther away
+    def _getDictParamsNeglected(self, N):
+        return {neglected_params: jnp.zeros(N).astype('complex128') for neglected_params in self.gwfast_params_neglected}
+
+
 
 
 ################################################################
