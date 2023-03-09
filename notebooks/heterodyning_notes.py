@@ -19,6 +19,7 @@ config.update("jax_enable_x64", True)
 #%%##################################
 # Define class
 #####################################
+# jax.disable_jit()
 model = gwfast_class(chi=1, eps=0.1)
 dets = model.detsInNet.keys()
 
@@ -52,6 +53,39 @@ ax.set_xlabel('Frequency (Hz)')
 ax.set_title('Original injected signal')
 ax.legend()
 fig.show()
+
+#%%#########################################################
+# Studying convergence properties of various terms w.r.t grid
+ans = []
+nParticles = 1
+X = model._newDrawFromPrior(nParticles)
+full_grid_idx = np.arange(model.nbins_dense)
+# for gridsize in [200, 300, 500, 800, 1000, 2000, 3000, 5000, 6000, 8000]:
+for gridsize in [200, 300]:
+    subgrid_idx = np.round(np.linspace(0, len(full_grid_idx)-1, num=gridsize)).astype(int)
+    df = model.fgrid_dense[subgrid_idx][1:] - model.fgrid_dense[subgrid_idx][:-1]
+    PSD = {}
+    d = {}
+    for det in dets:
+        PSD[det] = jnp.interp(model.fgrid_dense[subgrid_idx], model.detsInNet[det].strainFreq, model.detsInNet[det].noiseCurve, left=1., right=1.).squeeze()
+        d[det] = model.d_dense[det][subgrid_idx]
+    # hj0 = model._getJacobianSignal(model.true_params, model.fgrid_dense[subgrid_idx])
+    h = model.getSignal(X, model.fgrid_dense[subgrid_idx])
+    res = model.overlap(h, d, PSD, df)
+
+    output = 0
+    for det in dets:
+        output += res[det].real
+    ans.append(output)
+
+
+
+
+
+
+
+
+
 
 #%%############################################
 # (2) Lets see what the r heterodyne looks like
@@ -93,9 +127,6 @@ for i in range(model.DoF):
     ax.set_xlabel('Percentage error')
     ax.set_title('Distribution of derivative errors over prior support')
     ax.legend()
-
-
-
 
 print(mpc)
 

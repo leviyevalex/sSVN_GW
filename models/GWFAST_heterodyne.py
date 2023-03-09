@@ -313,6 +313,28 @@ class gwfast_class(object):
 
         return jacModel
             
+    @partial(jax.jit, static_argnums=(0,))
+    def square_norm(self, a, PSD, deltaf):
+        """ 
+        Square norm estimated using left Riemann sum
+        """
+        res = {}
+        for det in self.detsInNet.keys():
+            res[det] = 4 * jnp.sum((a[det].real[..., :-1] ** 2 + a[det].imag[..., :-1] ** 2) / PSD[det][..., :-1] * deltaf, axis=-1) 
+        return res
+
+    @partial(jax.jit, static_argnums=(0,))
+    def overlap(self, a, b, PSD, deltaf):
+        """ 
+        Overlap estimated using left Riemann sum
+        """
+        res = {}
+        for det in self.detsInNet.keys():
+            res[det] = 4 * jnp.sum(a[det].conjugate()[..., :-1] * b[det][..., :-1] / PSD[det][..., :-1] * deltaf, axis=-1) 
+        return res
+
+
+    
     def _precomputeDataInnerProduct(self): # Checks
         print('Precomputing squared SNR for likelihood')
         # Remarks:
@@ -339,7 +361,8 @@ class gwfast_class(object):
             log_likelihood += 0.5 * inner_product
         return log_likelihood
 
-    def standard_gradientMinusLogLikelihood(self, X): # Checks: XX
+    @partial(jax.jit, static_argnums=(0,))
+    def standard_gradientMinusLogLikelihood(self, X, fgrid): # Checks: XX
         # Remarks:
         # (i) Jacobian is (d, N, f) shaped. sum over final axis gives (d, N), then transpose to give (N, d)
         nParticles = X.shape[0]
@@ -354,6 +377,7 @@ class gwfast_class(object):
             grad_log_like += inner_product.real
         return grad_log_like
     
+    @partial(jax.jit, static_argnums=(0,))
     def standard_GNHessianMinusLogLikelihood(self, X): # Checks: XX
         nParticles = X.shape[0]
         GN = jnp.zeros((nParticles, self.DoF, self.DoF))
@@ -476,7 +500,7 @@ class gwfast_class(object):
             log_like += 0.5 * h_h - h_d.real + 0.5 * self.d_d[det]
         return log_like
 
-    # @partial(jax.jit, static_argnums=(0,))
+    @partial(jax.jit, static_argnums=(0,))
     def getGradientMinusLogPosterior_ensemble(self, X):
         # Remarks:
         # (i)   second spline data is (d, N, b) shaped
