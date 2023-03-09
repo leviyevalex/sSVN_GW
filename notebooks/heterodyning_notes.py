@@ -19,36 +19,8 @@ config.update("jax_enable_x64", True)
 #%%##################################
 # Define class
 #####################################
-model = gwfast_class(chi=1, eps=0.5)
-
-#%%##################################################
-# (1) Lets see what the original function looks like
-fig, ax = plt.subplots()
-ax.plot(model.fgrid_dense, model.h0_dense['L1'])
-fig.show()
-
-#%%############################################
-# (2) Lets see what the r heterodyne looks like
-nParticles = 10
-X = model._newDrawFromPrior(nParticles)
-
-heteros = model.r_heterodyne(X, model.fgrid_dense) 
-for i in range(nParticles):
-    fig, ax = plt.subplots()
-    fig1, ax1 = plt.subplots()
-    ax.plot(model.fgrid_dense, heteros['L1'][i].real)
-    ax1.plot(model.fgrid_dense, heteros['L1'][i].imag)
-    fig.show()
-    fig1.show()
-
-#%%#############################################################
-# (3) Lets confirm that binning scheme faithfully represents r 
-for i in range(nParticles):
-    fig, ax = plt.subplots()
-    ax.plot(model.fgrid_dense, heteros['L1'][i])
-    ax.scatter(model.bin_edges, heteros['L1'][i][model.indicies_kept])
-    ax.plot(model.bin_edges, heteros['L1'][i][model.indicies_kept])
-    fig.show()
+model = gwfast_class(chi=1, eps=0.1)
+dets = model.detsInNet.keys()
 
 #%%################################################
 # Check heterodyned and standard likelihood errors
@@ -59,27 +31,48 @@ X = model._newDrawFromPrior(nParticles)
 test1 = model.standard_minusLogLikelihood(X)
 test2 = model.heterodyne_minusLogLikelihood(X) 
 percent_change = (test1 - test2) / test1 * 100
-#%%
 # Remark: Observe that the heterodyne approximates from below!!! 
 fig, ax = plt.subplots()
 counts, bins = np.histogram(percent_change, bins=30)
 ax.stairs(counts, bins, label='eps=%.2f, chi=%.2f' % (model.eps, model.chi))
 ax.set_ylabel('Count')
 ax.set_xlabel('Percentage error')
-ax.set_title('Distribution of likelihood errors over prior support')
+ax.set_title('Distribution of log-likelihood errors over prior support')
 ax.legend()
 
+#%%##################################################
+# (1) Lets see what the original function looks like
+# If we want, we can also see if the PSD and original signal have compatible units
+det = 'L1'
+fig, ax = plt.subplots()
+for det in dets:
+    ax.plot(model.fgrid_dense, model.h0_dense[det], label=det)
+ax.set_ylabel('Strain')
+ax.set_xlabel('Frequency (Hz)')
+ax.set_title('Original injected signal')
+ax.legend()
+fig.show()
 
-#%%###########################################################
-# Lets see what the cross sections of the likelihood look like
-##############################################################
-from itertools import combinations
-pairs = list(combinations(model.gwfast_param_order, 2))
-for pair in pairs:
-    print(pair)
-    model.getCrossSection(pair[0], pair[1], model.standard_minusLogLikelihood, 100)
-
-
+#%%############################################
+# (2) Lets see what the r heterodyne looks like
+nParticles = 10
+X = model._newDrawFromPrior(nParticles)
+fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(16,4))
+heteros = model.r_heterodyne(X, model.fgrid_dense) 
+for i in range(nParticles):
+    ax[0].plot(model.fgrid_dense, heteros['L1'][i].real)
+    # ax[1].scatter(model.bin_edges, heteros['L1'][i][model.indicies_kept])
+    ax[1].plot(model.bin_edges, heteros['L1'][i][model.indicies_kept])
+ax[0].set_ylabel('Amplitude')
+ax[0].set_xlabel('Frequency (Hz)')
+ax[1].set_ylabel('Amplitude')
+ax[1].set_xlabel('Frequency (Hz)')
+ax[0].set_title('Heterodyne over dense grid')
+ax[1].set_title('Heterodyne over sparse grid')
+# ax[0].legend()
+# ax[1].legend()
+fig.tight_layout()
+fig.show()
 
 #%%################################################
 # Check heterodyned and standard gradient errors
@@ -91,8 +84,41 @@ test1 = model.getGradientMinusLogPosterior_ensemble(X)
 print('Calculating standard gradient')
 test2 = model.standard_gradientMinusLogLikelihood(X) 
 percent_change = (test1 - test2) / test1 * 100
-mpc = np.mean(percent_change, axis=-1)
+mpc = np.mean(percent_change, axis=0)
+for i in range(model.DoF):
+    fig, ax = plt.subplots()
+    counts, bins = np.histogram(mpc, bins=30)
+    ax.stairs(counts, bins, label='eps=%.2f, chi=%.2f, d=%i' % (model.eps, model.chi, i))
+    ax.set_ylabel('Count')
+    ax.set_xlabel('Percentage error')
+    ax.set_title('Distribution of derivative errors over prior support')
+    ax.legend()
+
+
+
+
 print(mpc)
+
+###########################################################################
+# Tested
+###########################################################################
+#%%###########################################
+# Confirm that the PSD's are correctly defined
+##############################################
+for det in dets:
+    fig, ax = plt.subplots()
+    ax.loglog(model.fgrid_standard, model.PSD_standard[det], label=det)
+    ax.legend()
+
+#%%###########################################################
+# Lets see what the cross sections of the likelihood look like
+##############################################################
+from itertools import combinations
+pairs = list(combinations(model.gwfast_param_order, 2))
+for pair in pairs:
+    print(pair)
+    model.getCrossSection(pair[0], pair[1], model.standard_minusLogLikelihood, 100)
+
 
 
 
@@ -106,9 +132,3 @@ test2 = model.getGradientMinusLogPosterior_ensemble(X[n][np.newaxis])
 (test1-test2)/test1 * 100
 #%%
 
-
-# %%
-amplitude = wf_model.Ampl(fgrid_standard, **injParams)
-# %%
-plt.scatter(fgrid_standard[:200], amplitude[:200] ** 2)
-# %%

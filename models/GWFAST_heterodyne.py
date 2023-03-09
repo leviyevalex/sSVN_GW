@@ -100,7 +100,7 @@ class gwfast_class(object):
         injParams = dict()
         injParams['Mc']      = np.array([34.3089283])          # (1)   # (0)               # [M_solar]
         injParams['eta']     = np.array([0.2485773])           # (2)   # (1)               # [Unitless]
-        injParams['dL']      = np.array([2.634])               # (3)   # (2)               # [Gigaparsecs]  # [2.634]
+        injParams['dL']      = np.array([1.5])               # (3)   # (2)               # [Gigaparsecs]  # [2.634]
         injParams['theta']   = np.array([2.78560281])          # (4)   # (3)               # [Rad]
         injParams['phi']     = np.array([1.67687425])          # (5)   # (4)               # [Rad]
         injParams['iota']    = np.array([2.67548653])          # (6)   # (5)               # [Rad]
@@ -114,7 +114,7 @@ class gwfast_class(object):
         priorDict = {}
         priorDict['Mc']      = [33., 36.]                      # [M_solar]      # [29., 39.]
         priorDict['eta']     = [0.23, 0.25]                    # [Unitless]
-        priorDict['dL']      = [1., 4.]                        # [GPC]
+        priorDict['dL']      = [1., 3.]                        # [GPC]  [1., 4.]
         priorDict['theta']   = [0., np.pi]                     # [Rad]
         priorDict['phi']     = [0., 2 * np.pi]                 # [Rad]
         priorDict['iota']    = [0., np.pi]                     # [Rad]
@@ -169,7 +169,7 @@ class gwfast_class(object):
         self.fcut = fcut
         
         # (ii)
-        signal_duration = 6. # [s]
+        signal_duration = 4. # 4 [s]
         self.df_standard = 1 / signal_duration
         self.nbins_standard = int(np.ceil(((self.fmax - self.fmin) / self.df_standard))) # 9000
         self.df_standard = (self.fmax - self.fmin) / self.nbins_standard # (iii)
@@ -318,8 +318,12 @@ class gwfast_class(object):
         # Remarks:
         # (i) The snr is actually sqrt(<d,d>). We are calculating the square! Hence SNR2
         SNR2 = {}
+        SNR = 0
         for det in self.detsInNet.keys():
-            SNR2[det] = 4 * np.sum((self.d_dense[det].real ** 2 + self.d_dense[det].imag ** 2) / self.PSD_dense[det]) * self.df_dense
+            res = 4 * np.sum((self.d_dense[det].real ** 2 + self.d_dense[det].imag ** 2) / self.PSD_dense[det]) * self.df_dense
+            SNR2[det] = res
+            SNR += res
+        print('SNR: %f' % np.sqrt(SNR))
         return SNR2
 
     @partial(jax.jit, static_argnums=(0,))
