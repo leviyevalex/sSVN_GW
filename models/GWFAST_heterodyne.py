@@ -131,6 +131,7 @@ class gwfast_class(object):
         # (ii)  Extract only LIGO/Virgo detectors
         # (iii) Providing ASD path to psd_path with flag "is_ASD = True"
         # (iv)  Add paths to detector sensitivities
+        # (v)   Choice of waveform
         ################################################################
 
         all_detectors = copy.deepcopy(glob.detectors) # (i)
@@ -147,7 +148,13 @@ class gwfast_class(object):
         LV_detectors['Virgo']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['Virgo'])
         self.NetDict = LV_detectors
 
-        self.wf_model = IMRPhenomD() # TaylorF2_RestrictedPN() # Choice of waveform
+        # (v) 
+        waveform_model = 'TaylorF2'
+        if waveform_model == 'TaylorF2':
+            self.wf_model = TaylorF2_RestrictedPN() 
+        elif waveform_model == 'IMRPhenomD':
+            self.wf_model = IMRPhenomD() 
+
 
     def _initFrequencyGrid(self, fmin=20, fmax=None): # Checks: X
         """
