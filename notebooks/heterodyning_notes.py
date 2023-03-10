@@ -20,7 +20,7 @@ config.update("jax_enable_x64", True)
 # Define class
 #####################################
 # jax.disable_jit()
-model = gwfast_class(chi=1, eps=0.1)
+model = gwfast_class(chi=0.5, eps=0.5)
 dets = model.detsInNet.keys()
 
 #%%################################################
@@ -60,8 +60,10 @@ ans = []
 nParticles = 1
 X = model._newDrawFromPrior(nParticles)
 full_grid_idx = np.arange(model.nbins_dense)
-# for gridsize in [200, 300, 500, 800, 1000, 2000, 3000, 5000, 6000, 8000]:
-for gridsize in [200, 300]:
+# for gridsize in [100, 200, 300, 500, 800, 1000, 2000, 3000, 5000, 6000, 8000]:
+# for gridsize in [200, 300]:
+for gridsize in [50]:
+# for gridsize in (np.floor(np.linspace(500,10000, 200))).astype('int'):
     subgrid_idx = np.round(np.linspace(0, len(full_grid_idx)-1, num=gridsize)).astype(int)
     df = model.fgrid_dense[subgrid_idx][1:] - model.fgrid_dense[subgrid_idx][:-1]
     PSD = {}
@@ -69,17 +71,24 @@ for gridsize in [200, 300]:
     for det in dets:
         PSD[det] = jnp.interp(model.fgrid_dense[subgrid_idx], model.detsInNet[det].strainFreq, model.detsInNet[det].noiseCurve, left=1., right=1.).squeeze()
         d[det] = model.d_dense[det][subgrid_idx]
-    # hj0 = model._getJacobianSignal(model.true_params, model.fgrid_dense[subgrid_idx])
-    h = model.getSignal(X, model.fgrid_dense[subgrid_idx])
-    res = model.overlap(h, d, PSD, df)
-
+    hj0 = model._getJacobianSignal(model.true_params[np.newaxis], model.fgrid_dense[subgrid_idx])
+    # h = model.getSignal(X, model.fgrid_dense[subgrid_idx])
+    res = model.overlap(hj0, d, PSD, df)
+    # res = model.square_norm(h, PSD, df)
     output = 0
     for det in dets:
         output += res[det].real
     ans.append(output)
 
-
-
+#%%
+grid = (np.floor(np.linspace(500,10000, 200))).astype('int')
+fig, ax = plt.subplots()
+ax.plot(grid, ans)
+ax.set_ylabel('Overlap')
+ax.set_xlabel('nbins')
+ax.set_title('Re<h,h> convergence w.r.t nbins')
+ax.legend()
+fig.show()
 
 
 

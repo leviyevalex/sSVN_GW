@@ -274,7 +274,7 @@ class gwfast_class(object):
                             
         return signal 
 
-    @partial(jax.jit, static_argnums=(0,))
+    # @partial(jax.jit, static_argnums=(0,))
     def _getJacobianSignal(self, X, f_grid):
         """A vectorized method which computes the Jacobian of the signal model
 
@@ -313,24 +313,24 @@ class gwfast_class(object):
 
         return jacModel
             
-    @partial(jax.jit, static_argnums=(0,))
+    # @partial(jax.jit, static_argnums=(0,))
     def square_norm(self, a, PSD, deltaf):
         """ 
         Square norm estimated using left Riemann sum
         """
         res = {}
         for det in self.detsInNet.keys():
-            res[det] = 4 * jnp.sum((a[det].real[..., :-1] ** 2 + a[det].imag[..., :-1] ** 2) / PSD[det][..., :-1] * deltaf, axis=-1) 
+            res[det] = (4 * jnp.sum((a[det].real[..., :-1] ** 2 + a[det].imag[..., :-1] ** 2) / PSD[det][..., :-1] * deltaf, axis=-1)).T
         return res
 
-    @partial(jax.jit, static_argnums=(0,))
+    # @partial(jax.jit, static_argnums=(0,))
     def overlap(self, a, b, PSD, deltaf):
         """ 
         Overlap estimated using left Riemann sum
         """
         res = {}
         for det in self.detsInNet.keys():
-            res[det] = 4 * jnp.sum(a[det].conjugate()[..., :-1] * b[det][..., :-1] / PSD[det][..., :-1] * deltaf, axis=-1) 
+            res[det] = (4 * jnp.sum(a[det].conjugate()[..., :-1] * b[det][..., :-1] / PSD[det][..., :-1] * deltaf, axis=-1)).T
         return res
 
 
