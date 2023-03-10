@@ -333,7 +333,16 @@ class gwfast_class(object):
             res[det] = (4 * jnp.sum(a[det].conjugate()[..., :-1] * b[det][..., :-1] / PSD[det][..., :-1] * deltaf, axis=-1)).T
         return res
 
-
+    def overlap_trap(self, a, b, PSD, fgrid):
+        """ 
+        Overlap estimated using left Riemann sum
+        """
+        res = {}
+        for det in self.detsInNet.keys():
+            integrand = a[det].conjugate() * b[det] / PSD[det]
+            res[det] = (4 * jnp.trapz(integrand, fgrid)).T
+            # res[det] = (4 *  * deltaf, axis=-1)).T
+        return res
     
     def _precomputeDataInnerProduct(self): # Checks
         print('Precomputing squared SNR for likelihood')
