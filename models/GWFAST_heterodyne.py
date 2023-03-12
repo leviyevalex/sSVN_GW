@@ -77,10 +77,13 @@ class gwfast_class(object):
 
         # Heterodyned strategy
         self.d_d = self._precomputeDataInnerProduct()
-        self.chi = chi
-        self.eps = eps
-        self.getHeterodyneBins(chi=chi, eps=eps)
-        self.getSummaryData()
+
+        self._reinitialize(chi=chi, eps=eps)
+
+        # self.chi = chi
+        # self.eps = eps
+        # self.getHeterodyneBins(chi=chi, eps=eps)
+        # self.getSummaryData()
 
         # Debugging
         self.hj0 = None
@@ -154,7 +157,7 @@ class gwfast_class(object):
             self.wf_model = TaylorF2_RestrictedPN() 
         elif waveform_model == 'IMRPhenomD':
             self.wf_model = IMRPhenomD() 
-
+        print('Using waveform model: %s' % waveform_model)
 
     def _initFrequencyGrid(self, fmin=20, fmax=None): # Checks: X
         """
@@ -178,7 +181,8 @@ class gwfast_class(object):
         # (ii)
         signal_duration = 4. # 4 [s]
         self.df_standard = 1 / signal_duration
-        self.nbins_standard = int(np.ceil(((self.fmax - self.fmin) / self.df_standard))) # 9000
+        # self.nbins_standard = int(np.ceil(((self.fmax - self.fmin) / self.df_standard))) # 9000
+        self.nbins_standard = 2000
         self.df_standard = (self.fmax - self.fmin) / self.nbins_standard # (iii)
         print('Standard binning scheme: % i bins' % self.nbins_standard)
         self.fgrid_standard = np.linspace(self.fmin, fcut, num=self.nbins_standard + 1).squeeze()
@@ -378,7 +382,7 @@ class gwfast_class(object):
         return log_likelihood
 
     @partial(jax.jit, static_argnums=(0,))
-    def standard_gradientMinusLogLikelihood(self, X, fgrid): # Checks: XX
+    def standard_gradientMinusLogLikelihood(self, X): # Checks: XX
         # Remarks:
         # (i) Jacobian is (d, N, f) shaped. sum over final axis gives (d, N), then transpose to give (N, d)
         nParticles = X.shape[0]
@@ -408,6 +412,16 @@ class gwfast_class(object):
 # HETERODYNE METHODS
 #########################################################################
 
+    def _reinitialize(self, chi, eps):
+        self.chi = chi 
+        self.eps = eps
+        print('Forming sparse subgrid')
+        self.getHeterodyneBins(chi=chi, eps=eps)
+        print('Completed')
+        print('Calculating summary data')
+        self.A0, self.A1, self.B0, self.B1 = self.getSummary_data()
+        print('Completed')
+
     def getHeterodyneBins(self, chi, eps): # Checks X
         print('Getting heterodyned bins')
         # Remarks:
@@ -418,10 +432,10 @@ class gwfast_class(object):
         gamma = np.array([-5./3, -2./3, 1., 5./3, 7./3])
         f_star = self.fmax * np.heaviside(gamma, 0.5) + self.fmin * np.heaviside(-gamma, 0.5) # (i) 
         delta = lambda f_minus, f_plus: 2 * np.pi * chi * np.sum(np.abs((f_plus / f_star) ** gamma - (f_minus/f_star) ** gamma))
-        delta0 = delta(self.fgrid_dense[0], self.fgrid_dense[1])
-        print('delta0 = %f' % delta0)
+        delta_new = lambda f_minus, f_plus: 2 * np.pi * chi * np.sum(np.abs((f_plus[:, np.newaxis] / f_star) ** gamma - (f_minus[:, np.newaxis] / f_star) ** gamma), axis=-1)
+        delta0 = np.min(delta_new(self.fgrid_dense[:-1], self.fgrid_dense[1:]))
         if eps < delta0:
-            print('First bin cannot satisfy bound. Changing epsilon from %f to %f' % (eps, delta0))
+            print('Changing epsilon from %f to %f' % (eps, delta0))
             eps = delta0
 
         subindex = [] # (ii)
@@ -444,33 +458,49 @@ class gwfast_class(object):
         self.bin_widths = self.bin_edges[1:] - self.bin_edges[:-1]
         print('Heterodyne binning scheme: %i' % self.nbins)
 
-    def getSummaryData(self):
+    def getSummary_data(self):
         """ 
-        Calculate summary data
+        Calculate the summary data for heterodyne likelihood
+        Remarks:
+        (i)   Label which frequencies belong to which bin (from 0 to nbins - 1)
+            (ia)   np.digitize labels the first bin with a 1
+            (ib)  We subtract 1 to change the convention in (ia) to begin with 0
+            (ic) The last bin includes the right endpoint in our binning convention
+        (ii)  np.bincount begins tallying from 0. This is why convention (iia) is convenient   
+        (iii) To avoid out of bound error for first bin
+        (iv)  Included to keep (iiia) valid
+        (v)   Indicies have been shifted to the right by previous step
         """
-        print('Calculating summary data')
-        # Init dicts
-        self.A0 = {}
-        self.A1 = {}
-        self.B0 = {}
-        self.B1 = {}
-        bin_index = (np.digitize(self.fgrid_dense, self.bin_edges)) - 1 # To index bins from 0 to nbins - 1
-        bin_index[-1] = self.nbins - 1 # Make sure the right endpoint is inclusive!
+        def sumBins(array, bin_indicies):
+            """
+            Given an array over a dense grid, and the indicies of the dense grid which define
+            the subgrid (and by extension the bins), return the sum over elements in each bin.
+            """
+            tmp = np.zeros(len(array) + 1).astype(array.dtype)
+            tmp[1:] = np.cumsum(array) # (iii)
+            tmp[-2] = tmp[-1] # (iv) 
+            return tmp[bin_indicies[1:]] - tmp[bin_indicies[:-1]] # (v) 
+
+        A0, A1, B0, B1 = {}, {}, {}, {}
+
+        bin_id = (np.digitize(self.fgrid_dense, self.bin_edges)) - 1 # (ia), (ib)
+        bin_id[-1] = self.nbins - 1 # (ic)
+        elements_per_bin = np.bincount(bin_id) # (ii)
+
+        deltaf_in_bin = self.fgrid_dense - np.repeat(self.bin_edges[:-1], elements_per_bin)
 
         for det in self.detsInNet.keys():
-            self.A0[det] = np.zeros((self.nbins)).astype('complex128')
-            self.A1[det] = np.zeros((self.nbins)).astype('complex128')
-            self.B0[det] = np.zeros((self.nbins))
-            self.B1[det] = np.zeros((self.nbins))
-            for b in range(self.nbins):
-                indicies = np.where(bin_index == b)
-                tmp1 = 4 * self.h0_dense[det][indicies].conjugate() * self.d_dense[det][indicies] / self.PSD_dense[det][indicies] * self.df_dense
-                tmp2 = 4 * (self.h0_dense[det][indicies].real ** 2 + self.h0_dense[det][indicies].imag ** 2) / self.PSD_dense[det][indicies] * self.df_dense
-                self.A0[det][b] = np.sum(tmp1)
-                self.A1[det][b] = np.sum(tmp1 * (self.fgrid_dense[indicies] - self.bin_edges[b]))
-                self.B0[det][b] = np.sum(tmp2)
-                self.B1[det][b] = np.sum(tmp2 * (self.fgrid_dense[indicies] - self.bin_edges[b]))
-        print('Summary data calculation completed')
+            A0_integrand = 4 * self.h0_dense[det].conjugate() * self.d_dense[det] / self.PSD_dense[det] * self.df_dense
+            A1_integrand = A0_integrand * deltaf_in_bin
+            B0_integrand = 4 * (self.h0_dense[det].real ** 2 + self.h0_dense[det].imag ** 2) / self.PSD_dense[det] * self.df_dense
+            B1_integrand = B0_integrand * deltaf_in_bin
+            for data, integrand in zip([A0, A1, B0, B1], [A0_integrand, A1_integrand, B0_integrand, B1_integrand]):
+                data[det] = sumBins(integrand, self.indicies_kept)
+
+        return A0, A1, B0, B1
+
+
+
 
     def getFirstSplineData(self, X):
         """ 
@@ -674,7 +704,33 @@ class gwfast_class(object):
         return r
 
 
+    # def getSummaryData(self):
+    #     """ 
+    #     Calculate summary data
+    #     """
+    #     print('Calculating summary data')
+    #     # Init dicts
+    #     self.A0 = {}
+    #     self.A1 = {}
+    #     self.B0 = {}
+    #     self.B1 = {}
+    #     bin_index = (np.digitize(self.fgrid_dense, self.bin_edges)) - 1 # To index bins from 0 to nbins - 1
+    #     bin_index[-1] = self.nbins - 1 # Make sure the right endpoint is inclusive!
 
+    #     for det in self.detsInNet.keys():
+    #         self.A0[det] = np.zeros((self.nbins)).astype('complex128')
+    #         self.A1[det] = np.zeros((self.nbins)).astype('complex128')
+    #         self.B0[det] = np.zeros((self.nbins))
+    #         self.B1[det] = np.zeros((self.nbins))
+    #         for b in range(self.nbins):
+    #             indicies = np.where(bin_index == b)
+    #             tmp1 = 4 * self.h0_dense[det][indicies].conjugate() * self.d_dense[det][indicies] / self.PSD_dense[det][indicies] * self.df_dense
+    #             tmp2 = 4 * (self.h0_dense[det][indicies].real ** 2 + self.h0_dense[det][indicies].imag ** 2) / self.PSD_dense[det][indicies] * self.df_dense
+    #             self.A0[det][b] = np.sum(tmp1)
+    #             self.A1[det][b] = np.sum(tmp1 * (self.fgrid_dense[indicies] - self.bin_edges[b]))
+    #             self.B0[det][b] = np.sum(tmp2)
+    #             self.B1[det][b] = np.sum(tmp2 * (self.fgrid_dense[indicies] - self.bin_edges[b]))
+    #     print('Summary data calculation completed')
 
 
 
