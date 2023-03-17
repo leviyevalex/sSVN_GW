@@ -138,7 +138,8 @@ class gwfast_class(object):
         ################################################################
 
         all_detectors = copy.deepcopy(glob.detectors) # (i)
-        dets = ['L1', 'H1', 'Virgo']
+        # dets = ['L1', 'H1', 'Virgo']
+        dets = ['Virgo']
         print('Using detectors', dets)
         LV_detectors = {det:all_detectors[det] for det in dets} # (ii) # LV_detectors = {det:all_detectors[det] for det in ['L1']}
         detector_ASD = dict() # (iii)
@@ -146,8 +147,8 @@ class gwfast_class(object):
         detector_ASD['H1']    = 'O3-H1-C01_CLEAN_SUB60HZ-1251752040.0_sensitivity_strain_asd.txt'
         detector_ASD['Virgo'] = 'O3-V1_sensitivity_strain_asd.txt'
 
-        LV_detectors['L1']['psd_path']    = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['L1']) # (iv) 
-        LV_detectors['H1']['psd_path']    = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['H1'])
+        # LV_detectors['L1']['psd_path']    = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['L1']) # (iv) 
+        # LV_detectors['H1']['psd_path']    = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['H1'])
         LV_detectors['Virgo']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['Virgo'])
         self.NetDict = LV_detectors
 
@@ -188,7 +189,9 @@ class gwfast_class(object):
         self.fgrid_standard = np.linspace(self.fmin, fcut, num=self.nbins_standard + 1).squeeze()
 
         # (iv)
-        self.nbins_dense = 10000 
+        # self.nbins_dense = 10000 
+        self.nbins_dense = 2000
+        print('NOTE: dense bins have been set to be equal to standard binning!!!')
         self.df_dense = (self.fmax - self.fmin) / self.nbins_dense
         print('Dense bins: % i bins' % self.nbins_dense)
         self.fgrid_dense = np.linspace(self.fmin, fcut, num=self.nbins_dense + 1).squeeze()
@@ -221,7 +224,6 @@ class gwfast_class(object):
             self.PSD_standard[det] = jnp.interp(self.fgrid_standard, self.detsInNet[det].strainFreq, self.detsInNet[det].noiseCurve, left=1., right=1.).squeeze()
             self.PSD_dense[det] = jnp.interp(self.fgrid_dense, self.detsInNet[det].strainFreq, self.detsInNet[det].noiseCurve, left=1., right=1.).squeeze()
 
-
     def _getInjectedSignals(self, injParams, fgrid):
         """
         Fiducial signals over dense grid (one for each detector)
@@ -249,44 +251,43 @@ class gwfast_class(object):
                                                    is_chi1chi2 = 'True',
                                                    **dict_params_neglected).squeeze() # (i)
 
-            h0[det] = h0[det].at[-1].set(h0[det][-2]) # (ii)
+            # h0[det] = h0[det].at[-1].set(h0[det][-2]) # (ii)
 
         return h0
 
-    def getSignal(self, X, f_grid):
+    def getSignal(self, X, f_grid, det):
         """ 
-        Method to calculate signal for each X[i] over f_grid. 
+        Method to calculate signal for each X[i] over f_grid in detector det.
         Remarks:
         (i)   Same frequency grid is currently being used for each particle
         (ii)  gwfast.GWstrain expects an f x N matrix
         (iii) gwfast.GWstrain expects `tcoal` in units of seconds
         (iv)  Transpose is included to return an N x f matrix
+        (v)   X must be (N x f) shaped, for one sample is must be (1 x f) shaped!!!
         """
         nParticles = X.shape[0]
         dict_params_neglected = self._getDictParamsNeglected(nParticles)
         fgrids = jnp.repeat(f_grid[...,np.newaxis], nParticles, axis=1) # (i)
-        signal = {}
         X_ = X.T.astype('complex128')
-        for det in self.detsInNet.keys():
-            signal[det] = (self.detsInNet[det].GWstrain(fgrids, # (ii)                        
-                                                        Mc      = X_[0],
-                                                        eta     = X_[1],
-                                                        dL      = X_[2],
-                                                        theta   = X_[3],
-                                                        phi     = X_[4],
-                                                        iota    = X_[5],
-                                                        psi     = X_[6],
-                                                        tcoal   = X_[7] / self.seconds_per_day, # (iii)
-                                                        Phicoal = X_[8],
-                                                        chiS    = X_[9],
-                                                        chiA    = X_[10],
-                                                        is_chi1chi2 = 'True',
-                                                        **dict_params_neglected)).T # (iv) 
+        signal = (self.detsInNet[det].GWstrain(fgrids, # (ii)                        
+                                               Mc      = X_[0],
+                                               eta     = X_[1],
+                                               dL      = X_[2],
+                                               theta   = X_[3],
+                                               phi     = X_[4],
+                                               iota    = X_[5],
+                                               psi     = X_[6],
+                                               tcoal   = X_[7] / self.seconds_per_day, # (iii)
+                                               Phicoal = X_[8],
+                                               chiS    = X_[9],
+                                               chiA    = X_[10],
+                                               is_chi1chi2 = 'True',
+                                               **dict_params_neglected)).T # (iv) 
                             
         return signal 
 
     # @partial(jax.jit, static_argnums=(0,))
-    def _getJacobianSignal(self, X, f_grid):
+    def _getJacobianSignal(self, X, f_grid, det):
         """A vectorized method which computes the Jacobian of the signal model
 
         Parameters
@@ -302,67 +303,61 @@ class gwfast_class(object):
         nParticles = X.shape[0]
         dict_params_neglected = self._getDictParamsNeglected(nParticles)
         fgrids = jnp.repeat(f_grid[...,np.newaxis], nParticles, axis=1)
-        jacModel = {}
         X_ = X.T.astype('complex128')
-        for det in self.detsInNet.keys():
-            jacModel[det] = self.detsInNet[det]._SignalDerivatives_use(fgrids, 
-                                                                       Mc      = X_[0],
-                                                                       eta     = X_[1],
-                                                                       dL      = X_[2],
-                                                                       theta   = X_[3],
-                                                                       phi     = X_[4],
-                                                                       iota    = X_[5],
-                                                                       psi     = X_[6],
-                                                                       tcoal   = X_[7] / self.seconds_per_day, # Correction 1
-                                                                       Phicoal = X_[8],
-                                                                       chiS    = X_[9],
-                                                                       chiA    = X_[10],
-                                                                       use_chi1chi2 = True,
-                                                                       **dict_params_neglected) 
+        jacModel = self.detsInNet[det]._SignalDerivatives_use(fgrids, 
+                                                              Mc      = X_[0],
+                                                              eta     = X_[1],
+                                                              dL      = X_[2],
+                                                              theta   = X_[3],
+                                                              phi     = X_[4],
+                                                              iota    = X_[5],
+                                                              psi     = X_[6],
+                                                              tcoal   = X_[7] / self.seconds_per_day, # Correction 1
+                                                              Phicoal = X_[8],
+                                                              chiS    = X_[9],
+                                                              chiA    = X_[10],
+                                                              use_chi1chi2 = True,
+                                                              **dict_params_neglected) 
 
-            jacModel[det] = jacModel[det].at[7].divide(self.seconds_per_day) # Correction 2
+        jacModel = jacModel.at[7].divide(self.seconds_per_day) # Correction 2
 
         return jacModel
             
-    # @partial(jax.jit, static_argnums=(0,))
+    @partial(jax.jit, static_argnums=(0,))
     def square_norm(self, a, PSD, deltaf):
         """ 
-        Square norm estimated using left Riemann sum
+        Square norm for single detector estimated using left Riemann sum
         """
-        res = {}
-        for det in self.detsInNet.keys():
-            res[det] = (4 * jnp.sum((a[det].real[..., :-1] ** 2 + a[det].imag[..., :-1] ** 2) / PSD[det][..., :-1] * deltaf, axis=-1)).T
-        return res
+        square_norm = (4 * jnp.sum((a.real[..., :-1] ** 2 + a.imag[..., :-1] ** 2) / PSD[..., :-1] * deltaf, axis=-1)).T
+        return square_norm
 
-    # @partial(jax.jit, static_argnums=(0,))
+    @partial(jax.jit, static_argnums=(0,))
     def overlap(self, a, b, PSD, deltaf):
         """ 
-        Overlap estimated using left Riemann sum
+        Network overlap estimated using left Riemann sum
         """
-        res = {}
-        for det in self.detsInNet.keys():
-            res[det] = (4 * jnp.sum(a[det].conjugate()[..., :-1] * b[det][..., :-1] / PSD[det][..., :-1] * deltaf, axis=-1)).T
-        return res
+        overlap = (4 * jnp.sum(a.conjugate()[..., :-1] * b[..., :-1] / PSD[..., :-1] * deltaf, axis=-1)).T
+        return overlap
 
+    @partial(jax.jit, static_argnums=(0,))
     def overlap_trap(self, a, b, PSD, fgrid):
         """ 
-        Overlap estimated using left Riemann sum
+        Overlap estimated using trapezoid method
         """
-        res = {}
-        for det in self.detsInNet.keys():
-            integrand = a[det].conjugate() * b[det] / PSD[det]
-            res[det] = (4 * jnp.trapz(integrand, fgrid)).T
-            # res[det] = (4 *  * deltaf, axis=-1)).T
-        return res
+        integrand = a.conjugate() * b / PSD
+        overlap = (4 * jnp.trapz(integrand, fgrid)).T
+        return overlap
     
     def _precomputeDataInnerProduct(self): # Checks
         print('Precomputing squared SNR for likelihood')
+        # TODO: This can be replaced with the overlap method later!
         # Remarks:
         # (i) The snr is actually sqrt(<d,d>). We are calculating the square! Hence SNR2
         SNR2 = {}
         SNR = 0
         for det in self.detsInNet.keys():
-            res = 4 * np.sum((self.d_dense[det].real ** 2 + self.d_dense[det].imag ** 2) / self.PSD_dense[det]) * self.df_dense
+            res = self.square_norm(self.d_dense[det], self.PSD_dense[det], self.df_dense)
+            # res = 4 * np.sum((self.d_dense[det].real ** 2 + self.d_dense[det].imag ** 2) / self.PSD_dense[det]) * self.df_dense
             SNR2[det] = res
             SNR += res
         print('SNR: %f' % np.sqrt(SNR))
@@ -374,11 +369,10 @@ class gwfast_class(object):
         """
         nParticles = X.shape[0]
         log_likelihood = jnp.zeros(nParticles)
-        template = self.getSignal(X, self.fgrid_standard) # signal template
         for det in self.detsInNet.keys():
-            residual = template[det] - self.d_standard[det][np.newaxis, ...]
-            inner_product = 4 * jnp.sum((residual.real ** 2 + residual.imag ** 2) / self.PSD_standard[det][np.newaxis, ...], axis=-1) * self.df_standard
-            log_likelihood += 0.5 * inner_product
+            template = self.getSignal(X, self.fgrid_standard, det) # signal template
+            residual = template - self.d_standard[det][np.newaxis, ...]
+            log_likelihood += 0.5 * self.square_norm(residual, self.PSD_standard[det], self.df_standard) 
         return log_likelihood
 
     @partial(jax.jit, static_argnums=(0,))
@@ -387,23 +381,20 @@ class gwfast_class(object):
         # (i) Jacobian is (d, N, f) shaped. sum over final axis gives (d, N), then transpose to give (N, d)
         nParticles = X.shape[0]
         grad_log_like = jnp.zeros((nParticles, self.DoF))
-        template = self.getSignal(X, self.fgrid_standard)
-        jacSignal = self._getJacobianSignal(X, self.fgrid_standard)
         for det in self.detsInNet.keys():
-            residual = template[det] - self.d_standard[det][np.newaxis, ...]
-            inner_product = (4 * jnp.sum(jacSignal[det].conjugate() * residual[np.newaxis, ...] / self.PSD_standard[det], axis=-1) * self.df_standard).T # (i)
-            # Confirm that these two give the same result.
-            # inner_product = (4 * contract('dNf, Nf, f -> Nd', jacSignal[det].conjugate(), residual, 1 / self.PSD_standard[det]) * self.df_standard
-            grad_log_like += inner_product.real
+            template  = self.getSignal(X, self.fgrid_standard, det)
+            jacSignal = self._getJacobianSignal(X, self.fgrid_standard, det)
+            residual  = template - self.d_standard[det][np.newaxis, ...]
+            grad_log_like += self.overlap(jacSignal, residual, self.PSD_standard[det], self.df_standard).real
         return grad_log_like
     
     @partial(jax.jit, static_argnums=(0,))
     def standard_GNHessianMinusLogLikelihood(self, X): # Checks: XX
         nParticles = X.shape[0]
         GN = jnp.zeros((nParticles, self.DoF, self.DoF))
-        jacSignal = self._getJacobianSignal(X, self.fgrid_standard)
         for det in self.detsInNet.keys():
-            inner_product = 4 * contract('iNf, jNf, f -> Nij', jacSignal[det].conjugate(), jacSignal[det], 1 / self.PSD_standard[det]) * self.df_standard
+            jacSignal = self._getJacobianSignal(X, self.fgrid_standard, det)
+            inner_product = 4 * contract('iNf, jNf, f -> Nij', jacSignal.conjugate(), jacSignal, 1 / self.PSD_standard[det]) * self.df_standard
             GN += inner_product.real
         return GN
 
@@ -419,7 +410,7 @@ class gwfast_class(object):
         self.getHeterodyneBins(chi=chi, eps=eps)
         print('Completed')
         print('Calculating summary data')
-        self.A0, self.A1, self.B0, self.B1 = self.getSummary_data()
+        self.A0, self.A1, self.B0, self.B1, self.C0, self.C1, self.B2 = self.getSummary_data()
         print('Completed')
 
     def getHeterodyneBins(self, chi, eps): # Checks X
@@ -473,64 +464,67 @@ class gwfast_class(object):
         """
         def sumBins(array, bin_indicies):
             """
-            Given an array over a dense grid, and the indicies of the dense grid which define
-            the subgrid (and by extension the bins), return the sum over elements in each bin.
+            Given an `array`, and `bin_indicies` which defines how to partition `array`, return
+            sum in each partition
             """
             tmp = np.zeros(len(array) + 1).astype(array.dtype)
             tmp[1:] = np.cumsum(array) # (iii)
             tmp[-2] = tmp[-1] # (iv) 
             return tmp[bin_indicies[1:]] - tmp[bin_indicies[:-1]] # (v) 
 
-        A0, A1, B0, B1 = {}, {}, {}, {}
+        def getBinIds(grid, bins):
+            """ 
+            Given bins, returns an array labeling which bin each point in grid belongs to.
+            Bins are labeled beginning from 0 to nbins - 1!
+            """
+            bin_ids = (np.digitize(grid, bins)) - 1 # (ia), (ib)
+            bin_ids[-1] = len(bins) - 2 # (ic)
+            return bin_ids
 
-        bin_id = (np.digitize(self.fgrid_dense, self.bin_edges)) - 1 # (ia), (ib)
-        bin_id[-1] = self.nbins - 1 # (ic)
-        elements_per_bin = np.bincount(bin_id) # (ii)
+        A0, A1, B0, B1, C0, C1, B2 = {}, {}, {}, {}, {}, {}, {}
+
+        elements_per_bin = np.bincount(getBinIds(self.fgrid_dense, self.bin_edges)) # (ii)
 
         deltaf_in_bin = self.fgrid_dense - np.repeat(self.bin_edges[:-1], elements_per_bin)
 
         for det in self.detsInNet.keys():
-            A0_integrand = 4 * self.h0_dense[det].conjugate() * self.d_dense[det] / self.PSD_dense[det] * self.df_dense
+            A0_integrand = 4 * self.h0_dense[det].conjugate() * self.d_dense[det] / self.PSD_dense[det] * self.df_dense 
             A1_integrand = A0_integrand * deltaf_in_bin
             B0_integrand = 4 * (self.h0_dense[det].real ** 2 + self.h0_dense[det].imag ** 2) / self.PSD_dense[det] * self.df_dense
             B1_integrand = B0_integrand * deltaf_in_bin
-            for data, integrand in zip([A0, A1, B0, B1], [A0_integrand, A1_integrand, B0_integrand, B1_integrand]):
+            C0_integrand = 4 * self.h0_dense[det].conjugate() * (self.h0_dense[det] - self.d_dense[det]) / self.PSD_dense[det] * self.df_dense 
+            C1_integrand = C0_integrand * deltaf_in_bin
+            B2_integrand = B0_integrand * deltaf_in_bin ** 2
+
+            for data, integrand in zip([A0, A1, B0, B1, C0, C1, B2], [A0_integrand, A1_integrand, B0_integrand, B1_integrand, C0_integrand, C1_integrand, B2_integrand]):
                 data[det] = sumBins(integrand, self.indicies_kept)
 
-        return A0, A1, B0, B1
+        return A0, A1, B0, B1, C0, C1, B2
 
 
-
-
-    def getFirstSplineData(self, X):
+    def getFirstSplineData(self, X, det):
         """ 
-        Return N x b matrix for spline of r := h/h0
+        Return N x b matrix for spline of r := h/h0 in a particular detector
         """
         # Remarks:
         # (i)   r is the heterodyne
         # (ii)  These are the y-intercepts for each bin (N x b)
         # (iii) These are the slopes for each bin (N x b)
-        r0 = {}
-        r1 = {}
-        h = self.getSignal(X, self.bin_edges)
-        for det in self.detsInNet.keys():
-            r = h[det] / self.h0_dense[det][self.indicies_kept] # (i)
-            r0[det] = r[:, :-1] # (ii)
-            r1[det] = (r[:, 1:] - r[:, :-1]) / self.bin_widths # (iii)
+        h = self.getSignal(X, self.bin_edges, det)
+        r = h / self.h0_dense[det][self.indicies_kept] # (i)
+        r0 = r[:, :-1] # (ii)
+        r1 = (r[:, 1:] - r[:, :-1]) / self.bin_widths # (iii)
         return r0, r1
 
-    def getSecondSplineData(self, X):
+    def getSecondSplineData(self, X, det):
         """ 
         Return matrix of shape (d, N, b) for spline of r_{,j} := h_{,j} / h0
         Note: Identical as first spline data for first order.
         """
-        rj0 = {}
-        rj1 = {}
-        hj = self._getJacobianSignal(X, self.bin_edges)
-        for det in self.detsInNet.keys():
-            rj = hj[det] / self.h0_dense[det][self.indicies_kept]
-            rj0[det] = rj[..., :-1]
-            rj1[det] = (rj[..., 1:] - rj[..., :-1]) / self.bin_widths
+        hj = self._getJacobianSignal(X, self.bin_edges, det)
+        rj = hj / self.h0_dense[det][self.indicies_kept]
+        rj0 = rj[..., :-1]
+        rj1 = (rj[..., 1:] - rj[..., :-1]) / self.bin_widths
         return rj0, rj1
 
     @partial(jax.jit, static_argnums=(0,))
@@ -538,11 +532,11 @@ class gwfast_class(object):
         # Remarks:
         # (i) Summary data has shape (b,)
         nParticles = X.shape[0]
-        r0, r1 = self.getFirstSplineData(X)
         log_like = jnp.zeros(nParticles)
         for det in self.detsInNet.keys():
-            h_d = jnp.sum(self.A0[det][jnp.newaxis] * r0[det].conjugate() + self.A1[det][jnp.newaxis] * r1[det].conjugate(), axis=1)
-            h_h = jnp.sum(self.B0[det][jnp.newaxis] * jnp.abs(r0[det]) ** 2 + 2 * self.B1[det][jnp.newaxis] * (r0[det].conjugate() * r1[det]).real, axis=1)
+            r0, r1 = self.getFirstSplineData(X, det)
+            h_d = jnp.sum(self.A0[det][jnp.newaxis] * r0.conjugate() + self.A1[det][jnp.newaxis] * r1.conjugate(), axis=1)
+            h_h = jnp.sum(self.B0[det][jnp.newaxis] * jnp.abs(r0) ** 2 + 2 * self.B1[det][jnp.newaxis] * (r0.conjugate() * r1).real, axis=1)
             log_like += 0.5 * h_h - h_d.real + 0.5 * self.d_d[det]
         return log_like
 
@@ -550,17 +544,18 @@ class gwfast_class(object):
     def getGradientMinusLogPosterior_ensemble(self, X):
         # Remarks:
         # (i)   second spline data is (d, N, b) shaped
-
         nParticles = X.shape[0]
-        r0, r1 = self.getFirstSplineData(X)
-        rj0, rj1 = self.getSecondSplineData(X)
-        grad_log_like = np.zeros((nParticles, self.DoF))
+        grad_log_like = jnp.zeros((nParticles, self.DoF))
         for det in self.detsInNet.keys():
+            r0, r1 = self.getFirstSplineData(X, det)
+            rj0, rj1 = self.getSecondSplineData(X, det)
+
             hj_d = contract('jNb -> Nj', self.A0[det] * rj0[det].conjugate() \
                                        + self.A1[det] * rj1[det].conjugate(), backend='jax')
 
             hj_h = contract('jNb -> Nj', self.B0[det] * rj0[det].conjugate() * r0[det][np.newaxis] 
                                       +  self.B1[det] *(rj0[det].conjugate() * r1[det][np.newaxis] + rj1[det].conjugate() * r0[det][np.newaxis]), backend='jax')
+
             grad_log_like += hj_h.real - hj_d.real
         return grad_log_like
 
@@ -703,6 +698,15 @@ class gwfast_class(object):
             r[det] = signal[det] / self.h0_dense[det][self.indicies_kept]
         return r
 
+    def jac_r(self, X):
+        jac_r = {}
+        jacSignal = self._getJacobianSignal(X, self.fgrid_standard)
+        for det in self.detsInNet.keys():
+            jac_r[det] = jacSignal[det] / self.h0_standard[det]
+        return jac_r
+
+
+
 
     # def getSummaryData(self):
     #     """ 
@@ -755,12 +759,7 @@ class gwfast_class(object):
 
 
 
-    # def jac_r(self, X):
-    #     jac_r = {}
-    #     jacSignal = self._getJacobianSignal(X, self.bin_edges)
-    #     for det in self.detsInNet.keys():
-    #         jac_r[det] = jacSignal[det] / self.h0_dense[det][self.indicies_kept]
-    #     return jac_r
+
 
     # def getJacSplineData(self, X):
     #     jac_r = self.jac_r(X)
