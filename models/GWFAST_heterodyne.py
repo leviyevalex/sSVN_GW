@@ -547,16 +547,22 @@ class gwfast_class(object):
         nParticles = X.shape[0]
         grad_log_like = jnp.zeros((nParticles, self.DoF))
         for det in self.detsInNet.keys():
+            # r0, r1 = self.getFirstSplineData(X, det)
+            # rj0, rj1 = self.getSecondSplineData(X, det)
+
+            # hj_d = contract('jNb -> Nj', self.A0[det] * rj0[det].conjugate() \
+            #                            + self.A1[det] * rj1[det].conjugate(), backend='jax')
+
+            # hj_h = contract('jNb -> Nj', self.B0[det] * rj0[det].conjugate() * r0[det][np.newaxis] 
+            #                           +  self.B1[det] *(rj0[det].conjugate() * r1[det][np.newaxis] + rj1[det].conjugate() * r0[det][np.newaxis]), backend='jax')
+
+            # grad_log_like += hj_h.real - hj_d.real
+
             r0, r1 = self.getFirstSplineData(X, det)
-            rj0, rj1 = self.getSecondSplineData(X, det)
+            r0j, r1j = self.getSecondSplineData(X, det)
+            grad_log_like += \
+            jnp.sum((self.B0[det] * r0j.conjugate() * (r0-1)) + (self.B1[det] * (r0j.conjugate() * r1 + r1j.conjugate() * (r0-1))), axis=-1).T # Remove third term if this doesnt work!
 
-            hj_d = contract('jNb -> Nj', self.A0[det] * rj0[det].conjugate() \
-                                       + self.A1[det] * rj1[det].conjugate(), backend='jax')
-
-            hj_h = contract('jNb -> Nj', self.B0[det] * rj0[det].conjugate() * r0[det][np.newaxis] 
-                                      +  self.B1[det] *(rj0[det].conjugate() * r1[det][np.newaxis] + rj1[det].conjugate() * r0[det][np.newaxis]), backend='jax')
-
-            grad_log_like += hj_h.real - hj_d.real
         return grad_log_like
 
     # @partial(jax.jit, static_argnums=(0,))
