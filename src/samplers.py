@@ -316,8 +316,11 @@ class samplers:
 
                         v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt_Y)
 
+                        key, subkey = jax.random.split(key)
+                        Bdn = jax.random.normal(subkey, (self.DoF, self.nParticles)) # standard normal sample
 
-                        v_stc = self.get_vSVGD_stc(kx)
+                        v_stc = self.getSVGD_v_stc(kx, Bdn)
+                        # v_stc = self.get_vSVGD_stc(kx)
                         eta += (v_svgd) * eps + v_stc * np.sqrt(eps)
 
                         X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
