@@ -561,7 +561,7 @@ class gwfast_class(object):
             r0, r1 = self.getFirstSplineData(X, det)
             r0j, r1j = self.getSecondSplineData(X, det)
             grad_log_like += \
-            jnp.sum((self.B0[det] * r0j.conjugate() * (r0-1)) + (self.B1[det] * (r0j.conjugate() * r1 + r1j.conjugate() * (r0-1))), axis=-1).T 
+            jnp.sum((self.B0[det] * r0j.conjugate() * (r0-1)) + (self.B1[det] * (r0j.conjugate() * r1 + r1j.conjugate() * (r0-1))), axis=-1).T.real 
 
         return grad_log_like
 
@@ -587,7 +587,7 @@ class gwfast_class(object):
             r0, r1 = self.getFirstSplineData(X, det)
             r0j, r1j = self.getSecondSplineData(X, det)
             grad_log_like += \
-            jnp.sum((self.B0[det] * r0j.conjugate() * (r0-1)) + (self.B1[det] * (r0j.conjugate() * r1 + r1j.conjugate() * (r0-1))), axis=-1).T 
+            jnp.sum((self.B0[det] * r0j.conjugate() * (r0-1)) + (self.B1[det] * (r0j.conjugate() * r1 + r1j.conjugate() * (r0-1))), axis=-1).T.real 
             term1 = contract('b, jNb, kNb -> Njk', self.B0[det], r0j[det].conjugate(), r0j[det], backend='jax')
             GN += term1.real 
         return grad_log_like, GN
