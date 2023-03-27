@@ -41,8 +41,8 @@ class gwfast_class(object):
         self.nGradLikelihoodEvaluations = 0
         self.nHessLikelihoodEvaluations = 0
         self.id = 'gwfast_model'
-        self._initParams()
         self.mode = mode
+        self._initParams()
         # self.priorDict  = priorDict
 
         # gw_fast related attributes
