@@ -138,8 +138,8 @@ class gwfast_class(object):
         ################################################################
 
         all_detectors = copy.deepcopy(glob.detectors) # (i)
-        # dets = ['L1', 'H1', 'Virgo']
-        dets = ['Virgo']
+        dets = ['L1', 'H1', 'Virgo']
+        # dets = ['Virgo']
         print('Using detectors', dets)
         LV_detectors = {det:all_detectors[det] for det in dets} # (ii) # LV_detectors = {det:all_detectors[det] for det in ['L1']}
         detector_ASD = dict() # (iii)
@@ -147,13 +147,13 @@ class gwfast_class(object):
         detector_ASD['H1']    = 'O3-H1-C01_CLEAN_SUB60HZ-1251752040.0_sensitivity_strain_asd.txt'
         detector_ASD['Virgo'] = 'O3-V1_sensitivity_strain_asd.txt'
 
-        # LV_detectors['L1']['psd_path']    = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['L1']) # (iv) 
-        # LV_detectors['H1']['psd_path']    = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['H1'])
+        LV_detectors['L1']['psd_path']    = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['L1']) # (iv) 
+        LV_detectors['H1']['psd_path']    = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['H1'])
         LV_detectors['Virgo']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['Virgo'])
         self.NetDict = LV_detectors
 
         # (v) 
-        waveform_model = 'TaylorF2'
+        waveform_model = 'IMRPhenomD'
         if waveform_model == 'TaylorF2':
             self.wf_model = TaylorF2_RestrictedPN() 
         elif waveform_model == 'IMRPhenomD':
@@ -561,7 +561,7 @@ class gwfast_class(object):
             r0, r1 = self.getFirstSplineData(X, det)
             r0j, r1j = self.getSecondSplineData(X, det)
             grad_log_like += \
-            jnp.sum((self.B0[det] * r0j.conjugate() * (r0-1)) + (self.B1[det] * (r0j.conjugate() * r1 + r1j.conjugate() * (r0-1))), axis=-1).T # Remove third term if this doesnt work!
+            jnp.sum((self.B0[det] * r0j.conjugate() * (r0-1)) + (self.B1[det] * (r0j.conjugate() * r1 + r1j.conjugate() * (r0-1))), axis=-1).T 
 
         return grad_log_like
 
@@ -572,9 +572,10 @@ class gwfast_class(object):
         GN = jnp.zeros((nParticles, self.DoF, self.DoF))
         for det in self.detsInNet.keys():
             term1 = contract('b, jNb, kNb -> Njk', self.B0[det], rj0[det].conjugate(), rj0[det], backend='jax')
-            term2 = contract('b, jNb, kNb -> Njk', self.B1[det], rj0[det].conjugate(), rj1[det], backend='jax')
-            term3 = contract('Nkj -> Njk', term2.conjugate(), backend='jax')
-            GN += term1.real + term2.real + term3.real
+            # term2 = contract('b, jNb, kNb -> Njk', self.B1[det], rj0[det].conjugate(), rj1[det], backend='jax')
+            # term3 = contract('Nkj -> Njk', term2.conjugate(), backend='jax')
+            # GN += term1.real + term2.real + term3.real
+            GN += term1.real 
         return GN
 
     @partial(jax.jit, static_argnums=(0,))  
