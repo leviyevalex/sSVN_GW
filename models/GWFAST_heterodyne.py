@@ -23,7 +23,7 @@ config.update("jax_enable_x64", True)
 class gwfast_class(object):
     
     # def __init__(self, NetDict, WaveForm, injParams, priorDict):
-    def __init__(self, chi, eps):
+    def __init__(self, chi, eps, mode='TaylorF2'):
         """
         Args:
             NetDict (dict): dictionary containing the specifications of the detectors in the network
@@ -42,6 +42,7 @@ class gwfast_class(object):
         self.nHessLikelihoodEvaluations = 0
         self.id = 'gwfast_model'
         self._initParams()
+        self.mode = mode
         # self.priorDict  = priorDict
 
         # gw_fast related attributes
@@ -153,7 +154,9 @@ class gwfast_class(object):
         self.NetDict = LV_detectors
 
         # (v) 
-        waveform_model = 'IMRPhenomD'
+        # waveform_model = 'IMRPhenomD'
+        # waveform_model = 'TaylorF2'
+        waveform_model = self.mode
         if waveform_model == 'TaylorF2':
             self.wf_model = TaylorF2_RestrictedPN() 
         elif waveform_model == 'IMRPhenomD':
@@ -189,8 +192,8 @@ class gwfast_class(object):
         self.fgrid_standard = np.linspace(self.fmin, fcut, num=self.nbins_standard + 1).squeeze()
 
         # (iv)
-        # self.nbins_dense = 10000 
-        self.nbins_dense = 2000
+        self.nbins_dense = 10000 
+        # self.nbins_dense = 2000
         print('NOTE: dense bins have been set to be equal to standard binning!!!')
         self.df_dense = (self.fmax - self.fmin) / self.nbins_dense
         print('Dense bins: % i bins' % self.nbins_dense)
@@ -588,7 +591,7 @@ class gwfast_class(object):
             r0j, r1j = self.getSecondSplineData(X, det)
             grad_log_like += \
             jnp.sum((self.B0[det] * r0j.conjugate() * (r0-1)) + (self.B1[det] * (r0j.conjugate() * r1 + r1j.conjugate() * (r0-1))), axis=-1).T.real 
-            term1 = contract('b, jNb, kNb -> Njk', self.B0[det], r0j[det].conjugate(), r0j[det], backend='jax')
+            term1 = contract('b, jNb, kNb -> Njk', self.B0[det], r0j.conjugate(), r0j, backend='jax')
             GN += term1.real 
         return grad_log_like, GN
 
