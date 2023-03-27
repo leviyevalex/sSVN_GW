@@ -323,7 +323,7 @@ class gwfast_class(object):
 
         return jacModel
             
-    @partial(jax.jit, static_argnums=(0,))
+    # @partial(jax.jit, static_argnums=(0,))
     def square_norm(self, a, PSD, deltaf):
         """ 
         Square norm for single detector estimated using left Riemann sum
@@ -331,7 +331,7 @@ class gwfast_class(object):
         square_norm = (4 * jnp.sum((a.real[..., :-1] ** 2 + a.imag[..., :-1] ** 2) / PSD[..., :-1] * deltaf, axis=-1)).T
         return square_norm
 
-    @partial(jax.jit, static_argnums=(0,))
+    # @partial(jax.jit, static_argnums=(0,))
     def overlap(self, a, b, PSD, deltaf):
         """ 
         Network overlap estimated using left Riemann sum
@@ -339,7 +339,7 @@ class gwfast_class(object):
         overlap = (4 * jnp.sum(a.conjugate()[..., :-1] * b[..., :-1] / PSD[..., :-1] * deltaf, axis=-1)).T
         return overlap
 
-    @partial(jax.jit, static_argnums=(0,))
+    # @partial(jax.jit, static_argnums=(0,))
     def overlap_trap(self, a, b, PSD, fgrid):
         """ 
         Overlap estimated using trapezoid method
@@ -363,7 +363,7 @@ class gwfast_class(object):
         print('SNR: %f' % np.sqrt(SNR))
         return SNR2
 
-    @partial(jax.jit, static_argnums=(0,))
+    # @partial(jax.jit, static_argnums=(0,))
     def standard_minusLogLikelihood(self, X): # Checks: XX
         """ 
         """
@@ -375,7 +375,7 @@ class gwfast_class(object):
             log_likelihood += 0.5 * self.square_norm(residual, self.PSD_standard[det], self.df_standard) 
         return log_likelihood
 
-    @partial(jax.jit, static_argnums=(0,))
+    # @partial(jax.jit, static_argnums=(0,))
     def standard_gradientMinusLogLikelihood(self, X): # Checks: XX
         # Remarks:
         # (i) Jacobian is (d, N, f) shaped. sum over final axis gives (d, N), then transpose to give (N, d)
@@ -388,7 +388,7 @@ class gwfast_class(object):
             grad_log_like += self.overlap(jacSignal, residual, self.PSD_standard[det], self.df_standard).real
         return grad_log_like
     
-    @partial(jax.jit, static_argnums=(0,))
+    # @partial(jax.jit, static_argnums=(0,))
     def standard_GNHessianMinusLogLikelihood(self, X): # Checks: XX
         nParticles = X.shape[0]
         GN = jnp.zeros((nParticles, self.DoF, self.DoF))
@@ -581,27 +581,15 @@ class gwfast_class(object):
     @partial(jax.jit, static_argnums=(0,))  
     def getDerivativesMinusLogPosterior_ensemble(self, X):
         nParticles = X.shape[0]
-        r0, r1 = self.getSplineData(X)
-        jac_r0, jac_r1 = self.getJacSplineData(X)
         grad_log_like = jnp.zeros((nParticles, self.DoF))
         GN = jnp.zeros((nParticles, self.DoF, self.DoF))
         for det in self.detsInNet.keys():
-
-            jh_d = contract('b, jNb -> Nj', self.A0[det], jac_r0[det].conjugate(), backend='jax') \
-                 + contract('b, jNb -> Nj', self.A1[det], jac_r1[det].conjugate(), backend='jax')
-
-            jh_h = contract('b, jNb, Nb -> Nj', self.B0[det], jac_r0[det].conjugate(), r0[det], backend='jax') \
-                 + contract('b, jNb, Nb -> Nj', self.B1[det], jac_r0[det].conjugate(), r1[det], backend='jax') \
-                 + contract('b, jNb, Nb -> Nj', self.B1[det], jac_r1[det].conjugate(), r0[det], backend='jax')
-
-            grad_log_like += jh_h.real - jh_d.real
-
-            jh_jh = contract('b, jNb, kNb -> Njk', self.B0[det], jac_r0[det].conjugate(), jac_r0[det], backend='jax') \
-                  + contract('b, jNb, kNb -> Njk', self.B1[det], jac_r0[det].conjugate(), jac_r1[det], backend='jax') \
-                  + contract('b, jNb, kNb -> Njk', self.B1[det], jac_r1[det].conjugate(), jac_r0[det], backend='jax') 
-                            
-            GN += jh_jh.real
-
+            r0, r1 = self.getFirstSplineData(X, det)
+            r0j, r1j = self.getSecondSplineData(X, det)
+            grad_log_like += \
+            jnp.sum((self.B0[det] * r0j.conjugate() * (r0-1)) + (self.B1[det] * (r0j.conjugate() * r1 + r1j.conjugate() * (r0-1))), axis=-1).T 
+            term1 = contract('b, jNb, kNb -> Njk', self.B0[det], r0j[det].conjugate(), r0j[det], backend='jax')
+            GN += term1.real 
         return grad_log_like, GN
 
 
