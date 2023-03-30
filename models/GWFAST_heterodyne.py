@@ -543,7 +543,7 @@ class gwfast_class(object):
             log_like += 0.5 * h_h - h_d.real + 0.5 * self.d_d[det]
         return log_like
 
-    @partial(jax.jit, static_argnums=(0,))
+    # @partial(jax.jit, static_argnums=(0,))
     def getGradientMinusLogPosterior_ensemble(self, X):
         # Remarks:
         # (i)   second spline data is (d, N, b) shaped
@@ -581,7 +581,7 @@ class gwfast_class(object):
             GN += term1.real 
         return GN
 
-    @partial(jax.jit, static_argnums=(0,))  
+    # @partial(jax.jit, static_argnums=(0,))  
     def getDerivativesMinusLogPosterior_ensemble(self, X):
         nParticles = X.shape[0]
         grad_log_like = jnp.zeros((nParticles, self.DoF))
