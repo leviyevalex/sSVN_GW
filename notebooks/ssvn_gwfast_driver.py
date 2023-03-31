@@ -16,7 +16,8 @@ from scripts.plot_helper_functions import collect_samples
 import corner
 
 #%%
-model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([9,10]))
+# model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([9,10,4]))
+model = gwfast_class(eps=0.5, chi=1, mode='IMRPhenomD', freeze_indicies=np.array([9, 10]))
 # NOTE: 3, 4 are problematic
 # NOTE: Maybe problematic: 5, 6, 7 (particles bunch at corners)
 # NOTE: BIMODAL: 8
@@ -26,10 +27,10 @@ model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([
 from jax.config import config
 config.update("jax_debug_nans", True)
 
-nParticles = 100
+nParticles = 3
 h = model.DoF / 10
 kernelKwargs = {'h':h, 'p':1}
-sampler1 = samplers(model=model, nIterations=200, nParticles=nParticles, profile=False, kernel_type='Lp')
+sampler1 = samplers(model=model, nIterations=3, nParticles=nParticles, profile=False, kernel_type='Lp')
 sampler1.apply(method='reparam_sSVN', eps=1, kernelKwargs=kernelKwargs)
 # %%
 X1 = collect_samples(sampler1.history_path)
