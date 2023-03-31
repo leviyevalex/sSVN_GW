@@ -87,7 +87,8 @@ class samplers:
  
         try:
             # X = self.__newDrawFromPrior_(self.nParticles) # Initial set of particles
-            X = self.model._newDrawFromPrior(self.nParticles) # Initial set of particles
+            X = self.model._newDrawFromPrior_frozen(self.nParticles) # Initial set of particles
+            # X = self.model._newDrawFromPrior(self.nParticles) # Initial set of particles
             eta = self._mapHypercubeToReals(X, self.model.lower_bound, self.model.upper_bound)
             key = jax.random.PRNGKey(0)
             with trange(self.nIterations) as ITER:
@@ -300,7 +301,7 @@ class samplers:
                         X += eps * v_svn + np.sqrt(eps) * v_stc
 
                     elif method == 'reparam_sSVGD':
-                        gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
+                        gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble_frozen(X)
 
                         dxdy = self._jacMapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
                         boundary_correction_grad = self._getBoundaryGradientCorrection(eta)
@@ -327,7 +328,8 @@ class samplers:
 
 
                     elif method == 'reparam_sSVN':
-                        gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
+                        # Note: Modifications make for subset sampling
+                        gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble_frozen(X) # (M2)
 
                         dxdy = self._jacMapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
                         boundary_correction_grad = self._getBoundaryGradientCorrection(eta)
