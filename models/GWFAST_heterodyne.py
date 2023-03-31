@@ -308,6 +308,7 @@ class gwfast_class(object):
                             
         return signal 
 
+
     # @partial(jax.jit, static_argnums=(0,))
     def _getJacobianSignal(self, X, f_grid, det):
         """A vectorized method which computes the Jacobian of the signal model
