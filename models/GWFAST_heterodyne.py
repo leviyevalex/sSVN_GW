@@ -260,7 +260,8 @@ class gwfast_class(object):
                                                    is_chi1chi2 = 'True',
                                                    **dict_params_neglected).squeeze() # (i)
 
-            h0[det] = h0[det].at[-1].set(h0[det][-2]) # (ii)
+            if self.mode == 'IMRPhenomD':
+                h0[det] = h0[det].at[-1].set(h0[det][-2]) # (ii)
 
         return h0
 
