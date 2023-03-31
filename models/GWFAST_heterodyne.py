@@ -124,7 +124,7 @@ class gwfast_class(object):
         priorDict = {}
         priorDict['Mc']      = [29., 39.]                      # [M_solar]      # [29., 39.]
         priorDict['eta']     = [0.1, 0.25]                    # [Unitless]
-        priorDict['dL']      = [0.5, 10.]                        # [GPC]  [1., 4.]
+        priorDict['dL']      = [0.05, 10.]                        # [GPC]  [1., 4.]
         priorDict['theta']   = [0., np.pi]                     # [Rad]
         priorDict['phi']     = [0., 2 * np.pi]                 # [Rad]
         priorDict['iota']    = [0., np.pi]                     # [Rad]
@@ -205,6 +205,18 @@ class gwfast_class(object):
         print('Dense bins: % i bins' % self.nbins_dense)
         self.fgrid_dense = np.linspace(self.fmin, fcut, num=self.nbins_dense + 1).squeeze()
 
+        ###
+        # Modification for gwfast bug where last element in IMRPhenomD waveform comes out 0 (to agree with LAL)
+        # Do not include the cut frequency!
+        self.fgrid_standard = np.linspace(self.fmin, fcut, num=self.nbins_standard + 1).squeeze()[:-1]
+        self.nbins_standard = len(self.fgrid_standard) - 1
+        self.df_standard = (self.fgrid_standard[-1] - self.fgrid_standard[0]) / self.nbins_standard
+
+        self.fgrid_dense = np.linspace(self.fmin, fcut, num=self.nbins_dense + 1).squeeze()[:-1]
+        self.nbins_dense = len(self.fgrid_dense) - 1
+        self.df_dense = (self.fgrid_dense[-1] - self.fgrid_dense[0]) / self.nbins_dense
+
+
     def _initDetectors(self): 
         """Initialize detectors and store PSD interpolated over defined frequency grid
 
@@ -260,8 +272,8 @@ class gwfast_class(object):
                                                    is_chi1chi2 = 'True',
                                                    **dict_params_neglected).squeeze() # (i)
 
-            if self.mode == 'IMRPhenomD':
-                h0[det] = h0[det].at[-1].set(h0[det][-2]) # (ii)
+            # if self.mode == 'IMRPhenomD':
+            #     h0[det] = h0[det].at[-1].set(h0[det][-2]) # (ii)
 
         return h0
 
@@ -625,7 +637,8 @@ class gwfast_class(object):
         for i, param in enumerate(self.gwfast_param_order): # Assuming uniform on all parameters
             low = self.priorDict[param][0]
             high = self.priorDict[param][1]
-            prior_draw[:, i] = np.random.uniform(low=low, high=high, size=n)
+            buffer = (high-low) / 10
+            prior_draw[:, i] = np.random.uniform(low=low+buffer, high=high-buffer, size=n)
         return prior_draw[:, self.active_indicies]
 
     # def fill(self, X_reduced):
