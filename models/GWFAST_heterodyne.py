@@ -14,6 +14,7 @@ import gwfast.signal as signal
 from gwfast.network import DetNet
 import gwfast.gwfastGlobals as glob
 import gwfast.gwfastUtils as utils
+from astropy.cosmology import Planck18
 from opt_einsum import contract
 from functools import partial
 from jax.config import config
@@ -93,31 +94,47 @@ class gwfast_class(object):
 
         """
         self.seconds_per_day = 86400. 
-        tGPS = np.array([1.12625946e+09])
-        tcoal = float(utils.GPSt_to_LMST(tGPS, lat=0., long=0.)) * self.seconds_per_day # [0, 1] 
+
         injParams = dict()
-        injParams['Mc']      = np.array([34.3089283])          # (1)   # (0)               # [M_solar]
-        injParams['eta']     = np.array([0.2485773])           # (2)   # (1)               # [Unitless]
-        injParams['dL']      = np.array([1])               # (3)   # (2)               # [Gigaparsecs]  # [2.634]
-        injParams['theta']   = np.array([2.78560281])          # (4)   # (3)               # [Rad]
-        injParams['phi']     = np.array([1.67687425])          # (5)   # (4)               # [Rad]
-        injParams['iota']    = np.array([2.67548653])          # (6)   # (5)               # [Rad]
-        injParams['psi']     = np.array([0.78539816])          # (7)   # (6)               # [Rad]
-        injParams['tcoal']   = np.array([tcoal])               # (8)   # (7)               # []
-        injParams['Phicoal'] = np.array([1.5])                  # (9)   # (8)               # [Rad]
-        injParams['chi1z']   = np.array([0.27210419])          # (10)  # (9)               # [Unitless]
-        injParams['chi2z']   = np.array([0.33355909])          # (11)  # (10)              # [Unitless]
+        # GW170817
+        z = np.array([0.00980])
+        tGPS = np.array([1187008882.4])
+        injParams['Mc'] = np.array([1.1859])*(1.+z) 
+        injParams['eta'] = np.array([0.24786618323504223]) 
+        injParams['dL'] = Planck18.luminosity_distance(z).value/1000. 
+        injParams['theta'] = np.array([np.pi/2. + 0.4080839999999999]) 
+        injParams['phi'] = np.array([3.4461599999999994])
+        injParams['iota'] = np.array([2.545065595974997]) 
+        injParams['psi'] = np.array([0.])
+        injParams['tcoal'] = utils.GPSt_to_LMST(tGPS, lat=0., long=0.) * self.seconds_per_day # GMST is LMST computed at long = 0° 
+        injParams['Phicoal'] = np.array([0.]) 
+        injParams['chi1z'] = np.array([0.005136138323169717]) 
+        injParams['chi2z'] = np.array([0.003235146993487445]) 
+ 
+        # tGPS = np.array([1.12625946e+09])
+        # tcoal = float(utils.GPSt_to_LMST(tGPS, lat=0., long=0.)) * self.seconds_per_day # [0, 1] 
+        # injParams['Mc']      = np.array([34.3089283])          # (1)   # (0)               # [M_solar]
+        # injParams['eta']     = np.array([0.2485773])           # (2)   # (1)               # [Unitless]
+        # injParams['dL']      = np.array([1])               # (3)   # (2)               # [Gigaparsecs]  # [2.634]
+        # injParams['theta']   = np.array([2.78560281])          # (4)   # (3)               # [Rad]
+        # injParams['phi']     = np.array([1.67687425])          # (5)   # (4)               # [Rad]
+        # injParams['iota']    = np.array([2.67548653])          # (6)   # (5)               # [Rad]
+        # injParams['psi']     = np.array([0.78539816])          # (7)   # (6)               # [Rad]
+        # injParams['tcoal']   = np.array([tcoal])               # (8)   # (7)               # []
+        # injParams['Phicoal'] = np.array([1.5])                  # (9)   # (8)               # [Rad]
+        # injParams['chi1z']   = np.array([0.27210419])          # (10)  # (9)               # [Unitless]
+        # injParams['chi2z']   = np.array([0.33355909])          # (11)  # (10)              # [Unitless]
         self.injParams = injParams
 
         priorDict = {}
-        priorDict['Mc']      = [29., 39.]                      # [M_solar]      # [29., 39.]
+        priorDict['Mc']      = [0.05, 10.]                      # [M_solar]      # [29., 39]
         priorDict['eta']     = [0.1, 0.25]                    # [Unitless]
-        priorDict['dL']      = [0.05, 10.]                        # [GPC]  [1., 4.]
+        priorDict['dL']      = [0.001, 5.]                        # [GPC]  [1., 4.]
         priorDict['theta']   = [0., np.pi]                     # [Rad]
         priorDict['phi']     = [0., 2 * np.pi]                 # [Rad]
         priorDict['iota']    = [0., np.pi]                     # [Rad]
         priorDict['psi']     = [0., np.pi]                     # [Rad]
-        priorDict['tcoal']   = [tcoal - 0.01, tcoal + 0.01]    # []
+        priorDict['tcoal']   = [injParams['tcoal'] - 0.01, injParams['tcoal'] + 0.01]    # []
         priorDict['Phicoal'] = [0., 2 * np.pi]                 # [Rad]
         priorDict['chi1z']   = [-1., 1.]                       # [Unitless]
         priorDict['chi2z']   = [-1., 1.]                       # [Unitless]
