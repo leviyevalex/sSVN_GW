@@ -16,26 +16,42 @@ from scripts.plot_helper_functions import collect_samples
 import corner
 
 #%%
-# model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([9,10,4]))
-model = gwfast_class(eps=0.5, chi=1, mode='IMRPhenomD', freeze_indicies=np.array([9, 10]))
-# NOTE: 3, 4 are problematic
-# NOTE: Maybe problematic: 5, 6, 7 (particles bunch at corners)
-# NOTE: BIMODAL: 8
-# model = gwfast_class(eps=0.5, chi=1, mode='IMRPhenomD')
-
+""" 
+Remarks:
+(i)   3, 4 are problematic
+(ii)  Maybe problematic: 5, 6, 7 (particles bunch at corners)
+(iii) BIMODAL: 8
+"""
+model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([]))
 #%%
 from jax.config import config
 config.update("jax_debug_nans", True)
 
-nParticles = 3
+nParticles = 100
 h = model.DoF / 10
 kernelKwargs = {'h':h, 'p':1}
-sampler1 = samplers(model=model, nIterations=3, nParticles=nParticles, profile=False, kernel_type='Lp')
+sampler1 = samplers(model=model, nIterations=200, nParticles=nParticles, profile=False, kernel_type='Lp')
 sampler1.apply(method='reparam_sSVN', eps=1, kernelKwargs=kernelKwargs)
 # %%
 X1 = collect_samples(sampler1.history_path)
 a = corner.corner(X1, smooth=0.5, labels=list(np.array(model.gwfast_param_order)[model.active_indicies]))
-# a = corner.corner(X1, smooth=0.5, labels=model.gwfast_param_order[model.active_indicies])
+#%%
+from scripts.plot_helper_functions import extract_velocity_norms
+a = extract_velocity_norms(sampler1.history_path)
+
 
 # %%
-a = ['a', 'b', 'c', 'd']
+fig, ax = plt.subplots()
+# ax.plot(a['vsvn'])
+ax.plot(a['vsvgd'])
+
+# %%
+import h5py
+def extract_gmlpt_norm(file, mode='gmlpt_X'):
+    with h5py.File(file, 'r') as hf:
+        iters_performed = hf['metadata']['L'][()]
+        norm_history = np.zeros((iters_performed))
+        for l in range(iters_performed):
+            gmlpt = hf['%i' % l][mode][()]
+            norm_history[l] = np.linalg.norm(gmlpt)
+        return norm_history

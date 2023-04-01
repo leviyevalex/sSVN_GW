@@ -349,12 +349,15 @@ class samplers:
                         UH = jax.scipy.linalg.cholesky(H, lower=False)
 
                         v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt_Y)
-                        v_svn = self._getSVN_direction(kx, v_svgd, UH)
+                        v_svn, alphas = self._getSVN_direction(kx, v_svgd, UH)
 
                         key, subkey = jax.random.split(key)
                         B = jax.random.normal(subkey, (self.dim,)) # standard normal sample
                         v_stc = self._getSVN_v_stc(kx, UH, B)
-                        eta += (v_svn) * eps + v_stc * np.sqrt(eps)
+
+                        jv = self.jv(gkx1, alphas)
+                        eps1 = self.armijoLinesearch(eta, v_svn, gmlpt_Y, self.mlpt_sharp, jv,eps0=eps)
+                        eta += (v_svn) * eps + v_stc * np.sqrt(eps1)
 
                         X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
 
@@ -363,7 +366,7 @@ class samplers:
 
                     # Update progress bar
                     # ITER.set_description('Stepsize %f | Median bandwidth: %f | SVN norm: %f | Noise norm: %f | SVGD norm %f | Dampening %f' % (eps, self._bandwidth_MED(X), np.linalg.norm(v_svn), np.linalg.norm(v_stc), np.linalg.norm(v_svgd),  lamb))
-                    ITER.set_description('Stepsize %f | Median bandwidth: %f' % (eps, self._bandwidth_MED(X)))
+                    ITER.set_description('Stepsize %f | Median bandwidth: %f' % (eps1, self._bandwidth_MED(X)))
 
                     # Store relevant per iteration information
                     with h5py.File(self.history_path, 'a') as f:
@@ -375,9 +378,12 @@ class samplers:
                         #     g.create_dataset('X', data=copy.deepcopy(self._mapRealsToHypercube(X, self.model.lower_bound, self.model.upper_bound)))
                         # g.create_dataset('h', data=copy.deepcopy(h))
                         g.create_dataset('eps', data=copy.deepcopy(eps))
-                        # g.create_dataset('gmlpt', data=copy.deepcopy(gmlpt))
                         g.create_dataset('v_svgd', data=copy.deepcopy(v_svgd))
-                        # g.create_dataset('v_svn', data=copy.deepcopy(v_svn))
+                        if method == 'reparam_sSVN':
+                            g.create_dataset('gmlpt_X', data=copy.deepcopy(gmlpt_X))
+                            g.create_dataset('gmlpt_Y', data=copy.deepcopy(gmlpt_Y))
+                            g.create_dataset('v_svn', data=copy.deepcopy(v_svn))
+                            g.create_dataset('dphi', data=self.dphi(jv, gmlpt_Y, v_svn))
                         g.create_dataset('id', data=copy.deepcopy(self.model.id))
 
                     # Update particles (I'll probably have to individualize this, since mirrored is a bit more involved than this!)
@@ -484,7 +490,7 @@ class samplers:
         # alphas = scipy.linalg.cho_solve((UH, False), v_svgd.flatten()).reshape(self.nParticles, self.DoF)
         alphas = jax.scipy.linalg.cho_solve((UH, False), v_svgd.flatten()).reshape(self.nParticles, self.DoF)
         v_svn = contract('mn, ni -> mi', kx, alphas, backend='jax')
-        return v_svn
+        return v_svn, alphas
 
     @partial(jax.jit, static_argnums=(0,))
     def _getSVN_v_stc(self, kx, UH, B):
@@ -1078,6 +1084,33 @@ class samplers:
 
 #######################################################
 
+
+    def mlpt_sharp(self, eta):
+        # Remarks:
+        # (i) jac returns a N x d matrix, since it is diagonal, not a N x d x d matrix.
+        jac = self._jacMapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
+        X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
+        return self.model.heterodyne_minusLogLikelihood(X) - jnp.log(jnp.abs(jnp.prod(jac, axis=-1)))
+
+    def jv(self, gkx1, alphas):
+        return contract('mnj, ni -> mij', gkx1, alphas)
+
+    def armijoLinesearch(self, X, v, gmlpt, mlpt, jv, eps0=5):
+        beta = 1e-4
+        f = lambda eps: jnp.mean(mlpt(X) - mlpt(X + eps * v) + jnp.log(jnp.abs(jnp.linalg.det(jnp.eye(self.DoF)[jnp.newaxis] + eps * jv))))
+        steps = np.arange(0.1, eps0, 0.1)
+        # d = jnp.sum(gmlpt * v) / self.nParticles - jnp.mean(jnp.trace(jv, axis1=1, axis2=2))
+        for step in reversed(steps):
+            if f(step) > 0:
+            # if f(step) > -beta * step * d:
+                # val = -beta * step * d
+                # print(val)
+                # print('returning stepsize=%f' % step)
+                return step 
+        return 0.01
+
+    def dphi(self, jv, gmlpt, v):
+        return jnp.sum(gmlpt * v) / self.nParticles - jnp.mean(jnp.trace(jv, axis1=1, axis2=2))
 
 
 

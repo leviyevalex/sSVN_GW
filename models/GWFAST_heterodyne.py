@@ -72,45 +72,33 @@ class gwfast_class(object):
         # Form data used in injection
         self.d_dense = {}
         self.d_standard = {}
-        np.random.seed(0)
         for det in self.detsInNet.keys():
-            # corruption_dense = np.random.normal(size=self.nbins_dense + 1)
-            # corruption_dense = 0
-            # self.d_dense[det] = self.h0_dense[det] + corruption_dense
-            # self.d_standard[det] = np.interp(self.fgrid_standard, self.fgrid_dense, self.d_dense[det]).squeeze()
             self.d_dense[det] = self.h0_dense[det] 
             self.d_standard[det] = self.h0_standard[det]
 
-
         # Heterodyned strategy
         self.d_d = self._precomputeDataInnerProduct()
-
         self._reinitialize(chi=chi, eps=eps)
 
-        # self.chi = chi
-        # self.eps = eps
-        # self.getHeterodyneBins(chi=chi, eps=eps)
-        # self.getSummaryData()
-
-        # Debugging
+        # Debugging (ignore)
         self.hj0 = None
-        # Warmup for JIT compile
-        # self._warmup_potential(True)
-        # self._warmup_potential_derivative(True) 
 
     def _initParams(self):
-        # Remarks:
-        # (i)   `tcoal` is accepted in units GMST fraction of a day
-        # (ii)  GPSt_to_LMST returns GMST in units of fraction of day (GMST is LMST computed at long = 0°)
-        # (iii) (GW150914) like parameters
-        # (iv)  Use [tcoal - 3e-7, tcoal + 3e-7] prior when in units of days
+        """ 
+        Remarks:
+        (i)   `tcoal` is accepted in units GMST fraction of a day
+        (ii)  GPSt_to_LMST returns GMST in units of fraction of day (GMST is LMST computed at long = 0°)
+        (iii) (GW150914) like parameters
+        (iv)  Use [tcoal - 3e-7, tcoal + 3e-7] prior when in units of days
+
+        """
         self.seconds_per_day = 86400. 
         tGPS = np.array([1.12625946e+09])
         tcoal = float(utils.GPSt_to_LMST(tGPS, lat=0., long=0.)) * self.seconds_per_day # [0, 1] 
         injParams = dict()
         injParams['Mc']      = np.array([34.3089283])          # (1)   # (0)               # [M_solar]
         injParams['eta']     = np.array([0.2485773])           # (2)   # (1)               # [Unitless]
-        injParams['dL']      = np.array([3])               # (3)   # (2)               # [Gigaparsecs]  # [2.634]
+        injParams['dL']      = np.array([1])               # (3)   # (2)               # [Gigaparsecs]  # [2.634]
         injParams['theta']   = np.array([2.78560281])          # (4)   # (3)               # [Rad]
         injParams['phi']     = np.array([1.67687425])          # (5)   # (4)               # [Rad]
         injParams['iota']    = np.array([2.67548653])          # (6)   # (5)               # [Rad]
@@ -148,7 +136,7 @@ class gwfast_class(object):
         dets = ['L1', 'H1', 'Virgo']
         # dets = ['Virgo']
         print('Using detectors', dets)
-        LV_detectors = {det:all_detectors[det] for det in dets} # (ii) # LV_detectors = {det:all_detectors[det] for det in ['L1']}
+        LV_detectors = {det:all_detectors[det] for det in dets} # (ii) 
         detector_ASD = dict() # (iii)
         detector_ASD['L1']    = 'O3-L1-C01_CLEAN_SUB60HZ-1240573680.0_sensitivity_strain_asd.txt'
         detector_ASD['H1']    = 'O3-H1-C01_CLEAN_SUB60HZ-1251752040.0_sensitivity_strain_asd.txt'
@@ -160,8 +148,6 @@ class gwfast_class(object):
         self.NetDict = LV_detectors
 
         # (v) 
-        # waveform_model = 'IMRPhenomD'
-        # waveform_model = 'TaylorF2'
         waveform_model = self.mode
         if waveform_model == 'TaylorF2':
             self.wf_model = TaylorF2_RestrictedPN() 
@@ -169,7 +155,7 @@ class gwfast_class(object):
             self.wf_model = IMRPhenomD() 
         print('Using waveform model: %s' % waveform_model)
 
-    def _initFrequencyGrid(self, fmin=20, fmax=None): # Checks: X
+    def _initFrequencyGrid(self, fmin=20): # Checks: X
         """
         Setup frequency grids that will be used
         Remarks:                                           
@@ -177,43 +163,26 @@ class gwfast_class(object):
         (ii)  Standard frequency grid setup
         (iii) Once nbins_standard is calculated, df_standard must be updated
         (iv)  Dense frequency setup for heterodyning
+        (v)   gwfast sets h(fcut; theta_0) to 0, causing division by zero errors.
+              This ensures that we do not evaluate the fiducial signal at fcut.
+              Note: This is a hack, and would better be fixed in gwfast. 
         """
         # (i)
         self.fmin = fmin  # 10
-        self.fmax = fmax  # 325
-        fcut = self.wf_model.fcut(**self.injParams)[0]
-        if self.fmax is None:
-            self.fmax = fcut
-        else:
-            fcut = np.where(fcut > self.fmax, self.fmax, fcut)
-        self.fcut = fcut
-        
-        # (ii)
-        signal_duration = 4. # 4 [s]
-        self.df_standard = 1 / signal_duration
-        # self.nbins_standard = int(np.ceil(((self.fmax - self.fmin) / self.df_standard))) # 9000
-        self.nbins_standard = 2000
-        self.df_standard = (self.fmax - self.fmin) / self.nbins_standard # (iii)
-        print('Standard binning scheme: % i bins' % self.nbins_standard)
-        self.fgrid_standard = np.linspace(self.fmin, fcut, num=self.nbins_standard + 1).squeeze()
+        self.fmax = self.wf_model.fcut(**self.injParams)[0]
 
-        # (iv)
-        self.nbins_dense = 10000 
-        # self.nbins_dense = 2000
-        print('NOTE: dense bins have been set to be equal to standard binning!!!')
-        self.df_dense = (self.fmax - self.fmin) / self.nbins_dense
-        print('Dense bins: % i bins' % self.nbins_dense)
-        self.fgrid_dense = np.linspace(self.fmin, fcut, num=self.nbins_dense + 1).squeeze()
 
         ###
-        # Modification for gwfast bug where last element in IMRPhenomD waveform comes out 0 (to agree with LAL)
-        # Do not include the cut frequency!
-        self.fgrid_standard = np.linspace(self.fmin, fcut, num=self.nbins_standard + 1).squeeze()[:-1]
-        self.nbins_standard = len(self.fgrid_standard) - 1
+
+        # (v)
+        self.nbins_standard = 2000
+        self.fgrid_standard = np.linspace(self.fmin, self.fmax, num=self.nbins_standard + 1).squeeze()[:-1]
+        self.nbins_standard -= 1
         self.df_standard = (self.fgrid_standard[-1] - self.fgrid_standard[0]) / self.nbins_standard
 
-        self.fgrid_dense = np.linspace(self.fmin, fcut, num=self.nbins_dense + 1).squeeze()[:-1]
-        self.nbins_dense = len(self.fgrid_dense) - 1
+        self.nbins_dense = 10000
+        self.fgrid_dense = np.linspace(self.fmin, self.fmax, num=self.nbins_dense + 1).squeeze()[:-1]
+        self.nbins_dense -= 1
         self.df_dense = (self.fgrid_dense[-1] - self.fgrid_dense[0]) / self.nbins_dense
 
 
@@ -386,7 +355,7 @@ class gwfast_class(object):
         print('SNR: %f' % np.sqrt(SNR))
         return SNR2
 
-    # @partial(jax.jit, static_argnums=(0,))
+    @partial(jax.jit, static_argnums=(0,))
     def standard_minusLogLikelihood(self, X): # Checks: XX
         """ 
         """
@@ -398,7 +367,12 @@ class gwfast_class(object):
             log_likelihood += 0.5 * self.square_norm(residual, self.PSD_standard[det], self.df_standard) 
         return log_likelihood
 
-    # @partial(jax.jit, static_argnums=(0,))
+
+
+
+
+
+    @partial(jax.jit, static_argnums=(0,))
     def standard_gradientMinusLogLikelihood(self, X): # Checks: XX
         # Remarks:
         # (i) Jacobian is (d, N, f) shaped. sum over final axis gives (d, N), then transpose to give (N, d)
@@ -411,7 +385,7 @@ class gwfast_class(object):
             grad_log_like += self.overlap(jacSignal, residual, self.PSD_standard[det], self.df_standard).real
         return grad_log_like
     
-    # @partial(jax.jit, static_argnums=(0,))
+    @partial(jax.jit, static_argnums=(0,))
     def standard_GNHessianMinusLogLikelihood(self, X): # Checks: XX
         nParticles = X.shape[0]
         GN = jnp.zeros((nParticles, self.DoF, self.DoF))
@@ -595,10 +569,10 @@ class gwfast_class(object):
         GN = jnp.zeros((nParticles, self.DoF, self.DoF))
         for det in self.detsInNet.keys():
             term1 = contract('b, jNb, kNb -> Njk', self.B0[det], rj0[det].conjugate(), rj0[det], backend='jax')
-            # term2 = contract('b, jNb, kNb -> Njk', self.B1[det], rj0[det].conjugate(), rj1[det], backend='jax')
-            # term3 = contract('Nkj -> Njk', term2.conjugate(), backend='jax')
-            # GN += term1.real + term2.real + term3.real
-            GN += term1.real 
+            term2 = contract('b, jNb, kNb -> Njk', self.B1[det], rj0[det].conjugate(), rj1[det], backend='jax')
+            term3 = contract('Nkj -> Njk', term2.conjugate(), backend='jax')
+            GN += term1.real + term2.real + term3.real
+            # GN += term1.real 
         return GN
 
     # @partial(jax.jit, static_argnums=(0,))  
@@ -620,7 +594,8 @@ class gwfast_class(object):
     def getDerivativesMinusLogPosterior_ensemble_frozen(self, X_reduced):
         nParticles = X_reduced.shape[0]
         X = jnp.zeros((nParticles, self.DoF_total))
-        X = X.at[:, self.freeze_indicies].set(jnp.tile(self.true_params[self.freeze_indicies], nParticles).reshape(nParticles, len(self.freeze_indicies)))
+        if len(self.freeze_indicies) > 0:
+            X = X.at[:, self.freeze_indicies].set(jnp.tile(self.true_params[self.freeze_indicies], nParticles).reshape(nParticles, len(self.freeze_indicies)))
         X = X.at[:, self.active_indicies].set(X_reduced)
         grad_log_like = jnp.zeros((nParticles, self.DoF_total))
         GN = jnp.zeros((nParticles, self.DoF_total, self.DoF_total))
@@ -629,8 +604,15 @@ class gwfast_class(object):
             r0j, r1j = self.getSecondSplineData(X, det)
             grad_log_like += \
             jnp.sum((self.B0[det] * r0j.conjugate() * (r0-1)) + (self.B1[det] * (r0j.conjugate() * r1 + r1j.conjugate() * (r0-1))), axis=-1).T.real 
+
+            # term1 = contract('b, jNb, kNb -> Njk', self.B0[det], r0j.conjugate(), r0j, backend='jax')
+            # term2 = contract('b, jNb, kNb -> Njk', self.B1[det], r0j.conjugate(), r1j, backend='jax')
+            # term3 = contract('Nkj -> Njk', term2.conjugate(), backend='jax')
+            # GN += term1.real + term2.real + term3.real
+
             term1 = contract('b, jNb, kNb -> Njk', self.B0[det], r0j.conjugate(), r0j, backend='jax')
             GN += term1.real 
+
         return grad_log_like[:, self.active_indicies], GN[:, self.active_indicies][:, :, self.active_indicies]
 
     def _newDrawFromPrior_frozen(self, n):
@@ -827,3 +809,17 @@ class gwfast_class(object):
     #         jac_r0[det] = jac_r[det][..., :-1]
     #         jac_r1[det] = (jac_r[det][..., 1:] - jac_r[det][..., :-1]) / self.bin_widths
     #     return jac_r0, jac_r1
+
+
+                
+        # (ii)
+        # self.nbins_standard = 2000
+        # self.df_standard = (self.fmax - self.fmin) / self.nbins_standard # (iii)
+        # print('Standard binning scheme: % i bins' % self.nbins_standard)
+        # self.fgrid_standard = np.linspace(self.fmin, self.fmax, num=self.nbins_standard + 1).squeeze()
+
+        # # (iv)
+        # self.nbins_dense = 10000 # 2000
+        # self.df_dense = (self.fmax - self.fmin) / self.nbins_dense
+        # print('Dense bins: % i bins' % self.nbins_dense)
+        # self.fgrid_dense = np.linspace(self.fmin, self.fmax, num=self.nbins_dense + 1).squeeze()

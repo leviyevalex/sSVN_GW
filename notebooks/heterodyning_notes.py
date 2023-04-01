@@ -1,39 +1,44 @@
 #%%
-import jax.numpy as jnp
 import jax
+import jax.numpy as jnp
 import numpy as np
-import os
-import time
-import matplotlib.pyplot as plt
-import gwfast.signal as signal
-from gwfast.network import DetNet
-from opt_einsum import contract
-from functools import partial
 from jax.config import config
-import gwfast.gwfastUtils as utils
-import sys
+import matplotlib.pyplot as plt
+import sys, os
 from pprint import pprint
 sys.path.append("..")
 from models.GWFAST_heterodyne import gwfast_class
 config.update("jax_enable_x64", True)
 
-#%%##################################
-# Define class
-#####################################
-# jax.disable_jit()
-model = gwfast_class(chi=1, eps=0.5)
+
+model = gwfast_class(chi=1, eps=0.5, mode='TaylorF2')
 dets = model.detsInNet.keys()
 
-#%%################################################
-# Check heterodyned and standard likelihood errors
-###################################################
+#%%#######################################################
+# Heterodyning significantly reduces oscillatory behavior
+##########################################################
+det = 'L1'
+fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(10,2))
+x = model._newDrawFromPrior(1)
+# for det in dets:
+h = model.getSignal(x, model.fgrid_standard, det)
+ax[0].plot(model.fgrid_standard, h[0].real, label='h')
+ax[1].plot(model.fgrid_standard, (h[0] / model.h0_standard[det]).real, label='r')
+ax[0].set_xlabel('Frequency (Hz)')
+ax[1].set_xlabel('Frequency (Hz)')
+ax[0].legend()
+ax[1].legend()
+fig.show()
+
+#%%###################################################
+# Relative error b/w heterodyne, standard likelihoods
+######################################################
 fig, ax = plt.subplots()
 nParticles = 1000
 X = model._newDrawFromPrior(nParticles)
 test1 = model.standard_minusLogLikelihood(X)
 test2 = model.heterodyne_minusLogLikelihood(X) 
 percent_change = (test1 - test2) / test1 * 100
-# Remark: Observe that the heterodyne approximates from below!!! 
 fig, ax = plt.subplots()
 counts, bins = np.histogram(percent_change, bins=30)
 ax.stairs(counts, bins, label='eps=%.2f, chi=%.2f' % (model.eps, model.chi))
@@ -42,112 +47,12 @@ ax.set_xlabel('Percentage error')
 ax.set_title('Distribution of log-likelihood errors over prior support')
 ax.legend()
 
-#%%##################################################
-# (1) Lets see what the original function looks like
-# If we want, we can also see if the PSD and original signal have compatible units
-det = 'L1'
-fig, ax = plt.subplots()
-for det in dets:
-    ax.plot(model.fgrid_dense, model.h0_dense[det], label=det)
-ax.set_ylabel('Strain')
-ax.set_xlabel('Frequency (Hz)')
-ax.set_title('Original injected signal')
-ax.legend()
-fig.show()
-
-#%%#########################################################
-# Studying convergence properties of various terms w.r.t grid
-ans_1 = []
-ans_2 = []
-nParticles = 1
-X = model._newDrawFromPrior(nParticles)
-full_grid_idx = np.arange(model.nbins_dense)
-# for gridsize in [100, 200, 300, 500, 800, 1000]:#, 2000, 3000, 5000, 6000, 8000]:
-# for gridsize in [200, 300]:
-for gridsize in [50, 100]:
-# for gridsize in (np.floor(np.linspace(500,10000, 200))).astype('int'):
-    subgrid_idx = np.round(np.linspace(0, len(full_grid_idx)-1, num=gridsize)).astype(int)
-    df = model.fgrid_dense[subgrid_idx][1:] - model.fgrid_dense[subgrid_idx][:-1]
-    PSD = {}
-    d = {}
-    for det in dets:
-        PSD[det] = jnp.interp(model.fgrid_dense[subgrid_idx], model.detsInNet[det].strainFreq, model.detsInNet[det].noiseCurve, left=1., right=1.).squeeze()
-        d[det] = model.d_dense[det][subgrid_idx]
-    hj0 = model._getJacobianSignal(model.true_params[np.newaxis], model.fgrid_dense[subgrid_idx])
-    # h = model.getSignal(X, model.fgrid_dense[subgrid_idx])
-    res_1 = model.overlap(hj0, d, PSD, df)
-    res_2 = model.overlap_trap(hj0, d, PSD, model.fgrid_dense[subgrid_idx])
-    # res = model.square_norm(h, PSD, df)
-    output_1 = 0
-    output_2 = 0
-    for det in dets:
-        output_1 += res_1[det].real
-        output_2 += res_2[det].real
-    ans_1.append(output_1)
-    ans_2.append(output_2)
-
-#%%
-for d in range(11):
-    timeseries = []
-    for i in range(len(ans)):
-        timeseries.append(ans[i][0, d])
-    fig, ax = plt.subplots()
-    ax.plot([100, 200, 300, 500, 800, 1000], timeseries, label=d)
-    ax.set_ylabel('Overlap')
-    ax.set_xlabel('nbins')
-    ax.set_title('<h_,j, d> overlap')
-    ax.legend()
-    fig.show()
-
-
-
-#%%
-grid = (np.floor(np.linspace(500,10000, 200))).astype('int')
-fig, ax = plt.subplots()
-ax.plot(grid, ans)
-ax.set_ylabel('Overlap')
-ax.set_xlabel('nbins')
-ax.set_title('Re<h,h> convergence w.r.t nbins')
-ax.legend()
-fig.show()
-
-
-
-
-
-
-
-#%%############################################
-# (2) Lets see what the r heterodyne looks like
-# nParticles = 10
-# X = model._newDrawFromPrior(nParticles)
-fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(16,4))
-heteros = model.r_heterodyne(X, model.fgrid_dense) 
-for i in range(nParticles):
-    ax[0].plot(model.fgrid_dense, heteros['L1'][i].real)
-    # ax[1].scatter(model.bin_edges, heteros['L1'][i][model.indicies_kept])
-    ax[1].plot(model.bin_edges, heteros['L1'][i][model.indicies_kept])
-ax[0].set_ylabel('Amplitude')
-ax[0].set_xlabel('Frequency (Hz)')
-ax[1].set_ylabel('Amplitude')
-ax[1].set_xlabel('Frequency (Hz)')
-ax[0].set_title('Heterodyne over dense grid')
-ax[1].set_title('Heterodyne over sparse grid')
-# ax[0].legend()
-# ax[1].legend()
-fig.tight_layout()
-fig.show()
-
-
-
-
-# Starting here!
-#%%################################################
-# Check heterodyned and standard gradient errors
-###################################################
+#%%############################################################
+# Relative error b/w heterodyne, standard likelihood gradients
+###############################################################
 nParticles = 10
 for i in range(20):
-    print(i)
+    print('Calculating %ith chunk' % i)
     X = model._newDrawFromPrior(nParticles)
     test1 = np.array(model.getGradientMinusLogPosterior_ensemble(X))
     test2 = np.array(model.standard_gradientMinusLogLikelihood(X))
@@ -158,7 +63,6 @@ for i in range(20):
       percent_change = np.concatenate((percent_change, np.abs((test1 - test2) / test2) * 100), axis=0)
       store_samples = np.concatenate((store_samples, X), axis=0)
 
-#%% Get distribution of errors for each derivative component
 fig, ax = plt.subplots(nrows=11, ncols=1, figsize=(4,20))
 dict_variances = {}
 for i in range(model.DoF):
