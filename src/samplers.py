@@ -329,7 +329,14 @@ class samplers:
 
                     elif method == 'reparam_sSVN':
                         # Note: Modifications make for subset sampling
+
                         gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble_frozen(X) # (M2)
+
+                        # Annealing modification
+                        gamma = self._hyperbolic_schedule(iter_, self.nIterations)
+                        gmlpt_X = gmlpt_X * gamma
+                        Hmlpt_X = Hmlpt_X * gamma
+                        # Q: Better to anneal constrained or unconstrained posterior?
 
                         dxdy = self._jacMapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
                         boundary_correction_grad = self._getBoundaryGradientCorrection(eta)
@@ -338,6 +345,8 @@ class samplers:
                         gmlpt_Y = dxdy * gmlpt_X + boundary_correction_grad
                         Hmlpt_Y = contract('Ni, Nj, Nij -> Nij', dxdy, dxdy, Hmlpt_X, backend='jax') 
                         Hmlpt_Y = Hmlpt_Y.at[:, jnp.array(range(self.DoF)), jnp.array(range(self.DoF))].add(boundary_correction_hess)
+
+
 
                         M = jnp.mean(Hmlpt_Y, axis=0) # jnp.eye(self.DoF)
                         kernelKwargs['M'] = M
@@ -356,8 +365,9 @@ class samplers:
                         v_stc = self._getSVN_v_stc(kx, UH, B)
 
                         jv = self.jv(gkx1, alphas)
-                        eps1 = self.armijoLinesearch(eta, v_svn, gmlpt_Y, self.mlpt_sharp, jv,eps0=eps)
-                        eta += (v_svn) * eps + v_stc * np.sqrt(eps1)
+                        # eps1 = self.armijoLinesearch(eta, v_svn, gmlpt_Y, self.mlpt_sharp, jv, gamma=gamma, eps0=eps)
+                        # eta += (v_svn) * eps + v_stc * np.sqrt(eps1)
+                        eta += (v_svn) * eps + v_stc * np.sqrt(eps)
 
                         X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
 
@@ -366,7 +376,9 @@ class samplers:
 
                     # Update progress bar
                     # ITER.set_description('Stepsize %f | Median bandwidth: %f | SVN norm: %f | Noise norm: %f | SVGD norm %f | Dampening %f' % (eps, self._bandwidth_MED(X), np.linalg.norm(v_svn), np.linalg.norm(v_stc), np.linalg.norm(v_svgd),  lamb))
-                    ITER.set_description('Stepsize %f | Median bandwidth: %f' % (eps1, self._bandwidth_MED(X)))
+                    # ITER.set_description('Stepsize %f | Median bandwidth: %f' % (eps1, self._bandwidth_MED(X)))
+                    ITER.set_description('Stepsize %f | Median bandwidth: %f' % (eps, self._bandwidth_MED(X)))
+
 
                     # Store relevant per iteration information
                     with h5py.File(self.history_path, 'a') as f:
@@ -1095,8 +1107,9 @@ class samplers:
     def jv(self, gkx1, alphas):
         return contract('mnj, ni -> mij', gkx1, alphas)
 
-    def armijoLinesearch(self, X, v, gmlpt, mlpt, jv, eps0=5):
+    def armijoLinesearch(self, X, v, gmlpt, mlpt, jv, gamma=1, eps0=5):
         beta = 1e-4
+        mlpt = lambda x: gamma * mlpt(x) # adjust for annealing
         f = lambda eps: jnp.mean(mlpt(X) - mlpt(X + eps * v) + jnp.log(jnp.abs(jnp.linalg.det(jnp.eye(self.DoF)[jnp.newaxis] + eps * jv))))
         steps = np.arange(0.1, eps0, 0.1)
         # d = jnp.sum(gmlpt * v) / self.nParticles - jnp.mean(jnp.trace(jv, axis1=1, axis2=2))

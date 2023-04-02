@@ -9,10 +9,30 @@ from pprint import pprint
 sys.path.append("..")
 from models.GWFAST_heterodyne import gwfast_class
 config.update("jax_enable_x64", True)
-
-
-model = gwfast_class(chi=1, eps=0.5, mode='TaylorF2')
+model = gwfast_class(chi=1, eps=0.5, mode='IMRPhenomD')
 dets = model.detsInNet.keys()
+
+#%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%############
+# The signals must be O(1e-20)
+#####################################################################
+fig, ax = plt.subplots()
+for det in ['L1', 'H1', 'Virgo']:
+    ax.plot(model.fgrid_standard, model.h0_standard[det], label=det)
+ax.set_xlabel('Frequency (Hz)')
+ax.set_ylabel('Strain')
+ax.set_title('Fiducial signals')
+ax.legend()
+fig.show()
+
+#%%##################################################################
+# The PSD must be O(1e-40)
+#####################################################################
+fig, ax = plt.subplots()
+for det in ['L1', 'H1', 'Virgo']:
+    ax.loglog(model.fgrid_standard, model.PSD_standard[det], label=det)
+ax.set_xlabel('Frequency (Hz)')
+ax.set_title('PSD')
+ax.legend()
 
 #%%#######################################################
 # Heterodyning significantly reduces oscillatory behavior
@@ -20,7 +40,6 @@ dets = model.detsInNet.keys()
 det = 'L1'
 fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(10,2))
 x = model._newDrawFromPrior(1)
-# for det in dets:
 h = model.getSignal(x, model.fgrid_standard, det)
 ax[0].plot(model.fgrid_standard, h[0].real, label='h')
 ax[1].plot(model.fgrid_standard, (h[0] / model.h0_standard[det]).real, label='r')
@@ -39,7 +58,6 @@ X = model._newDrawFromPrior(nParticles)
 test1 = model.standard_minusLogLikelihood(X)
 test2 = model.heterodyne_minusLogLikelihood(X) 
 percent_change = (test1 - test2) / test1 * 100
-fig, ax = plt.subplots()
 counts, bins = np.histogram(percent_change, bins=30)
 ax.stairs(counts, bins, label='eps=%.2f, chi=%.2f' % (model.eps, model.chi))
 ax.set_ylabel('Count')
@@ -77,6 +95,63 @@ for i in range(model.DoF):
     dict_variances[var_name] = variance
 fig.tight_layout()
 pprint(dict_variances)
+
+#%%
+def standard_gradientMinusLogLikelihood(self=model, X): # Checks: XX
+    # Remarks:
+    # (i) Jacobian is (d, N, f) shaped. sum over final axis gives (d, N), then transpose to give (N, d)
+    nParticles = X.shape[0]
+    grad_log_like = jnp.zeros((nParticles, self.DoF))
+    for det in self.detsInNet.keys():
+        template  = self.getSignal(X, self.fgrid_standard, det)
+        jacSignal = self._getJacobianSignal(X, self.fgrid_standard, det)
+        residual  = template - self.d_standard[det][np.newaxis, ...]
+        grad_log_like += self.overlap(jacSignal, residual, self.PSD_standard[det], self.df_standard).real
+    return grad_log_like
+
+#%%
+y = model.standard_minusLogLikelihood(x)
+#%%###############################################
+# Confirm that gwfast derivatives are consistant
+##################################################
+x = model._newDrawFromPrior(1)
+func = jax.jacrev(model.standard_minusLogLikelihood)
+test1 = func(x)
+test2 = model.standard_gradientMinusLogLikelihood(x)
+np.allclose(test1, test2)
+
+#%%###############################################
+# Confirm heterodyne derivative is properly coded
+##################################################
+x = model._newDrawFromPrior(1)
+func = jax.jacrev(model.heterodyne_minusLogLikelihood)
+test1 = func(x)
+test2 = model.getGradientMinusLogPosterior_ensemble(x)
+np.allclose(test1, test2)
+
+
+
+#%%
+#%%
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 #%% Extract good and bad samples for investigation
 # Remark: We prefer sticking with the id's because of memory constraints
@@ -466,7 +541,9 @@ from itertools import combinations
 pairs = list(combinations(model.gwfast_param_order, 2))
 for pair in pairs:
     print(pair)
-    model.getCrossSection(pair[0], pair[1], model.standard_minusLogLikelihood, 100)
+    # model.getCrossSection(pair[0], pair[1], model.standard_minusLogLikelihood, 100)
+    model.getCrossSection(pair[0], pair[1], model.heterodyne_minusLogLikelihood, 200)
+
 
 
 

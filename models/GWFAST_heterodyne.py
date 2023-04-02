@@ -96,6 +96,7 @@ class gwfast_class(object):
         self.seconds_per_day = 86400. 
 
         injParams = dict()
+
         # GW170817
         z = np.array([0.00980])
         tGPS = np.array([1187008882.4])
@@ -106,11 +107,12 @@ class gwfast_class(object):
         injParams['phi'] = np.array([3.4461599999999994])
         injParams['iota'] = np.array([2.545065595974997]) 
         injParams['psi'] = np.array([0.])
-        injParams['tcoal'] = utils.GPSt_to_LMST(tGPS, lat=0., long=0.) * self.seconds_per_day # GMST is LMST computed at long = 0° 
+        injParams['tcoal'] = np.array(utils.GPSt_to_LMST(tGPS, lat=0., long=0.)) * self.seconds_per_day # GMST is LMST computed at long = 0° 
         injParams['Phicoal'] = np.array([0.]) 
         injParams['chi1z'] = np.array([0.005136138323169717]) 
         injParams['chi2z'] = np.array([0.003235146993487445]) 
  
+        # GW150914
         # tGPS = np.array([1.12625946e+09])
         # tcoal = float(utils.GPSt_to_LMST(tGPS, lat=0., long=0.)) * self.seconds_per_day # [0, 1] 
         # injParams['Mc']      = np.array([34.3089283])          # (1)   # (0)               # [M_solar]
@@ -127,14 +129,17 @@ class gwfast_class(object):
         self.injParams = injParams
 
         priorDict = {}
-        priorDict['Mc']      = [0.05, 10.]                      # [M_solar]      # [29., 39]
-        priorDict['eta']     = [0.1, 0.25]                    # [Unitless]
-        priorDict['dL']      = [0.001, 5.]                        # [GPC]  [1., 4.]
+        # 1.19751182
+        # 1.19753182
+        priorDict['Mc']      = [1.19750182, 1.19754182]                      # [M_solar]      # [29., 39]
+        # priorDict['Mc']      = [1.1974, 1.1977]                      # [M_solar]      # [29., 39]
+        priorDict['eta']     = [0.24, 0.25]                    # [Unitless]
+        priorDict['dL']      = [0.001, 0.2]                        # [GPC]  [1., 4.]
         priorDict['theta']   = [0., np.pi]                     # [Rad]
         priorDict['phi']     = [0., 2 * np.pi]                 # [Rad]
         priorDict['iota']    = [0., np.pi]                     # [Rad]
         priorDict['psi']     = [0., np.pi]                     # [Rad]
-        priorDict['tcoal']   = [injParams['tcoal'] - 0.01, injParams['tcoal'] + 0.01]    # []
+        priorDict['tcoal']   = [injParams['tcoal'][0] - 0.001, injParams['tcoal'][0] + 0.001]    # []
         priorDict['Phicoal'] = [0., 2 * np.pi]                 # [Rad]
         priorDict['chi1z']   = [-1., 1.]                       # [Unitless]
         priorDict['chi2z']   = [-1., 1.]                       # [Unitless]
@@ -155,9 +160,16 @@ class gwfast_class(object):
         print('Using detectors', dets)
         LV_detectors = {det:all_detectors[det] for det in dets} # (ii) 
         detector_ASD = dict() # (iii)
-        detector_ASD['L1']    = 'O3-L1-C01_CLEAN_SUB60HZ-1240573680.0_sensitivity_strain_asd.txt'
-        detector_ASD['H1']    = 'O3-H1-C01_CLEAN_SUB60HZ-1251752040.0_sensitivity_strain_asd.txt'
-        detector_ASD['Virgo'] = 'O3-V1_sensitivity_strain_asd.txt'
+
+        # O2 PSD
+        detector_ASD['L1']    = '2017-08-06_DCH_C02_L1_O2_Sensitivity_strain_asd.txt'
+        detector_ASD['H1']    = '2017-06-10_DCH_C02_H1_O2_Sensitivity_strain_asd.txt'
+        detector_ASD['Virgo'] = 'Hrec_hoft_V1O2Repro2A_16384Hz.txt'
+
+        # O3 PSD
+        # detector_ASD['L1']    = 'O3-L1-C01_CLEAN_SUB60HZ-1240573680.0_sensitivity_strain_asd.txt'
+        # detector_ASD['H1']    = 'O3-H1-C01_CLEAN_SUB60HZ-1251752040.0_sensitivity_strain_asd.txt'
+        # detector_ASD['Virgo'] = 'O3-V1_sensitivity_strain_asd.txt'
 
         LV_detectors['L1']['psd_path']    = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['L1']) # (iv) 
         LV_detectors['H1']['psd_path']    = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['H1'])
@@ -197,7 +209,7 @@ class gwfast_class(object):
         self.nbins_standard -= 1
         self.df_standard = (self.fgrid_standard[-1] - self.fgrid_standard[0]) / self.nbins_standard
 
-        self.nbins_dense = 10000
+        self.nbins_dense = 100000
         self.fgrid_dense = np.linspace(self.fmin, self.fmax, num=self.nbins_dense + 1).squeeze()[:-1]
         self.nbins_dense -= 1
         self.df_dense = (self.fgrid_dense[-1] - self.fgrid_dense[0]) / self.nbins_dense
@@ -384,11 +396,6 @@ class gwfast_class(object):
             log_likelihood += 0.5 * self.square_norm(residual, self.PSD_standard[det], self.df_standard) 
         return log_likelihood
 
-
-
-
-
-
     @partial(jax.jit, static_argnums=(0,))
     def standard_gradientMinusLogLikelihood(self, X): # Checks: XX
         # Remarks:
@@ -438,8 +445,9 @@ class gwfast_class(object):
         f_star = self.fmax * np.heaviside(gamma, 0.5) + self.fmin * np.heaviside(-gamma, 0.5) # (i) 
         delta = lambda f_minus, f_plus: 2 * np.pi * chi * np.sum(np.abs((f_plus / f_star) ** gamma - (f_minus/f_star) ** gamma))
         delta_new = lambda f_minus, f_plus: 2 * np.pi * chi * np.sum(np.abs((f_plus[:, np.newaxis] / f_star) ** gamma - (f_minus[:, np.newaxis] / f_star) ** gamma), axis=-1)
-        delta0 = np.min(delta_new(self.fgrid_dense[:-1], self.fgrid_dense[1:]))
+        delta0 = np.max(delta_new(self.fgrid_dense[:-1], self.fgrid_dense[1:]))
         if eps < delta0:
+            print('WARNING: max phase change in a bin is %f' % delta0)
             print('Changing epsilon from %f to %f' % (eps, delta0))
             eps = delta0
 
@@ -452,9 +460,12 @@ class gwfast_class(object):
             else:
                 d = delta(self.fgrid_dense[index_f_minus], self.fgrid_dense[j])
                 if d > eps:
-                    j -= 1
-                    subindex.append(j)
-                    index_f_minus = j
+                    if j - index_f_minus == 1:
+                        subindex.append(j)
+                    else:
+                        j -= 1
+                        subindex.append(j)
+                        index_f_minus = j
             j += 1
 
         self.indicies_kept = np.array(subindex)
@@ -514,7 +525,6 @@ class gwfast_class(object):
                 data[det] = sumBins(integrand, self.indicies_kept)
 
         return A0, A1, B0, B1, C0, C1, B2
-
 
     def getFirstSplineData(self, X, det):
         """ 
@@ -580,17 +590,17 @@ class gwfast_class(object):
         return grad_log_like
 
     # @partial(jax.jit, static_argnums=(0,))
-    def getGNHessianMinusLogPosterior_ensemble(self, X):
-        nParticles = X.shape[0]
-        rj0, rj1 = self.getSecondSplineData(X)
-        GN = jnp.zeros((nParticles, self.DoF, self.DoF))
-        for det in self.detsInNet.keys():
-            term1 = contract('b, jNb, kNb -> Njk', self.B0[det], rj0[det].conjugate(), rj0[det], backend='jax')
-            term2 = contract('b, jNb, kNb -> Njk', self.B1[det], rj0[det].conjugate(), rj1[det], backend='jax')
-            term3 = contract('Nkj -> Njk', term2.conjugate(), backend='jax')
-            GN += term1.real + term2.real + term3.real
-            # GN += term1.real 
-        return GN
+    # def getGNHessianMinusLogPosterior_ensemble(self, X):
+    #     nParticles = X.shape[0]
+    #     rj0, rj1 = self.getSecondSplineData(X)
+    #     GN = jnp.zeros((nParticles, self.DoF, self.DoF))
+    #     for det in self.detsInNet.keys():
+    #         term1 = contract('b, jNb, kNb -> Njk', self.B0[det], rj0[det].conjugate(), rj0[det], backend='jax')
+    #         term2 = contract('b, jNb, kNb -> Njk', self.B1[det], rj0[det].conjugate(), rj1[det], backend='jax')
+    #         term3 = contract('Nkj -> Njk', term2.conjugate(), backend='jax')
+    #         GN += term1.real + term2.real + term3.real
+    #         # GN += term1.real 
+    #     return GN
 
     # @partial(jax.jit, static_argnums=(0,))  
     def getDerivativesMinusLogPosterior_ensemble(self, X):
