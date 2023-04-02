@@ -68,7 +68,7 @@ class samplers:
         kernel_class = kernels(nParticles=self.nParticles, DoF=self.DoF, kernel_type=kernel_type)
         self._getKernelWithDerivatives = kernel_class.getKernelWithDerivatives
 
-    def apply(self, kernelKwargs, method='SVGD', eps=0.1):
+    def apply(self, kernelKwargs, method='SVGD', eps=0.1, schedule=None):
         """
         Evolves a set of particles according to (method) with step-size (eps).
         Args:
@@ -333,9 +333,9 @@ class samplers:
                         gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble_frozen(X) # (M2)
 
                         # Annealing modification
-                        gamma = self._hyperbolic_schedule(iter_, self.nIterations)
-                        gmlpt_X = gmlpt_X * gamma
-                        Hmlpt_X = Hmlpt_X * gamma
+                        # gamma = self._hyperbolic_schedule(iter_, self.nIterations)
+                        gmlpt_X = gmlpt_X * schedule(iter_, self.nIterations)
+                        Hmlpt_X = Hmlpt_X * schedule(iter_, self.nIterations)
                         # Q: Better to anneal constrained or unconstrained posterior?
 
                         dxdy = self._jacMapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)

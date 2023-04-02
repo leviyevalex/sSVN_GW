@@ -22,11 +22,8 @@ Remarks:
 (ii)  Maybe problematic: 5, 6, 7 (particles bunch at corners)
 (iii) BIMODAL: 8
 """
-model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([1, 2, 3, 4, 6, 7, 8, 9, 10]))
-#%%
-
-
-
+model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([2, 3, 4, 5, 6, 7, 8, 9, 10]))
+# Working: 0, 5, 
 
 #%%
 from jax.config import config
@@ -35,12 +32,48 @@ config.update("jax_debug_nans", True)
 nParticles = 100
 h = model.DoF / 10
 # kernelKwargs = {'h':h, 'p':1}
-kernelKwargs = {'h':h, 'p':2}
+
+def _hyperbolic_schedule(t, T, c=1.3, p=5):
+    """
+    Hyperbolic annealing schedule
+    Args:
+        t (int): Current iteration
+        T (int): Total number of iterations
+        c (float): Controls where transition begins
+        p (float): Exponent determining speed of transition between phases
+
+    Returns: (float)
+
+    """
+    return np.tanh((c * t / T) ** p)
+
+def _cyclic_schedule(t, T, p=1, C=2):
+    """
+    Cyclic annealing schedule
+    Args:
+        t (int): Current iteration
+        T (int): Total number of iterations
+        p (float): Exponent determining speed of transition between phases
+        C (int): Number of cycles
+
+    Returns:
+
+    """
+    tmp = T / C
+    return (np.mod(t, tmp) / tmp) ** p
+#%%
 sampler1 = samplers(model=model, nIterations=200, nParticles=nParticles, profile=False, kernel_type='Lp')
-sampler1.apply(method='reparam_sSVN', eps=1, kernelKwargs=kernelKwargs)
+kernelKwargs = {'h':h, 'p':1}
+sampler1.apply(method='reparam_sSVN', eps=1, kernelKwargs=kernelKwargs, schedule=_cyclic_schedule)
+
+
+
 # %%
 X1 = collect_samples(sampler1.history_path)
 a = corner.corner(X1, smooth=0.5, labels=list(np.array(model.gwfast_param_order)[model.active_indicies]))
+
+
+
 #%%
 from scripts.plot_helper_functions import extract_velocity_norms
 a = extract_velocity_norms(sampler1.history_path)
