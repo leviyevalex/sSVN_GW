@@ -9,7 +9,7 @@ from pprint import pprint
 sys.path.append("..")
 from models.GWFAST_heterodyne import gwfast_class
 config.update("jax_enable_x64", True)
-model = gwfast_class(chi=1, eps=0.5, mode='IMRPhenomD')
+model = gwfast_class(chi=1, eps=0.5, mode='TaylorF2') # IMRPhenomD | TaylorF2
 dets = model.detsInNet.keys()
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%############
@@ -64,6 +64,16 @@ ax.set_ylabel('Count')
 ax.set_xlabel('Percentage error')
 ax.set_title('Distribution of log-likelihood errors over prior support')
 ax.legend()
+
+#%%###########################################################
+# Plot cross sections
+##############################################################
+from itertools import combinations
+pairs = list(combinations(model.gwfast_param_order, 2))
+for pair in pairs:
+    print(pair)
+    # model.getCrossSection(pair[0], pair[1], model.standard_minusLogLikelihood, 100)
+    model.getCrossSection(pair[0], pair[1], model.heterodyne_minusLogLikelihood, 200)
 
 #%%############################################################
 # Relative error b/w heterodyne, standard likelihood gradients
@@ -534,15 +544,7 @@ for det in dets:
     ax.loglog(model.fgrid_standard, model.PSD_standard[det], label=det)
     ax.legend()
 
-#%%###########################################################
-# Lets see what the cross sections of the likelihood look like
-##############################################################
-from itertools import combinations
-pairs = list(combinations(model.gwfast_param_order, 2))
-for pair in pairs:
-    print(pair)
-    # model.getCrossSection(pair[0], pair[1], model.standard_minusLogLikelihood, 100)
-    model.getCrossSection(pair[0], pair[1], model.heterodyne_minusLogLikelihood, 200)
+
 
 
 

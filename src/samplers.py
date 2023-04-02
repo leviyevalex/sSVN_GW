@@ -365,6 +365,7 @@ class samplers:
                         v_stc = self._getSVN_v_stc(kx, UH, B)
 
                         jv = self.jv(gkx1, alphas)
+                        # lala
                         # eps1 = self.armijoLinesearch(eta, v_svn, gmlpt_Y, self.mlpt_sharp, jv, gamma=gamma, eps0=eps)
                         # eta += (v_svn) * eps + v_stc * np.sqrt(eps1)
                         eta += (v_svn) * eps + v_stc * np.sqrt(eps)
