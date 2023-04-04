@@ -1141,7 +1141,9 @@ class samplers:
         return jnp.sum(gmlpt * v) / self.nParticles - jnp.mean(jnp.trace(jv, axis1=1, axis2=2))
 
     def reg(self, mlpt, Hmlpt, lamb1=0.1, lamb2=0.1):
-        return 1 + lamb1 * (-1 * mlpt) - lamb2 * jnp.maximum(0, jnp.trace(-Hmlpt,axis1=1, axis2=2))
+        a = jnp.trace(-Hmlpt,axis1=1, axis2=2)
+        print(jnp.any(a>0))
+        return 1 + lamb1 * (-1 * mlpt) - lamb2 * jnp.maximum(0, a)
 
 
     # def get_mirror_kernel_new(self, X, kx, gkx2):
