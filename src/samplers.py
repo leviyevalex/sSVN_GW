@@ -68,7 +68,7 @@ class samplers:
         kernel_class = kernels(nParticles=self.nParticles, DoF=self.DoF, kernel_type=kernel_type)
         self._getKernelWithDerivatives = kernel_class.getKernelWithDerivatives
 
-    def apply(self, kernelKwargs, method='SVGD', eps=0.1, schedule=None):
+    def apply(self, kernelKwargs, method='SVGD', eps=0.1, schedule=None, lamb1=1, lamb2=2):
         """
         Evolves a set of particles according to (method) with step-size (eps).
         Args:
@@ -353,18 +353,21 @@ class samplers:
 
                         M = jnp.mean(Hmlpt_Y, axis=0) # jnp.eye(self.DoF)
 
+                        # TODO REMOVE LATER
+                        mlpt_sharp = self.mlpt_sharp(eta)
+                        reg = self.reg(mlpt_sharp, Hmlpt_Y, lamb1 = lamb1, lamb2=lamb1/self.nParticles)
+
 
                         kernelKwargs['M'] = M
                         kx, gkx1 = self.__getKernelWithDerivatives_(eta, kernelKwargs)
                         NK = self._reshapeNNDDtoNDND(contract('mn, ij -> mnij', kx, jnp.eye(self.DoF), backend='jax'))
                         H1 = self._getSteinHessianPosdef(Hmlpt_Y, kx, gkx1)
-                        lamb = 0.1 # 0.1
+                        lamb = 0.01 # 0.1
                         H = H1 + NK * lamb
                         UH = jax.scipy.linalg.cholesky(H, lower=False)
 
-                        # TODO MODIFIED!!!!!!!!!!!!!!!!!!!!!!!!!!!
-                        # beta0 = 0.01
-                        v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt_Y) #+ beta0 * np.mean(self.model.heterodyne_minusLogLikelihood(X))
+                        
+                        v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt_Y, reg) #+ beta0 * np.mean(self.model.heterodyne_minusLogLikelihood(X))
 
                         v_svn, alphas = self._getSVN_direction(kx, v_svgd, UH)
 
@@ -466,7 +469,7 @@ class samplers:
 
     # Direction methods (either to make the main code looks clean or so we may reuse it elsewhere)
     @partial(jax.jit, static_argnums=(0,))
-    def _getSVGD_direction(self, kx, gkx, gmlpt):
+    def _getSVGD_direction(self, kx, gkx, gmlpt, reg=None):
         """
         Get SVGD velocity field
         Args:
@@ -477,7 +480,10 @@ class samplers:
         Returns:
 
         """
-        v_svgd = -1 * contract('mn, mo -> no', kx, gmlpt, backend='jax') / self.nParticles + jnp.mean(gkx, axis=0)
+        if reg == None:
+            v_svgd = -1 * contract('mn, mo -> no', kx, gmlpt, backend='jax') / self.nParticles + jnp.mean(gkx, axis=0)
+        else:
+            v_svgd = -1 * contract('mn, mo -> no', kx, gmlpt, backend='jax') / self.nParticles + jnp.mean(gkx * reg[:, np.newaxis, np.newaxis], axis=0)
         return v_svgd
 
     # @partial(jax.jit, static_argnums=(0,))
@@ -1134,6 +1140,8 @@ class samplers:
     def dphi(self, jv, gmlpt, v):
         return jnp.sum(gmlpt * v) / self.nParticles - jnp.mean(jnp.trace(jv, axis1=1, axis2=2))
 
+    def reg(self, mlpt, Hmlpt, lamb1=0.1, lamb2=0.1):
+        return 1 + lamb1 * (-1 * mlpt) - lamb2 * jnp.maximum(0, jnp.trace(-Hmlpt,axis1=1, axis2=2))
 
 
     # def get_mirror_kernel_new(self, X, kx, gkx2):

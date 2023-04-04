@@ -23,7 +23,7 @@ Remarks:
 (iii) BIMODAL: 8
 """
 # model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([]))
-model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([0, 1, 2, 3, 4, 5, 6, 7, 8]))
+model = gwfast_class(eps=0.1, chi=1, mode='TaylorF2', freeze_indicies=np.array([]))
 # Working: 0, 5, 
 
 #%%
@@ -48,12 +48,12 @@ def _hyperbolic_schedule(t, T, c=1.3, p=5):
 
 
 #%%
-nParticles = 50
+nParticles = 100
 # h = model.DoF / 10
 h = model.DoF / 10
-nIterations = 200
+nIterations = 500
 
-def _cyclic_schedule(t, T, p=10, C=int(np.ceil(nIterations / 10))):
+def _cyclic_schedule(t, T, p=2, C=int(np.ceil(nIterations / 100))):
 # def _cyclic_schedule(t, T, p=5, C=10): # Igot good results with these settings
     """
     Cyclic annealing schedule
@@ -74,7 +74,7 @@ sampler1 = samplers(model=model, nIterations=nIterations, nParticles=nParticles,
 
 flat_schedule = lambda a, b: 1
 kernelKwargs = {'h':h, 'p':1}
-sampler1.apply(method='reparam_sSVN', eps=1, kernelKwargs=kernelKwargs, schedule=flat_schedule)
+sampler1.apply(method='reparam_sSVN', eps=1, kernelKwargs=kernelKwargs, schedule=flat_schedule, lamb1=0.1, lamb2=0.1)
 # sampler1.apply(method='reparam_sSVN', eps=1, kernelKwargs=kernelKwargs, schedule=_cyclic_schedule)
 
 

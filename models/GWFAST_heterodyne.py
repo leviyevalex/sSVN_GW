@@ -633,15 +633,16 @@ class gwfast_class(object):
             grad_log_like += \
             jnp.sum((self.B0[det] * r0j.conjugate() * (r0-1)) + (self.B1[det] * (r0j.conjugate() * r1 + r1j.conjugate() * (r0-1))), axis=-1).T.real 
 
-            # term1 = contract('b, jNb, kNb -> Njk', self.B0[det], r0j.conjugate(), r0j, backend='jax')
-            # term2 = contract('b, jNb, kNb -> Njk', self.B1[det], r0j.conjugate(), r1j, backend='jax')
-            # term3 = contract('Nkj -> Njk', term2.conjugate(), backend='jax')
-            # GN += term1.real + term2.real + term3.real
-
             term1 = contract('b, jNb, kNb -> Njk', self.B0[det], r0j.conjugate(), r0j, backend='jax')
-            GN += term1.real 
+            term2 = contract('b, jNb, kNb -> Njk', self.B1[det], r0j.conjugate(), r1j, backend='jax')
+            term3 = contract('Nkj -> Njk', term2.conjugate(), backend='jax')
+            GN += term1.real + term2.real + term3.real
+
+            # term1 = contract('b, jNb, kNb -> Njk', self.B0[det], r0j.conjugate(), r0j, backend='jax')
+            # GN += term1.real 
 
         return grad_log_like[:, self.active_indicies], GN[:, self.active_indicies][:, :, self.active_indicies]
+        # return grad_log_like[:, self.active_indicies], GN[:, self.active_indicies][:, :, self.active_indicies]#, GN_total[:, self.active_indicies][:, :, self.active_indicies]
 
     def _newDrawFromPrior_frozen(self, n):
         prior_draw = np.zeros((n, 11))
