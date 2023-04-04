@@ -22,16 +22,14 @@ Remarks:
 (ii)  Maybe problematic: 5, 6, 7 (particles bunch at corners)
 (iii) BIMODAL: 8
 """
-model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([2, 3, 4, 5, 6, 7, 8, 9, 10]))
+# model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([]))
+model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([0, 1, 2, 3, 4, 5, 6, 7, 8]))
 # Working: 0, 5, 
 
 #%%
 from jax.config import config
 config.update("jax_debug_nans", True)
 
-nParticles = 100
-h = model.DoF / 10
-# kernelKwargs = {'h':h, 'p':1}
 
 def _hyperbolic_schedule(t, T, c=1.3, p=5):
     """
@@ -47,7 +45,16 @@ def _hyperbolic_schedule(t, T, c=1.3, p=5):
     """
     return np.tanh((c * t / T) ** p)
 
-def _cyclic_schedule(t, T, p=1, C=2):
+
+
+#%%
+nParticles = 50
+# h = model.DoF / 10
+h = model.DoF / 10
+nIterations = 200
+
+def _cyclic_schedule(t, T, p=10, C=int(np.ceil(nIterations / 10))):
+# def _cyclic_schedule(t, T, p=5, C=10): # Igot good results with these settings
     """
     Cyclic annealing schedule
     Args:
@@ -61,10 +68,14 @@ def _cyclic_schedule(t, T, p=1, C=2):
     """
     tmp = T / C
     return (np.mod(t, tmp) / tmp) ** p
-#%%
-sampler1 = samplers(model=model, nIterations=200, nParticles=nParticles, profile=False, kernel_type='Lp')
+
+sampler1 = samplers(model=model, nIterations=nIterations, nParticles=nParticles, profile=False, kernel_type='Lp')
+
+
+flat_schedule = lambda a, b: 1
 kernelKwargs = {'h':h, 'p':1}
-sampler1.apply(method='reparam_sSVN', eps=1, kernelKwargs=kernelKwargs, schedule=_cyclic_schedule)
+sampler1.apply(method='reparam_sSVN', eps=1, kernelKwargs=kernelKwargs, schedule=flat_schedule)
+# sampler1.apply(method='reparam_sSVN', eps=1, kernelKwargs=kernelKwargs, schedule=_cyclic_schedule)
 
 
 

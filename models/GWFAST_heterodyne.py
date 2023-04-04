@@ -89,61 +89,71 @@ class gwfast_class(object):
         Remarks:
         (i)   `tcoal` is accepted in units GMST fraction of a day
         (ii)  GPSt_to_LMST returns GMST in units of fraction of day (GMST is LMST computed at long = 0°)
-        (iii) (GW150914) like parameters
         (iv)  Use [tcoal - 3e-7, tcoal + 3e-7] prior when in units of days
 
         """
         self.seconds_per_day = 86400. 
-
-        injParams = dict()
+        injParams = {}
+        priorDict = {}
 
         # GW170817
-        z = np.array([0.00980])
-        tGPS = np.array([1187008882.4])
-        injParams['Mc'] = np.array([1.1859])*(1.+z) 
-        injParams['eta'] = np.array([0.24786618323504223]) 
-        injParams['dL'] = Planck18.luminosity_distance(z).value/1000. 
-        injParams['theta'] = np.array([np.pi/2. + 0.4080839999999999]) 
-        injParams['phi'] = np.array([3.4461599999999994])
-        injParams['iota'] = np.array([2.545065595974997]) 
-        injParams['psi'] = np.array([0.])
-        injParams['tcoal'] = np.array(utils.GPSt_to_LMST(tGPS, lat=0., long=0.)) * self.seconds_per_day # GMST is LMST computed at long = 0° 
-        injParams['Phicoal'] = np.array([0.]) 
-        injParams['chi1z'] = np.array([0.005136138323169717]) 
-        injParams['chi2z'] = np.array([0.003235146993487445]) 
- 
+        # z = np.array([0.00980])
+        # tGPS = np.array([1187008882.4])
+        # tcoal = utils.GPSt_to_LMST(tGPS, lat=0., long=0.)[0]
+        # injParams['Mc']      = np.array([1.1859])*(1.+z) 
+        # injParams['eta']     = np.array([0.24786618323504223]) 
+        # injParams['dL']      = Planck18.luminosity_distance(z).value/1000. 
+        # injParams['theta']   = np.array([np.pi/2. + 0.4080839999999999]) 
+        # injParams['phi']     = np.array([3.4461599999999994])
+        # injParams['iota']    = np.array([2.545065595974997]) 
+        # injParams['psi']     = np.array([0.1]) # 0
+        # injParams['tcoal']   = np.array(utils.GPSt_to_LMST(tGPS, lat=0., long=0.)) * self.seconds_per_day 
+        # injParams['Phicoal'] = np.array([0.1]) # 0 
+        # injParams['chi1z']   = np.array([0.005136138323169717]) 
+        # injParams['chi2z']   = np.array([0.003235146993487445]) 
+
+        # priorDict['Mc']      = [1.19750182, 1.19754182]        # [M_solar]     
+        # priorDict['eta']     = [0.24, 0.25]                    # [Unitless]
+        # priorDict['dL']      = [0.001, 0.2]                    # [GPC]
+        # priorDict['theta']   = [0., np.pi]                     # [Rad]
+        # priorDict['phi']     = [0., 2 * np.pi]                 # [Rad]
+        # priorDict['iota']    = [0., np.pi]                     # [Rad]
+        # priorDict['psi']     = [0., np.pi]                     # [Rad]
+        # priorDict['tcoal']   = [tcoal - 0.001, tcoal + 0.001]  # [sec]
+        # priorDict['Phicoal'] = [0., 2 * np.pi]                 # [Rad]
+        # priorDict['chi1z']   = [-1., 1.]                       # [Unitless]
+        # priorDict['chi2z']   = [-1., 1.]                       # [Unitless]
+
         # GW150914
-        # tGPS = np.array([1.12625946e+09])
-        # tcoal = float(utils.GPSt_to_LMST(tGPS, lat=0., long=0.)) * self.seconds_per_day # [0, 1] 
-        # injParams['Mc']      = np.array([34.3089283])          # (1)   # (0)               # [M_solar]
-        # injParams['eta']     = np.array([0.2485773])           # (2)   # (1)               # [Unitless]
-        # injParams['dL']      = np.array([1])               # (3)   # (2)               # [Gigaparsecs]  # [2.634]
-        # injParams['theta']   = np.array([2.78560281])          # (4)   # (3)               # [Rad]
-        # injParams['phi']     = np.array([1.67687425])          # (5)   # (4)               # [Rad]
-        # injParams['iota']    = np.array([2.67548653])          # (6)   # (5)               # [Rad]
-        # injParams['psi']     = np.array([0.78539816])          # (7)   # (6)               # [Rad]
-        # injParams['tcoal']   = np.array([tcoal])               # (8)   # (7)               # []
-        # injParams['Phicoal'] = np.array([1.5])                  # (9)   # (8)               # [Rad]
-        # injParams['chi1z']   = np.array([0.27210419])          # (10)  # (9)               # [Unitless]
-        # injParams['chi2z']   = np.array([0.33355909])          # (11)  # (10)              # [Unitless]
-        self.injParams = injParams
+        tGPS = np.array([1.12625946e+09])
+        tcoal = float(utils.GPSt_to_LMST(tGPS, lat=0., long=0.)) * self.seconds_per_day # [0, 1] 
+        injParams['Mc']      = np.array([34.3089283])          # (1)   # (0)               # [M_solar]
+        injParams['eta']     = np.array([0.2485773])           # (2)   # (1)               # [Unitless]
+        injParams['dL']      = np.array([2.634])               # (3)   # (2)               # [Gigaparsecs]  # [2.634]
+        injParams['theta']   = np.array([2.78560281])          # (4)   # (3)               # [Rad]
+        injParams['phi']     = np.array([1.67687425])          # (5)   # (4)               # [Rad]
+        injParams['iota']    = np.array([2.67548653])          # (6)   # (5)               # [Rad]
+        injParams['psi']     = np.array([0.78539816])          # (7)   # (6)               # [Rad]
+        injParams['tcoal']   = np.array([tcoal])               # (8)   # (7)               # []
+        injParams['Phicoal'] = np.array([0.1])                 # (9)   # (8)               # [Rad]
+        injParams['chi1z']   = np.array([0.27210419])          # (10)  # (9)               # [Unitless]
+        injParams['chi2z']   = np.array([0.33355909])          # (11)  # (10)              # [Unitless]
 
         priorDict = {}
-        # 1.19751182
-        # 1.19753182
-        priorDict['Mc']      = [1.19750182, 1.19754182]                      # [M_solar]      # [29., 39]
-        # priorDict['Mc']      = [1.1974, 1.1977]                      # [M_solar]      # [29., 39]
-        priorDict['eta']     = [0.24, 0.25]                    # [Unitless]
-        priorDict['dL']      = [0.001, 0.2]                        # [GPC]  [1., 4.]
+        priorDict['Mc']      = [20, 50]                        # [M_solar]     
+        priorDict['eta']     = [0.20, 0.25]                    # [Unitless]
+        priorDict['dL']      = [0.5, 10]                       # [GPC]
         priorDict['theta']   = [0., np.pi]                     # [Rad]
         priorDict['phi']     = [0., 2 * np.pi]                 # [Rad]
         priorDict['iota']    = [0., np.pi]                     # [Rad]
         priorDict['psi']     = [0., np.pi]                     # [Rad]
-        priorDict['tcoal']   = [injParams['tcoal'][0] - 0.001, injParams['tcoal'][0] + 0.001]    # []
+        priorDict['tcoal']   = [tcoal - 0.001, tcoal + 0.001]  # [sec]
         priorDict['Phicoal'] = [0., 2 * np.pi]                 # [Rad]
         priorDict['chi1z']   = [-1., 1.]                       # [Unitless]
         priorDict['chi2z']   = [-1., 1.]                       # [Unitless]
+
         self.priorDict = priorDict
+        self.injParams = injParams
 
         ################################################################
         # Notes:
@@ -198,22 +208,20 @@ class gwfast_class(object):
         """
         # (i)
         self.fmin = fmin  # 10
-        self.fmax = self.wf_model.fcut(**self.injParams)[0]
-
+        self.fmax = self.wf_model.fcut(**self.injParams)[0] - 1e-7 # (v)
 
         ###
 
-        # (v)
         self.nbins_standard = 2000
-        self.fgrid_standard = np.linspace(self.fmin, self.fmax, num=self.nbins_standard + 1).squeeze()[:-1]
-        self.nbins_standard -= 1
+        self.fgrid_standard = np.linspace(self.fmin, self.fmax, num=self.nbins_standard + 1).squeeze()
         self.df_standard = (self.fgrid_standard[-1] - self.fgrid_standard[0]) / self.nbins_standard
 
-        self.nbins_dense = 100000
-        self.fgrid_dense = np.linspace(self.fmin, self.fmax, num=self.nbins_dense + 1).squeeze()[:-1]
-        self.nbins_dense -= 1
+        self.nbins_dense = 10000
+        self.fgrid_dense = np.linspace(self.fmin, self.fmax, num=self.nbins_dense + 1).squeeze()
         self.df_dense = (self.fgrid_dense[-1] - self.fgrid_dense[0]) / self.nbins_dense
 
+        print('nbins_standard=%i' % self.nbins_standard)
+        print('nbins_dense=%i' % self.nbins_dense)
 
     def _initDetectors(self): 
         """Initialize detectors and store PSD interpolated over defined frequency grid
@@ -305,7 +313,6 @@ class gwfast_class(object):
                                                **dict_params_neglected)).T # (iv) 
                             
         return signal 
-
 
     # @partial(jax.jit, static_argnums=(0,))
     def _getJacobianSignal(self, X, f_grid, det):
@@ -435,37 +442,31 @@ class gwfast_class(object):
         print('Completed')
 
     def getHeterodyneBins(self, chi, eps): # Checks X
-        print('Getting heterodyned bins')
+        # print('Getting heterodyned bins')
         # Remarks:
         # (i)   0.5 is a dummy variable for x==0 case (which we dont care for)
         # (ii)  Alternatively, we may add frequencies then recover the indicies using np.searchsorted(A,B):
         # https://stackoverflow.com/questions/33678543/finding-indices-of-matches-of-one-array-in-another-array
+        # (iii) Maximum accumulation over a single bin should not exceep eps. If this is th case, pick
+        # a denser grid, or pick a larger eps. 
 
-        gamma = np.array([-5./3, -2./3, 1., 5./3, 7./3])
+        gamma = np.array([-5/3, -2/3, 1, 5/3, 7/3])
         f_star = self.fmax * np.heaviside(gamma, 0.5) + self.fmin * np.heaviside(-gamma, 0.5) # (i) 
-        delta = lambda f_minus, f_plus: 2 * np.pi * chi * np.sum(np.abs((f_plus / f_star) ** gamma - (f_minus/f_star) ** gamma))
-        delta_new = lambda f_minus, f_plus: 2 * np.pi * chi * np.sum(np.abs((f_plus[:, np.newaxis] / f_star) ** gamma - (f_minus[:, np.newaxis] / f_star) ** gamma), axis=-1)
-        delta0 = np.max(delta_new(self.fgrid_dense[:-1], self.fgrid_dense[1:]))
-        if eps < delta0:
-            print('WARNING: max phase change in a bin is %f' % delta0)
-            print('Changing epsilon from %f to %f' % (eps, delta0))
-            eps = delta0
-
-        subindex = [] # (ii)
+        delta = lambda f_minus, f_plus: 2 * np.pi * chi * np.sum(np.abs((f_plus[:, np.newaxis] / f_star) ** gamma - (f_minus[:, np.newaxis] / f_star) ** gamma), axis=-1)
+        delta_single = np.max(delta(self.fgrid_dense[:-1], self.fgrid_dense[1:]))
+        assert delta_single < eps # (iii)
+        subindex = [0] # (ii)
         index_f_minus = 0
-        j = 0
+        j = 1
         while j <= self.nbins_dense:
-            if j == 0 or j == self.nbins_dense:
+            if j == self.nbins_dense:
                 subindex.append(j)
-            else:
-                d = delta(self.fgrid_dense[index_f_minus], self.fgrid_dense[j])
-                if d > eps:
-                    if j - index_f_minus == 1:
-                        subindex.append(j)
-                    else:
-                        j -= 1
-                        subindex.append(j)
-                        index_f_minus = j
+                break
+            d = delta(self.fgrid_dense[index_f_minus, np.newaxis], self.fgrid_dense[j, np.newaxis])[0]
+            if d >= eps:
+                subindex.append(j - 1)
+                index_f_minus = j - 1
+                continue
             j += 1
 
         self.indicies_kept = np.array(subindex)
@@ -647,8 +648,12 @@ class gwfast_class(object):
         for i, param in enumerate(self.gwfast_param_order): # Assuming uniform on all parameters
             low = self.priorDict[param][0]
             high = self.priorDict[param][1]
-            buffer = (high-low) / 10
+            # buffer = (high-low) / 5
+            buffer = 0
             prior_draw[:, i] = np.random.uniform(low=low+buffer, high=high-buffer, size=n)
+            # prior_draw[:, i] = np.random.uniform(low=self.true_params[i] - 1e-7, high=self.true_params[i] + 1e-7, size=n)
+            # print('modified priors to be at mode!')
+        print('buffer in prior: %f' % buffer)
         return prior_draw[:, self.active_indicies]
 
     # def fill(self, X_reduced):
@@ -661,6 +666,38 @@ class gwfast_class(object):
     #     X = X.at[:, self.freeze_indicies].set(np.tile(self.true_params[self.freeze_indicies], nParticles).reshape(nParticles, len(self.freeze_indicies)))
     #     X = X.at[:, self.active_indicies].set(X_reduced)
     #     return X
+
+
+    def getGrad_heterodyne(self, X):
+        func = jax.jacrev(self.heterodyne_minusLogLikelihood)
+        return jax.vmap(func)(X)
+
+    # def getHess_heterodyne(self, X)
+    #     func = jax.jacrev(jax.jacrev(self.heterodyne_minusLogLikelihood))
+    #     return jax.vmap(func)(X)
+
+
+
+        test1 = func(x)
+        test2 = model.getGradientMinusLogPosterior_ensemble(x)
+        np.allclose(test1, test2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 ################################################################################

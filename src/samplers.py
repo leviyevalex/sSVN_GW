@@ -312,6 +312,7 @@ class samplers:
                         Hmlpt_Y = Hmlpt_Y.at[:, jnp.array(range(self.DoF)), jnp.array(range(self.DoF))].add(boundary_correction_hess)
 
                         M = jnp.eye(self.DoF) # jnp.mean(Hmlpt_Y, axis=0) # 
+                        # M = jnp.mean(Hmlpt_Y, axis=0) # 
                         kernelKwargs['M'] = M
                         kx, gkx1 = self.__getKernelWithDerivatives_(eta, kernelKwargs)
 
@@ -346,18 +347,25 @@ class samplers:
                         Hmlpt_Y = contract('Ni, Nj, Nij -> Nij', dxdy, dxdy, Hmlpt_X, backend='jax') 
                         Hmlpt_Y = Hmlpt_Y.at[:, jnp.array(range(self.DoF)), jnp.array(range(self.DoF))].add(boundary_correction_hess)
 
+                        # gmlpt_Y = gmlpt_Y * schedule(iter_, self.nIterations)
+                        # Hmlpt_Y = Hmlpt_Y * schedule(iter_, self.nIterations)
 
 
                         M = jnp.mean(Hmlpt_Y, axis=0) # jnp.eye(self.DoF)
+
+
                         kernelKwargs['M'] = M
                         kx, gkx1 = self.__getKernelWithDerivatives_(eta, kernelKwargs)
                         NK = self._reshapeNNDDtoNDND(contract('mn, ij -> mnij', kx, jnp.eye(self.DoF), backend='jax'))
                         H1 = self._getSteinHessianPosdef(Hmlpt_Y, kx, gkx1)
-                        lamb = 0.01 # 0.1
+                        lamb = 0.1 # 0.1
                         H = H1 + NK * lamb
                         UH = jax.scipy.linalg.cholesky(H, lower=False)
 
-                        v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt_Y)
+                        # TODO MODIFIED!!!!!!!!!!!!!!!!!!!!!!!!!!!
+                        # beta0 = 0.01
+                        v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt_Y) #+ beta0 * np.mean(self.model.heterodyne_minusLogLikelihood(X))
+
                         v_svn, alphas = self._getSVN_direction(kx, v_svgd, UH)
 
                         key, subkey = jax.random.split(key)

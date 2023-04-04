@@ -1,3 +1,7 @@
+""" 
+These notes are for debugging the gravitational wave likelihood
+"""
+
 #%%
 import jax
 import jax.numpy as jnp
@@ -75,6 +79,30 @@ for pair in pairs:
     # model.getCrossSection(pair[0], pair[1], model.standard_minusLogLikelihood, 100)
     model.getCrossSection(pair[0], pair[1], model.heterodyne_minusLogLikelihood, 200)
 
+
+#%%########################### 
+# Derivative unit tests follow
+###############################
+
+
+#%%###############################################
+# Confirm standard derivative is correctly coded
+##################################################
+x = model._newDrawFromPrior(1)
+func = jax.jacrev(model.standard_minusLogLikelihood)
+test1 = func(x)
+test2 = model.standard_gradientMinusLogLikelihood(x)
+np.allclose(test1, test2)
+
+#%%###############################################
+# Confirm heterodyne derivative is properly coded
+##################################################
+x = model._newDrawFromPrior(1)
+func = jax.jacrev(model.heterodyne_minusLogLikelihood)
+test1 = func(x)
+test2 = model.getGradientMinusLogPosterior_ensemble(x)
+np.allclose(test1, test2)
+
 #%%############################################################
 # Relative error b/w heterodyne, standard likelihood gradients
 ###############################################################
@@ -121,23 +149,7 @@ def standard_gradientMinusLogLikelihood(self=model, X): # Checks: XX
 
 #%%
 y = model.standard_minusLogLikelihood(x)
-#%%###############################################
-# Confirm that gwfast derivatives are consistant
-##################################################
-x = model._newDrawFromPrior(1)
-func = jax.jacrev(model.standard_minusLogLikelihood)
-test1 = func(x)
-test2 = model.standard_gradientMinusLogLikelihood(x)
-np.allclose(test1, test2)
 
-#%%###############################################
-# Confirm heterodyne derivative is properly coded
-##################################################
-x = model._newDrawFromPrior(1)
-func = jax.jacrev(model.heterodyne_minusLogLikelihood)
-test1 = func(x)
-test2 = model.getGradientMinusLogPosterior_ensemble(x)
-np.allclose(test1, test2)
 
 
 
@@ -747,3 +759,21 @@ np.allclose(testb, model.A0[det])
 # bin_id_new[-1] = model.nbins # (ii)
 # counts_new = np.bincount(bin_id_new)
 # # %%
+
+
+
+
+#%%
+X = model._newDrawFromPrior(3)
+def getGrad_heterodyne(self, X):
+    func = jax.jacrev(self.heterodyne_minusLogLikelihood)
+    return jax.vmap(func)(X)
+
+testa = getGrad_heterodyne(model, X)
+testb = model.getGradientMinusLogPosterior_ensemble(X)
+
+#%%
+
+
+
+# kernelKwargs = {'h':h, 'p':1}
