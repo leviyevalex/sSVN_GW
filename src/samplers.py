@@ -355,13 +355,13 @@ class samplers:
 
                         # TODO REMOVE LATER
                         mlpt_sharp = self.mlpt_sharp(eta)
-                        reg = self.reg(mlpt_sharp, Hmlpt_Y, lamb1 = lamb1, lamb2=lamb1/self.nParticles)
+                        reg = self.reg(mlpt_sharp, Hmlpt_Y, lamb1 = lamb1, lamb2=lamb2)
 
 
                         kernelKwargs['M'] = M
                         kx, gkx1 = self.__getKernelWithDerivatives_(eta, kernelKwargs)
                         NK = self._reshapeNNDDtoNDND(contract('mn, ij -> mnij', kx, jnp.eye(self.DoF), backend='jax'))
-                        H1 = self._getSteinHessianPosdef(Hmlpt_Y, kx, gkx1)
+                        H1 = self._getSteinHessianPosdef(Hmlpt_Y, kx, gkx1, reg)
                         lamb = 0.01 # 0.1
                         H = H1 + NK * lamb
                         UH = jax.scipy.linalg.cholesky(H, lower=False)
@@ -468,7 +468,7 @@ class samplers:
 ########################################################################################################################
 
     # Direction methods (either to make the main code looks clean or so we may reuse it elsewhere)
-    @partial(jax.jit, static_argnums=(0,))
+    # @partial(jax.jit, static_argnums=(0,))
     def _getSVGD_direction(self, kx, gkx, gmlpt, reg=None):
         """
         Get SVGD velocity field
@@ -548,7 +548,7 @@ class samplers:
         return (contract('mn, nij -> mij' , kx ** 2, Hmlpt) + contract('mni, mnj -> mij', gkx, gkx)) / self.nParticles
 
     @partial(jax.jit, static_argnums=(0,))
-    def _getSteinHessianPosdef(self, Hmlpt, kx, gkx):
+    def _getSteinHessianPosdef(self, Hmlpt, kx, gkx, reg=None):
         """
         Calculate SVN Hessian $H = H_1 + H_2$.
         Note: If H_1 is made positive-definite (with Gauss-Newton approximation for example),
@@ -562,7 +562,8 @@ class samplers:
 
         """
         H1 = contract("xy, xz, xbd -> yzbd", kx, kx, Hmlpt, backend='jax')
-        H2 = contract('xzi, xzj -> zij', gkx, gkx, backend='jax') # Only calculate block diagonal
+        # H2 = contract('xzi, xzj -> zij', gkx, gkx, backend='jax') # Only calculate block diagonal
+        H2 = contract('xzi, xzj -> zij', gkx, gkx, backend='jax') * reg[:, np.newaxis, np.newaxis]
         # H2 = contract('pni, pmj -> mnij', gkx, gkx) # calculate whole thing
 
         H1 = H1.at[jnp.array(range(self.nParticles)), jnp.array(range(self.nParticles))].add(H2)
@@ -1140,10 +1141,10 @@ class samplers:
     def dphi(self, jv, gmlpt, v):
         return jnp.sum(gmlpt * v) / self.nParticles - jnp.mean(jnp.trace(jv, axis1=1, axis2=2))
 
-    def reg(self, mlpt, Hmlpt, lamb1=0.1, lamb2=0.1):
-        a = jnp.trace(-Hmlpt,axis1=1, axis2=2)
-        print(jnp.any(a>0))
-        return 1 + lamb1 * (-1 * mlpt) - lamb2 * jnp.maximum(0, a)
+    def reg(self, mlpt, Hmlpt, lamb1, lamb2):
+        a = jnp.trace(Hmlpt,axis1=1, axis2=2)
+        # print(jnp.any(a>0))
+        return 1 - lamb1 * (mlpt) - lamb2 * jnp.maximum(0, a)
 
 
     # def get_mirror_kernel_new(self, X, kx, gkx2):

@@ -51,7 +51,7 @@ def _hyperbolic_schedule(t, T, c=1.3, p=5):
 nParticles = 100
 # h = model.DoF / 10
 h = model.DoF / 10
-nIterations = 500
+nIterations = 5
 
 def _cyclic_schedule(t, T, p=2, C=int(np.ceil(nIterations / 100))):
 # def _cyclic_schedule(t, T, p=5, C=10): # Igot good results with these settings
