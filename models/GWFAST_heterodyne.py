@@ -423,6 +423,23 @@ class gwfast_class(object):
             GN += inner_product.real
         return GN
 
+    @partial(jax.jit, static_argnums=(0,))
+    def getDerivativesMinusLogPosterior_ensemble_frozen_standard(self, X):
+        nParticles = X.shape[0]
+        grad_log_like = jnp.zeros((nParticles, self.DoF))
+        GN = jnp.zeros((nParticles, self.DoF, self.DoF))
+        for det in self.detsInNet.keys():
+            template  = self.getSignal(X, self.fgrid_standard, det)
+            jacSignal = self._getJacobianSignal(X, self.fgrid_standard, det)
+            residual  = template - self.d_standard[det][np.newaxis, ...]
+            grad_log_like += self.overlap(jacSignal, residual, self.PSD_standard[det], self.df_standard).real
+            inner_product = 4 * contract('iNf, jNf, f -> Nij', jacSignal.conjugate(), jacSignal, 1 / self.PSD_standard[det]) * self.df_standard
+            GN += inner_product.real
+        return grad_log_like[:, self.active_indicies], GN[:, self.active_indicies][:, :, self.active_indicies]
+
+
+
+
 
 #########################################################################
 # HETERODYNE METHODS

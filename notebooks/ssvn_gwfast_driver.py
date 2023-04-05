@@ -14,6 +14,8 @@ print(xla_bridge.get_backend().platform)
 from src.samplers import samplers
 from scripts.plot_helper_functions import collect_samples
 import corner
+from jax.config import config
+config.update("jax_debug_nans", True)
 
 #%%
 """ 
@@ -26,55 +28,18 @@ Remarks:
 model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([]))
 # Working: 0, 5, 
 
-#%%
-from jax.config import config
-config.update("jax_debug_nans", True)
-
-
-def _hyperbolic_schedule(t, T, c=1.3, p=5):
-    """
-    Hyperbolic annealing schedule
-    Args:
-        t (int): Current iteration
-        T (int): Total number of iterations
-        c (float): Controls where transition begins
-        p (float): Exponent determining speed of transition between phases
-
-    Returns: (float)
-
-    """
-    return np.tanh((c * t / T) ** p)
-
-
 
 #%%
-nParticles = 100
-# h = model.DoF / 10
+nParticles = 10
 h = model.DoF / 10
-nIterations = 5
-
-def _cyclic_schedule(t, T, p=2, C=int(np.ceil(nIterations / 100))):
-# def _cyclic_schedule(t, T, p=5, C=10): # Igot good results with these settings
-    """
-    Cyclic annealing schedule
-    Args:
-        t (int): Current iteration
-        T (int): Total number of iterations
-        p (float): Exponent determining speed of transition between phases
-        C (int): Number of cycles
-
-    Returns:
-
-    """
-    tmp = T / C
-    return (np.mod(t, tmp) / tmp) ** p
+nIterations = 2
 
 sampler1 = samplers(model=model, nIterations=nIterations, nParticles=nParticles, profile=False, kernel_type='Lp')
 
 
 flat_schedule = lambda a, b: 1
 kernelKwargs = {'h':h, 'p':1}
-sampler1.apply(method='reparam_sSVN', eps=1, kernelKwargs=kernelKwargs, schedule=flat_schedule, lamb1=0.1, lamb2=0.1)
+sampler1.apply(method='reparam_sSVN', eps=1, kernelKwargs=kernelKwargs)
 # sampler1.apply(method='reparam_sSVN', eps=1, kernelKwargs=kernelKwargs, schedule=_cyclic_schedule)
 
 
