@@ -23,7 +23,7 @@ Remarks:
 (iii) BIMODAL: 8
 """
 # model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([]))
-model = gwfast_class(eps=0.1, chi=1, mode='TaylorF2', freeze_indicies=np.array([]))
+model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([]))
 # Working: 0, 5, 
 
 #%%

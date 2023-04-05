@@ -335,8 +335,8 @@ class samplers:
 
                         # Annealing modification
                         # gamma = self._hyperbolic_schedule(iter_, self.nIterations)
-                        gmlpt_X = gmlpt_X * schedule(iter_, self.nIterations)
-                        Hmlpt_X = Hmlpt_X * schedule(iter_, self.nIterations)
+                        # gmlpt_X = gmlpt_X * schedule(iter_, self.nIterations)
+                        # Hmlpt_X = Hmlpt_X * schedule(iter_, self.nIterations)
                         # Q: Better to anneal constrained or unconstrained posterior?
 
                         dxdy = self._jacMapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
@@ -350,24 +350,22 @@ class samplers:
                         # gmlpt_Y = gmlpt_Y * schedule(iter_, self.nIterations)
                         # Hmlpt_Y = Hmlpt_Y * schedule(iter_, self.nIterations)
 
-
                         M = jnp.mean(Hmlpt_Y, axis=0) # jnp.eye(self.DoF)
 
                         # TODO REMOVE LATER
-                        mlpt_sharp = self.mlpt_sharp(eta)
-                        reg = self.reg(mlpt_sharp, Hmlpt_Y, lamb1 = lamb1, lamb2=lamb2)
-
+                        # mlpt_sharp = self.mlpt_sharp(eta)
+                        # reg = self.reg(mlpt_sharp, Hmlpt_Y, lamb1 = lamb1, lamb2=lamb2)
 
                         kernelKwargs['M'] = M
                         kx, gkx1 = self.__getKernelWithDerivatives_(eta, kernelKwargs)
                         NK = self._reshapeNNDDtoNDND(contract('mn, ij -> mnij', kx, jnp.eye(self.DoF), backend='jax'))
-                        H1 = self._getSteinHessianPosdef(Hmlpt_Y, kx, gkx1, reg)
-                        lamb = 0.01 # 0.1
+                        H1 = self._getSteinHessianPosdef(Hmlpt_Y, kx, gkx1)
+                        lamb = 0.05 # 0.1
                         H = H1 + NK * lamb
                         UH = jax.scipy.linalg.cholesky(H, lower=False)
 
                         
-                        v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt_Y, reg) #+ beta0 * np.mean(self.model.heterodyne_minusLogLikelihood(X))
+                        v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt_Y) #+ beta0 * np.mean(self.model.heterodyne_minusLogLikelihood(X))
 
                         v_svn, alphas = self._getSVN_direction(kx, v_svgd, UH)
 
@@ -468,7 +466,7 @@ class samplers:
 ########################################################################################################################
 
     # Direction methods (either to make the main code looks clean or so we may reuse it elsewhere)
-    # @partial(jax.jit, static_argnums=(0,))
+    @partial(jax.jit, static_argnums=(0,))
     def _getSVGD_direction(self, kx, gkx, gmlpt, reg=None):
         """
         Get SVGD velocity field
@@ -562,14 +560,17 @@ class samplers:
 
         """
         H1 = contract("xy, xz, xbd -> yzbd", kx, kx, Hmlpt, backend='jax')
-        # H2 = contract('xzi, xzj -> zij', gkx, gkx, backend='jax') # Only calculate block diagonal
-        H2 = contract('xzi, xzj -> zij', gkx, gkx, backend='jax') * reg[:, np.newaxis, np.newaxis]
+        if reg == None:
+            H2 = contract('xzi, xzj -> zij', gkx, gkx, backend='jax')
+        else:
+            H2 = contract('xzi, xzj -> zij', gkx, gkx, backend='jax') * reg[:, np.newaxis, np.newaxis]
+
         # H2 = contract('pni, pmj -> mnij', gkx, gkx) # calculate whole thing
 
         H1 = H1.at[jnp.array(range(self.nParticles)), jnp.array(range(self.nParticles))].add(H2)
         # H1[range(self.nParticles), range(self.nParticles)] += H2
-        return self._reshapeNNDDtoNDND(H1 / self.nParticles)
         # return self._reshapeNNDDtoNDND((H1 + H2) / self.nParticles)
+        return self._reshapeNNDDtoNDND(H1 / self.nParticles)
 
 
     def _getMinimumPerturbationCholesky(self, x, jitter=1e-9):
