@@ -86,9 +86,8 @@ class samplers:
         np.random.seed(1) # Enable for reproducibility
  
         try:
-            # X = self.__newDrawFromPrior_(self.nParticles) # Initial set of particles
-            X = self.model._newDrawFromPrior_frozen(self.nParticles) # Initial set of particles
-            # X = self.model._newDrawFromPrior(self.nParticles) # Initial set of particles
+            # X = self.model._newDrawFromPrior_frozen(self.nParticles) # Initial set of particles
+            X = self.model._newDrawFromPrior(self.nParticles) # Initial set of particles
             eta = self._mapHypercubeToReals(X, self.model.lower_bound, self.model.upper_bound)
             key = jax.random.PRNGKey(0)
             with trange(self.nIterations) as ITER:
@@ -329,15 +328,12 @@ class samplers:
 
 
                     elif method == 'reparam_sSVN':
-                        # Note: Modifications make for subset sampling
-
-                        gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble_frozen(X) # (M2)
+                        # gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble_frozen(X) # (M2)
+                        gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
 
                         # Annealing modification
-                        # gamma = self._hyperbolic_schedule(iter_, self.nIterations)
                         # gmlpt_X = gmlpt_X * schedule(iter_, self.nIterations)
                         # Hmlpt_X = Hmlpt_X * schedule(iter_, self.nIterations)
-                        # Q: Better to anneal constrained or unconstrained posterior?
 
                         dxdy = self._jacMapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
                         boundary_correction_grad = self._getBoundaryGradientCorrection(eta)
@@ -347,14 +343,7 @@ class samplers:
                         Hmlpt_Y = contract('Ni, Nj, Nij -> Nij', dxdy, dxdy, Hmlpt_X, backend='jax') 
                         Hmlpt_Y = Hmlpt_Y.at[:, jnp.array(range(self.DoF)), jnp.array(range(self.DoF))].add(boundary_correction_hess)
 
-                        # gmlpt_Y = gmlpt_Y * schedule(iter_, self.nIterations)
-                        # Hmlpt_Y = Hmlpt_Y * schedule(iter_, self.nIterations)
-
                         M = jnp.mean(Hmlpt_Y, axis=0) # jnp.eye(self.DoF)
-
-                        # TODO REMOVE LATER
-                        # mlpt_sharp = self.mlpt_sharp(eta)
-                        # reg = self.reg(mlpt_sharp, Hmlpt_Y, lamb1 = lamb1, lamb2=lamb2)
 
                         kernelKwargs['M'] = M
                         kx, gkx1 = self.__getKernelWithDerivatives_(eta, kernelKwargs)
@@ -364,9 +353,7 @@ class samplers:
                         H = H1 + NK * lamb
                         UH = jax.scipy.linalg.cholesky(H, lower=False)
 
-                        
-                        v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt_Y) #+ beta0 * np.mean(self.model.heterodyne_minusLogLikelihood(X))
-
+                        v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt_Y) 
                         v_svn, alphas = self._getSVN_direction(kx, v_svgd, UH)
 
                         key, subkey = jax.random.split(key)
@@ -374,10 +361,10 @@ class samplers:
                         v_stc = self._getSVN_v_stc(kx, UH, B)
 
                         jv = self.jv(gkx1, alphas)
-                        # lala
-                        # eps1 = self.armijoLinesearch(eta, v_svn, gmlpt_Y, self.mlpt_sharp, jv, gamma=gamma, eps0=eps)
-                        # eta += (v_svn) * eps + v_stc * np.sqrt(eps1)
-                        eta += (v_svn) * eps + v_stc * np.sqrt(eps)
+
+                        # Armijo linesearch
+                        eps0 = self.armijoLinesearch(eta, v_svgd, alphas, v_svn, self.mlpt_sharp, jv, eps)
+                        eta += (v_svn) * eps0 + v_stc * np.sqrt(eps0)
 
                         X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
 
@@ -387,7 +374,7 @@ class samplers:
                     # Update progress bar
                     # ITER.set_description('Stepsize %f | Median bandwidth: %f | SVN norm: %f | Noise norm: %f | SVGD norm %f | Dampening %f' % (eps, self._bandwidth_MED(X), np.linalg.norm(v_svn), np.linalg.norm(v_stc), np.linalg.norm(v_svgd),  lamb))
                     # ITER.set_description('Stepsize %f | Median bandwidth: %f' % (eps1, self._bandwidth_MED(X)))
-                    ITER.set_description('Stepsize %f | Median bandwidth: %f' % (eps, self._bandwidth_MED(X)))
+                    ITER.set_description('Stepsize %f | Median bandwidth: %f' % (eps0, self._bandwidth_MED(X)))
 
 
                     # Store relevant per iteration information
@@ -405,7 +392,7 @@ class samplers:
                             g.create_dataset('gmlpt_X', data=copy.deepcopy(gmlpt_X))
                             g.create_dataset('gmlpt_Y', data=copy.deepcopy(gmlpt_Y))
                             g.create_dataset('v_svn', data=copy.deepcopy(v_svn))
-                            g.create_dataset('dphi', data=self.dphi(jv, gmlpt_Y, v_svn))
+                            g.create_dataset('DJ', data=np.sum(v_svgd * alphas))
                         g.create_dataset('id', data=copy.deepcopy(self.model.id))
 
                     # Update particles (I'll probably have to individualize this, since mirrored is a bit more involved than this!)
@@ -1112,35 +1099,45 @@ class samplers:
 
 
 #######################################################
-
-
-    def mlpt_sharp(self, eta):
+# Linesearch methods
+#######################################################
+    def mlpt_sharp(self, eta): # Checks: X
+        """ 
         # Remarks:
         # (i) jac returns a N x d matrix, since it is diagonal, not a N x d x d matrix.
-        jac = self._jacMapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
+
+        """
+        dxdy = self._jacMapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
+        det_dxdy = jnp.prod(dxdy, axis=-1) # Determinant is product of diagonal entries 
         X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
-        return self.model.heterodyne_minusLogLikelihood(X) - jnp.log(jnp.abs(jnp.prod(jac, axis=-1)))
+        # a = self.model.heterodyne_minusLogLikelihood(X) - jnp.log(jnp.abs(jnp.prod(jac, axis=-1)))
+        a = self.model.getMinusLogPosterior_ensemble(X) - jnp.log(jnp.abs(det_dxdy))
+        return a
 
     def jv(self, gkx1, alphas):
         return contract('mnj, ni -> mij', gkx1, alphas)
 
-    def armijoLinesearch(self, X, v, gmlpt, mlpt, jv, gamma=1, eps0=5):
+    def armijoLinesearch(self, X, v_svgd, alphas, w, mlpt, jw, step=1):
+        """ 
+        Linesearch procedure for SVN
+        d = jnp.sum(gmlpt * v) / self.nParticles - jnp.mean(jnp.trace(jv, axis1=1, axis2=2))
+        """
         beta = 1e-4
-        mlpt = lambda x: gamma * mlpt(x) # adjust for annealing
-        f = lambda eps: jnp.mean(mlpt(X) - mlpt(X + eps * v) + jnp.log(jnp.abs(jnp.linalg.det(jnp.eye(self.DoF)[jnp.newaxis] + eps * jv))))
-        steps = np.arange(0.1, eps0, 0.1)
-        # d = jnp.sum(gmlpt * v) / self.nParticles - jnp.mean(jnp.trace(jv, axis1=1, axis2=2))
-        for step in reversed(steps):
-            if f(step) > 0:
-            # if f(step) > -beta * step * d:
-                # val = -beta * step * d
-                # print(val)
-                # print('returning stepsize=%f' % step)
-                return step 
-        return 0.01
 
-    def dphi(self, jv, gmlpt, v):
-        return jnp.sum(gmlpt * v) / self.nParticles - jnp.mean(jnp.trace(jv, axis1=1, axis2=2))
+        # Step1: Ensure that the transformation is invertible
+        while not np.all(jnp.linalg.det(jnp.eye(self.DoF)[jnp.newaxis] + step * jw) > 0):
+            step /= 2
+            print('Halfing step size: Non-invertible pushforward')
+
+        # Step2: Ensure sufficient decrease in J
+        deltaJ = lambda eps: jnp.mean(mlpt(X) - mlpt(X + eps * w) + jnp.log(jnp.linalg.det(jnp.eye(self.DoF)[jnp.newaxis] + eps * jw)))
+        while not deltaJ(step) > beta * step * np.sum(v_svgd * alphas):
+            step /= 2
+            print('Halfing step size: Insufficient descent')
+
+        return step 
+
+###########################################################################
 
     def reg(self, mlpt, Hmlpt, lamb1, lamb2):
         a = jnp.trace(Hmlpt,axis1=1, axis2=2)
