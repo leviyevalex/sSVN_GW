@@ -328,7 +328,7 @@ class samplers:
 
 
                     elif method == 'reparam_sSVN':
-                        gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble_frozen_standard(X) # (M2)
+                        gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble_frozen(X) # (M2)
                         # gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
 
                         # Annealing modification
