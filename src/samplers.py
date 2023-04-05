@@ -86,8 +86,8 @@ class samplers:
         np.random.seed(1) # Enable for reproducibility
  
         try:
-            X = self.model._newDrawFromPrior_frozen(self.nParticles) # Initial set of particles
-            # X = self.model._newDrawFromPrior(self.nParticles) # Initial set of particles
+            # X = self.model._newDrawFromPrior_frozen(self.nParticles) # Initial set of particles
+            X = self.model._newDrawFromPrior(self.nParticles) # Initial set of particles
             eta = self._mapHypercubeToReals(X, self.model.lower_bound, self.model.upper_bound)
             key = jax.random.PRNGKey(0)
             with trange(self.nIterations) as ITER:
@@ -328,8 +328,8 @@ class samplers:
 
 
                     elif method == 'reparam_sSVN':
-                        gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble_frozen(X) # (M2)
-                        # gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
+                        # gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble_frozen(X) # (M2)
+                        gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
 
                         # Annealing modification
                         # gmlpt_X = gmlpt_X * schedule(iter_, self.nIterations)
