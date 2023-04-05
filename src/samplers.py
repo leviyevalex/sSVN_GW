@@ -363,7 +363,8 @@ class samplers:
                         jv = self.jv(gkx1, alphas)
 
                         # Armijo linesearch
-                        eps0 = self.armijoLinesearch(eta, v_svgd, alphas, v_svn, self.mlpt_sharp, jv, eps)
+                        # eps0 = self.armijoLinesearch(eta, v_svgd, alphas, v_svn, self.mlpt_sharp, jv, eps)
+                        eps0 = eps
                         eta += (v_svn) * eps0 + v_stc * np.sqrt(eps0)
 
                         X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
