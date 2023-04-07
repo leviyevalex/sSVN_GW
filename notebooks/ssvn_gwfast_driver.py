@@ -20,25 +20,23 @@ config.update("jax_debug_nans", True)
 #%%################ 
 # Create model
 ###################
-model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([]))
+model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([2, 3, 4, 5, 6, 7, 8, 9, 10]))
 
 #%%##########################
 # Setup sampler
 #############################
-nParticles = 100
+nParticles = 10
 h = model.DoF / 10
 nIterations = 200
-flat_schedule = lambda t: 1
-cyclic_schedule = lambda t: sampler1._cyclic_schedule(t, nIterations, p=5, C=5)
+# flat_schedule = lambda t: 1
+# cyclic_schedule = lambda t: sampler1._cyclic_schedule(t, nIterations, p=5, C=5)
 sampler1 = samplers(model=model, nIterations=nIterations, nParticles=nParticles, profile=False, kernel_type='Lp')
 kernelKwargs = {'h':h, 'p':1}
-sampler1.apply(method='reparam_sSVN', eps=1, kernelKwargs=kernelKwargs, schedule=cyclic_schedule)
+sampler1.apply(method='reparam_sSVN', eps=1, kernelKwargs=kernelKwargs)
 
 # %%
 X1 = collect_samples(sampler1.history_path)
 a = corner.corner(X1, smooth=0.5, labels=list(np.array(model.gwfast_param_order)[model.active_indicies]))
-
-
 
 #%%
 from scripts.plot_helper_functions import extract_velocity_norms
@@ -51,7 +49,14 @@ fig, ax = plt.subplots()
 ax.plot(a['vsvgd'])
 
 
-
+#%%
+func = jax.jacrev(model.heterodyne_minusLogLikelihood)
+for i in range(50):
+    x = model._newDrawFromPrior(1)
+    test1 = func(x)
+    test2 = model.getGradientMinusLogPosterior_ensemble(x)
+    print(np.allclose(test1, test2))
+    # test1/test2
 
 
 

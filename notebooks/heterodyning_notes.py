@@ -105,6 +105,7 @@ test2 = model.getGradientMinusLogPosterior_ensemble(x)
 print(np.allclose(test1, test2))
 test1/test2
 
+
 #%%############################################################
 # Relative error b/w heterodyne, standard likelihood gradients
 ###############################################################
