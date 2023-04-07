@@ -331,10 +331,6 @@ class samplers:
                         # gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble_frozen(X) # (M2)
                         gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
 
-                        # Annealing modification
-                        # gmlpt_X = gmlpt_X * schedule(iter_, self.nIterations)
-                        # Hmlpt_X = Hmlpt_X * schedule(iter_, self.nIterations)
-
                         dxdy = self._jacMapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
                         boundary_correction_grad = self._getBoundaryGradientCorrection(eta)
                         boundary_correction_hess = self._getBoundaryHessianCorrection(eta)
@@ -342,6 +338,10 @@ class samplers:
                         gmlpt_Y = dxdy * gmlpt_X + boundary_correction_grad
                         Hmlpt_Y = contract('Ni, Nj, Nij -> Nij', dxdy, dxdy, Hmlpt_X, backend='jax') 
                         Hmlpt_Y = Hmlpt_Y.at[:, jnp.array(range(self.DoF)), jnp.array(range(self.DoF))].add(boundary_correction_hess)
+
+                        # Annealing modification
+                        # gmlpt_Y = gmlpt_Y * schedule(iter_)
+                        # Hmlpt_Y = Hmlpt_Y * schedule(iter_)
 
                         M = jnp.mean(Hmlpt_Y, axis=0) # jnp.eye(self.DoF)
 
@@ -585,6 +585,7 @@ class samplers:
                     jitter = jitter * 10
             raise Exception('CHOLESKY: Factorization failed.')
 
+    @partial(jax.jit, static_argnums=(0,))
     def _hyperbolic_schedule(self, t, T, c=1.3, p=5):
         """
         Hyperbolic annealing schedule
@@ -597,8 +598,9 @@ class samplers:
         Returns: (float)
 
         """
-        return np.tanh((c * t / T) ** p)
+        return jnp.tanh((c * t / T) ** p) + 1e-11
 
+    @partial(jax.jit, static_argnums=(0,))
     def _cyclic_schedule(self, t, T, p=5, C=5):
         """
         Cyclic annealing schedule
@@ -612,7 +614,7 @@ class samplers:
 
         """
         tmp = T / C
-        return (np.mod(t, tmp) / tmp) ** p
+        return (jnp.mod(t, tmp) / tmp) ** p + 1e-11
 
     # Stochastic SVN : Reshaping methods
     def _reshapeNNDDtoNDND(self, H):

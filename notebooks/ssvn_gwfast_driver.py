@@ -17,32 +17,22 @@ import corner
 from jax.config import config
 config.update("jax_debug_nans", True)
 
-#%%
-""" 
-Remarks:
-(i)   3, 4 are problematic
-(ii)  Maybe problematic: 5, 6, 7 (particles bunch at corners)
-(iii) BIMODAL: 8
-"""
-# model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([]))
+#%%################ 
+# Create model
+###################
 model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([]))
-# Working: 0, 5, 
 
-
-#%%
-nParticles = 10
+#%%##########################
+# Setup sampler
+#############################
+nParticles = 100
 h = model.DoF / 10
-nIterations = 2
-
+nIterations = 200
+flat_schedule = lambda t: 1
+cyclic_schedule = lambda t: sampler1._cyclic_schedule(t, nIterations, p=5, C=5)
 sampler1 = samplers(model=model, nIterations=nIterations, nParticles=nParticles, profile=False, kernel_type='Lp')
-
-
-flat_schedule = lambda a, b: 1
 kernelKwargs = {'h':h, 'p':1}
-sampler1.apply(method='reparam_sSVN', eps=1, kernelKwargs=kernelKwargs)
-# sampler1.apply(method='reparam_sSVN', eps=1, kernelKwargs=kernelKwargs, schedule=_cyclic_schedule)
-
-
+sampler1.apply(method='reparam_sSVN', eps=1, kernelKwargs=kernelKwargs, schedule=cyclic_schedule)
 
 # %%
 X1 = collect_samples(sampler1.history_path)
@@ -60,18 +50,27 @@ fig, ax = plt.subplots()
 # ax.plot(a['vsvn'])
 ax.plot(a['vsvgd'])
 
+
+
+
+
+
+
+
+
+
 # %%
-import h5py
-def extract_gmlpt_norm(file, mode='gmlpt_X'):
-    with h5py.File(file, 'r') as hf:
-        iters_performed = hf['metadata']['L'][()]
-        for l in range(iters_performed):
-            gmlpt = hf['%i' % l][mode][()]
-            if l == 0:
-                norm_history = np.zeros(gmlpt.shape)
-            norm_history[l] = np.linalg.norm(gmlpt)
-        return norm_history
-#%%
-a = extract_gmlpt_norm(sampler1.history_path, 'dphi')
-plt.plot(a)
+# import h5py
+# def extract_gmlpt_norm(file, mode='gmlpt_X'):
+#     with h5py.File(file, 'r') as hf:
+#         iters_performed = hf['metadata']['L'][()]
+#         for l in range(iters_performed):
+#             gmlpt = hf['%i' % l][mode][()]
+#             if l == 0:
+#                 norm_history = np.zeros(gmlpt.shape)
+#             norm_history[l] = np.linalg.norm(gmlpt)
+#         return norm_history
+# #%%
+# a = extract_gmlpt_norm(sampler1.history_path, 'dphi')
+# plt.plot(a)
 # %%

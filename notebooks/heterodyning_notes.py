@@ -13,7 +13,7 @@ from pprint import pprint
 sys.path.append("..")
 from models.GWFAST_heterodyne import gwfast_class
 config.update("jax_enable_x64", True)
-model = gwfast_class(chi=1, eps=0.5, mode='IMRPhenomD') # IMRPhenomD | TaylorF2
+model = gwfast_class(chi=1, eps=0.5, mode='TaylorF2') # IMRPhenomD | TaylorF2
 dets = model.detsInNet.keys()
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%############
@@ -102,7 +102,8 @@ x = model._newDrawFromPrior(1)
 func = jax.jacrev(model.heterodyne_minusLogLikelihood)
 test1 = func(x)
 test2 = model.getGradientMinusLogPosterior_ensemble(x)
-np.allclose(test1, test2)
+print(np.allclose(test1, test2))
+test1/test2
 
 #%%############################################################
 # Relative error b/w heterodyne, standard likelihood gradients
