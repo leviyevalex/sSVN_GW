@@ -141,13 +141,8 @@ class gwfast_class(object):
 
         priorDict = {}
         priorDict['Mc']      = [20, 50]                            # [M_solar]     
-
-        # priorDict['eta']     = [0.1, 0.25]                         # [Unitless]
-        # priorDict['dL']      = [0.05, 4]                           # [GPC]
-
-        priorDict['eta']     = [0.20, 0.25]                         # [Unitless]
-        priorDict['dL']      = [0.05, 10]                           # [GPC]
-
+        priorDict['eta']     = [0.20, 0.25]                        # [Unitless]
+        priorDict['dL']      = [0.05, 10]                          # [GPC]
         priorDict['theta']   = [0., np.pi]                         # [Rad]
         priorDict['phi']     = [0., 2 * np.pi]                     # [Rad]
         priorDict['iota']    = [0., np.pi]                         # [Rad] # Maybe use cos i variable?
@@ -217,7 +212,7 @@ class gwfast_class(object):
 
         ###
 
-        self.nbins_standard = 2000
+        self.nbins_standard = 1000 # 2000
         self.fgrid_standard = np.linspace(self.fmin, self.fmax, num=self.nbins_standard + 1).squeeze()
         self.df_standard = (self.fgrid_standard[-1] - self.fgrid_standard[0]) / self.nbins_standard
 
@@ -376,7 +371,7 @@ class gwfast_class(object):
         """
         integrand = a.conjugate() * b / PSD
         overlap = (4 * jnp.trapz(integrand, fgrid)).T
-        return overlap
+        return overla
     
     def _precomputeDataInnerProduct(self): # Checks
         print('Precomputing squared SNR for likelihood')
@@ -428,27 +423,27 @@ class gwfast_class(object):
             GN += inner_product.real
         return GN
 
-    @partial(jax.jit, static_argnums=(0,))
-    def getDerivativesMinusLogPosterior_ensemble(self, X_reduced):
-        """ 
-        Returns SUBSET of derivatives using "standard" discretization
-        """
-        nParticles = X_reduced.shape[0]
-        X = jnp.zeros((nParticles, self.DoF_total))
-        if len(self.freeze_indicies) > 0:
-            X = X.at[:, self.freeze_indicies].set(jnp.tile(self.true_params[self.freeze_indicies], nParticles).reshape(nParticles, len(self.freeze_indicies)))
-        X = X.at[:, self.active_indicies].set(X_reduced)
+    # @partial(jax.jit, static_argnums=(0,))
+    # def getDerivativesMinusLogPosterior_ensemble(self, X_reduced):
+    #     """ 
+    #     Returns SUBSET of derivatives using "standard" discretization
+    #     """
+    #     nParticles = X_reduced.shape[0]
+    #     X = jnp.zeros((nParticles, self.DoF_total))
+    #     if len(self.freeze_indicies) > 0:
+    #         X = X.at[:, self.freeze_indicies].set(jnp.tile(self.true_params[self.freeze_indicies], nParticles).reshape(nParticles, len(self.freeze_indicies)))
+    #     X = X.at[:, self.active_indicies].set(X_reduced)
 
-        grad_log_like = jnp.zeros((nParticles, self.DoF_total))
-        GN = jnp.zeros((nParticles, self.DoF_total, self.DoF_total))
-        for det in self.detsInNet.keys():
-            template  = self.getSignal(X, self.fgrid_standard, det)
-            jacSignal = self._getJacobianSignal(X, self.fgrid_standard, det)
-            residual  = template - self.d_standard[det][np.newaxis, ...]
-            grad_log_like += self.overlap(jacSignal, residual, self.PSD_standard[det], self.df_standard).real
-            inner_product = 4 * contract('iNf, jNf, f -> Nij', jacSignal.conjugate(), jacSignal, 1 / self.PSD_standard[det]) * self.df_standard
-            GN += inner_product.real
-        return grad_log_like[:, self.active_indicies], GN[:, self.active_indicies][:, :, self.active_indicies]
+    #     grad_log_like = jnp.zeros((nParticles, self.DoF_total))
+    #     GN = jnp.zeros((nParticles, self.DoF_total, self.DoF_total))
+    #     for det in self.detsInNet.keys():
+    #         template  = self.getSignal(X, self.fgrid_standard, det)
+    #         jacSignal = self._getJacobianSignal(X, self.fgrid_standard, det)
+    #         residual  = template - self.d_standard[det][np.newaxis, ...]
+    #         grad_log_like += self.overlap(jacSignal, residual, self.PSD_standard[det], self.df_standard).real
+    #         inner_product = 4 * contract('iNf, jNf, f -> Nij', jacSignal.conjugate(), jacSignal, 1 / self.PSD_standard[det]) * self.df_standard
+    #         GN += inner_product.real
+    #     return grad_log_like[:, self.active_indicies], GN[:, self.active_indicies][:, :, self.active_indicies]
 
 
 
@@ -648,33 +643,33 @@ class gwfast_class(object):
     #     return grad_log_like, GN
 
 ################################################################
-    # @partial(jax.jit, static_argnums=(0,))
-    # def getDerivativesMinusLogPosterior_ensemble(self, X_reduced):
-    #     """ 
-    #     Returns subset of derivatives using sparse heterodyned method!
-    #     """
-    #     nParticles = X_reduced.shape[0]
-    #     X = jnp.zeros((nParticles, self.DoF_total))
-    #     if len(self.freeze_indicies) > 0:
-    #         X = X.at[:, self.freeze_indicies].set(jnp.tile(self.true_params[self.freeze_indicies], nParticles).reshape(nParticles, len(self.freeze_indicies)))
-    #     X = X.at[:, self.active_indicies].set(X_reduced)
-    #     grad_log_like = jnp.zeros((nParticles, self.DoF_total))
-    #     GN = jnp.zeros((nParticles, self.DoF_total, self.DoF_total))
-    #     for det in self.detsInNet.keys():
-    #         r0, r1 = self.getFirstSplineData(X, det)
-    #         r0j, r1j = self.getSecondSplineData(X, det)
-    #         grad_log_like += \
-    #         jnp.sum((self.B0[det] * r0j.conjugate() * (r0-1)) + (self.B1[det] * (r0j.conjugate() * r1 + r1j.conjugate() * (r0-1))), axis=-1).T.real 
+    @partial(jax.jit, static_argnums=(0,))
+    def getDerivativesMinusLogPosterior_ensemble(self, X_reduced):
+        """ 
+        Returns subset of derivatives using sparse heterodyned method!
+        """
+        nParticles = X_reduced.shape[0]
+        X = jnp.zeros((nParticles, self.DoF_total))
+        if len(self.freeze_indicies) > 0:
+            X = X.at[:, self.freeze_indicies].set(jnp.tile(self.true_params[self.freeze_indicies], nParticles).reshape(nParticles, len(self.freeze_indicies)))
+        X = X.at[:, self.active_indicies].set(X_reduced)
+        grad_log_like = jnp.zeros((nParticles, self.DoF_total))
+        GN = jnp.zeros((nParticles, self.DoF_total, self.DoF_total))
+        for det in self.detsInNet.keys():
+            r0, r1 = self.getFirstSplineData(X, det)
+            r0j, r1j = self.getSecondSplineData(X, det)
+            grad_log_like += \
+            jnp.sum((self.B0[det] * r0j.conjugate() * (r0-1)) + (self.B1[det] * (r0j.conjugate() * r1 + r1j.conjugate() * (r0-1))), axis=-1).T.real 
 
-    #         # term1 = contract('b, jNb, kNb -> Njk', self.B0[det], r0j.conjugate(), r0j, backend='jax')
-    #         # term2 = contract('b, jNb, kNb -> Njk', self.B1[det], r0j.conjugate(), r1j, backend='jax')
-    #         # term3 = contract('Nkj -> Njk', term2.conjugate(), backend='jax')
-    #         # GN += term1.real + term2.real + term3.real
+            # term1 = contract('b, jNb, kNb -> Njk', self.B0[det], r0j.conjugate(), r0j, backend='jax')
+            # term2 = contract('b, jNb, kNb -> Njk', self.B1[det], r0j.conjugate(), r1j, backend='jax')
+            # term3 = contract('Nkj -> Njk', term2.conjugate(), backend='jax')
+            # GN += term1.real + term2.real + term3.real
 
-    #         term1 = contract('b, jNb, kNb -> Njk', self.B0[det], r0j.conjugate(), r0j, backend='jax')
-    #         GN += term1.real 
+            term1 = contract('b, jNb, kNb -> Njk', self.B0[det], r0j.conjugate(), r0j, backend='jax')
+            GN += term1.real 
 
-    #     return grad_log_like[:, self.active_indicies], GN[:, self.active_indicies][:, :, self.active_indicies]
+        return grad_log_like[:, self.active_indicies], GN[:, self.active_indicies][:, :, self.active_indicies]
 
     def _newDrawFromPrior(self, n):
         prior_draw = np.zeros((n, 11))
@@ -804,7 +799,10 @@ class gwfast_class(object):
         for i in range(self.DoF): # Fix all other parameters
             if i != index1 and i != index2:
                 particle_grid[:, i] = np.ones(ngrid ** 2) * self.true_params[i]
-        Z = np.exp(-1 * func(particle_grid).reshape(ngrid,ngrid))
+        # Z = np.exp(-1 * func(particle_grid).reshape(ngrid,ngrid))
+        # Z = func(particle_grid).reshape(ngrid,ngrid)
+        s = self.getGradientMinusLogPosterior_ensemble(particle_grid)
+        Z = np.linalg.norm(s,axis=1).reshape(ngrid,ngrid)
         fig, ax = plt.subplots(figsize = (5, 5))
         cp = ax.contourf(X, Y, Z)
         # cbar = fig.colorbar(cp)

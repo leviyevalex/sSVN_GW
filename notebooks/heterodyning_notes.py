@@ -77,7 +77,9 @@ pairs = list(combinations(model.gwfast_param_order, 2))
 for pair in pairs:
     print(pair)
     # model.getCrossSection(pair[0], pair[1], model.standard_minusLogLikelihood, 100)
-    model.getCrossSection(pair[0], pair[1], model.heterodyne_minusLogLikelihood, 300)
+    # model.getCrossSection(pair[0], pair[1], model.heterodyne_minusLogLikelihood, 300)
+    model.getCrossSection(pair[0], pair[1], None, 300)
+    # model.getCrossSection(pair[0], pair[1], model.standard_minusLogLikelihood, 300)
 
 
 #%%########################### 
