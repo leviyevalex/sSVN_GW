@@ -20,7 +20,9 @@ config.update("jax_debug_nans", True)
 #%%################ 
 # Create model
 ###################
-model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([0, 1, 3, 4, 5, 6, 7, 8]))
+# model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([0, 1, 3, 4, 5, 6, 7, 8]))
+model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([2, 3, 4, 5, 6, 7, 8, 9, 10]))
+# model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([0, 1, 3, 4, 5, 6, 7, 8]))
 # model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([2, 3, 4]))
 # model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([2, 3, 4, 5, 6, 7, 8, 9, 10]))
 
@@ -29,7 +31,7 @@ model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([
 #############################
 nParticles = 100
 h = model.DoF / 10
-nIterations = 500
+nIterations = 200
 flat_schedule = lambda t: 1
 cyclic_schedule = lambda t: sampler1._cyclic_schedule(t, nIterations, p=5, C=5)
 hyperbolic_schedule = lambda t: sampler1._hyperbolic_schedule(t, nIterations)
@@ -38,15 +40,15 @@ sampler1 = samplers(model=model, nIterations=nIterations, nParticles=nParticles,
 kernelKwargs = {'h':h, 'p':1} # CHANGED!!!!!!!!!!!!!!!!!!!
 
 # bd_kernel_kwargs = {'h':0.05, 'M':np.eye(model.DoF)}
-bd_kernel_kwargs = {'h':0.01, 'M':np.eye(model.DoF)}
+bd_kernel_kwargs = {'h':0.1, 'M':np.eye(model.DoF)}
 
-sampler1.apply(method='reparam_sSVN', eps=1, kernelKwargs=kernelKwargs, schedule=flat_schedule, bd_kernel_kwargs=bd_kernel_kwargs)
+sampler1.apply(method='reparam_sSVN', eps=0.5, kernelKwargs=kernelKwargs, schedule=flat_schedule, bd_kernel_kwargs=bd_kernel_kwargs)
 # sampler1.apply(method='langevin', eps=0.01, kernelKwargs=kernelKwargs, schedule=flat_schedule, bd_kernel_kwargs=bd_kernel_kwargs)
 
 
 # %%
 X1 = collect_samples(sampler1.history_path)
-a = corner.corner(X1, smooth=0.5, labels=list(np.array(model.gwfast_param_order)[model.active_indicies]))
+a = corner.corner(X1, smooth=0.5, labels=list(np.array(model.gwfast_param_order)[model.active_indicies]), truths=model.true_params[model.active_indicies])
 
 #%%
 from scripts.plot_helper_functions import extract_velocity_norms
@@ -61,7 +63,7 @@ ax.plot(np.log(a['vsvgd']))
 
 #%%
 func = jax.jacrev(model.heterodyne_minusLogLikelihood)
-for i in range(50):
+for i in range(1):
     x = model._newDrawFromPrior(1)
     test1 = func(x)
     test2 = model.getGradientMinusLogPosterior_ensemble(x)
