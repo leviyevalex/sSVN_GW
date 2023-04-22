@@ -68,7 +68,11 @@ class samplers:
         kernel_class = kernels(nParticles=self.nParticles, DoF=self.DoF, kernel_type=kernel_type)
         self._getKernelWithDerivatives = kernel_class.getKernelWithDerivatives
 
-    def apply(self, kernelKwargs, method='SVGD', eps=0.1, schedule=None, lamb1=1, lamb2=2):
+        kernel_class_birth_death= kernels(nParticles=nParticles, DoF=self.DoF, kernel_type='RBF')
+        self.bd_kernel = kernel_class_birth_death.kernel_RBF
+
+
+    def apply(self, kernelKwargs, method='SVGD', eps=0.1, schedule=None, lamb1=1, lamb2=2, bd_kernel_kwargs={}):
         """
         Evolves a set of particles according to (method) with step-size (eps).
         Args:
@@ -300,7 +304,8 @@ class samplers:
                         X += eps * v_svn + np.sqrt(eps) * v_stc
 
                     elif method == 'reparam_sSVGD':
-                        gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble_frozen(X)
+                        gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
+                        eps0=eps
 
                         dxdy = self._jacMapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
                         boundary_correction_grad = self._getBoundaryGradientCorrection(eta)
@@ -349,6 +354,7 @@ class samplers:
                         NK = self._reshapeNNDDtoNDND(contract('mn, ij -> mnij', kx, jnp.eye(self.DoF), backend='jax'))
                         H1 = self._getSteinHessianPosdef(Hmlpt_Y, kx, gkx1)
                         lamb = 0.05 # 0.1
+                        # lamb = 0.1 # 0.1
                         H = H1 + NK * lamb
                         UH = jax.scipy.linalg.cholesky(H, lower=False)
 
@@ -366,7 +372,139 @@ class samplers:
                         eps0 = eps
                         eta += (v_svn) * eps0 + v_stc * np.sqrt(eps0)
 
+                        # BIRTH DEATH STEP (in dual space)
+                        # if iter_ > 20:
+                        #     lpt = -1 * self.mlpt_sharp(eta)
+                        #     bd_kernel_kwargs['M'] = jnp.mean(Hmlpt_Y, axis=0)
+                        #     kern_bd, _ = self.bd_kernel(eta, bd_kernel_kwargs)
+
+                        #     beta = np.log(np.mean(kern_bd, axis=1)) - lpt
+                        #     Lambda = beta - np.mean(beta)
+
+                        #     # tmp = np.sum(kern_bd, axis=1)
+                        #     # Lambda = np.log(tmp / self.nParticles) + np.sum(kern_bd / tmp, axis=1) - lpt - np.mean(np.log(tmp / self.nParticles)) - 1 + np.mean(lpt)
+                            
+                        #     r_i = np.random.uniform(low=0, high=1, size=self.nParticles)
+                        #     eps_bd = 1
+                        #     q = 1 - np.exp(-1 * np.abs(Lambda) * eps_bd)
+                        #     idxs = np.where(r_i <= q)[0]
+                        #     np.random.shuffle(idxs)
+                        #     killed = set()
+                        #     for i in idxs:
+                        #         if i not in killed:
+                        #             j = np.random.randint(self.nParticles)
+                        #             if Lambda[i] > 0: # Bad, jump somewhere else
+                        #                 eta = eta.at[i].set(eta[j] + 0.0001 * np.random.multivariate_normal(np.zeros(self.DoF), np.eye(self.DoF))) 
+                        #                 killed.add(i)
+                        #             else: # Good, something can jump here
+                        #                 eta = eta.at[j].set(eta[i] + 0.0001 * np.random.multivariate_normal(np.zeros(self.DoF), np.eye(self.DoF))) 
+                        #                 killed.add(j)
+
                         X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
+
+                        # BIRTH DEATH STEP (in primal space)
+                        # if iter_ > 25:
+                        #     lpt = -1 * self.model.heterodyne_minusLogLikelihood(X)
+                        #     kern_bd, _ = self.bd_kernel(X, bd_kernel_kwargs)
+                        #     tmp = np.sum(kern_bd, axis=1)
+                        #     Lambda = np.log(tmp / self.nParticles) + np.sum(kern_bd / tmp, axis=1) - lpt - np.mean(np.log(tmp / self.nParticles)) - 1 + np.mean(lpt)
+                        #     r_i = np.random.uniform(low=0, high=1, size=self.nParticles)
+                        #     tau = 1
+                        #     eps_bd = 2
+                        #     q = 1 - np.exp(-tau * np.abs(Lambda) * eps_bd) # Exponential clock
+                        #     idxs = np.where(r_i <= q)[0]
+                        #     np.random.shuffle(idxs)
+                        #     killed = set()
+                        #     for i in idxs:
+                        #         if i not in killed:
+                        #             j = np.random.randint(self.nParticles)
+                        #             noise = 0.0001 * np.random.multivariate_normal(np.zeros(self.DoF), np.eye(self.DoF))
+                        #             if Lambda[i] > 0: # Bad, jump to ~j
+                        #                 x_ = self._mapRealsToHypercube(self._mapHypercubeToReals(X[j], self.model.lower_bound, self.model.upper_bound) + noise, self.model.lower_bound, self.model.upper_bound)
+                        #                 X = X.at[i].set(x_) 
+                        #                 killed.add(i)
+                        #             else: # Good, jump to ~i
+                        #                 x_ = self._mapRealsToHypercube(self._mapHypercubeToReals(X[i], self.model.lower_bound, self.model.upper_bound) + noise, self.model.lower_bound, self.model.upper_bound)
+                        #                 X = X.at[j].set(x_) 
+                        #                 killed.add(j)
+
+
+
+
+                    elif method=='langevin':
+                        v_svgd = 0 # for output issues
+                        gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
+                        dxdy = self._jacMapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
+                        boundary_correction_grad = self._getBoundaryGradientCorrection(eta)
+                        boundary_correction_hess = self._getBoundaryHessianCorrection(eta)
+                        gmlpt_Y = dxdy * gmlpt_X + boundary_correction_grad
+                        # eps0=0.01
+                        eps0 = eps
+                        eta += -gmlpt_Y * eps + np.sqrt(2 * eps) * np.random.normal(0, 1, size=(self.nParticles, self.DoF))
+                        X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
+
+                        # BIRTH DEATH STEP (try applying this in primal space?)
+                        # lpt = -1 * self.model.heterodyne_minusLogLikelihood(X)
+                        # kern_bd, _ = self.bd_kernel(X, bd_kernel_kwargs)
+                        # tmp = np.sum(kern_bd, axis=1)
+                        # Lambda = np.log(tmp / self.nParticles) + np.sum(kern_bd / tmp, axis=1) - lpt - np.mean(np.log(tmp / self.nParticles)) - 1 + np.mean(lpt)
+                        # r_i = np.random.uniform(low=0, high=1, size=self.nParticles)
+                        # q = 1 - np.exp(-1 * np.abs(Lambda) * eps0)
+                        # idxs = np.where(r_i <= q)[0]
+                        # np.random.shuffle(idxs)
+                        # killed = set()
+                        # for i in idxs:
+                        #     if i not in killed:
+                        #         j = np.random.randint(self.nParticles)
+                        #         if Lambda[i] > 0: # Bad, jump to ~j
+                        #             X = X.at[i].set(X[j]) 
+                        #             killed.add(i)
+                        #         else: # Good, jump to ~i
+                        #             X = X.at[j].set(X[i]) 
+                        #             killed.add(j)
+
+                        # STOP HERE
+                        # for i in idxs:
+                        #     if i not in killed:
+                        #         j = np.random.randint(self.nParticles)
+                        #         noise = 0.0001 * np.random.multivariate_normal(np.zeros(self.DoF), np.eye(self.DoF))
+                        #         if Lambda[i] > 0: # Bad, jump to ~j
+                        #             x_ = self._mapRealsToHypercube(self._mapHypercubeToReals(X[j], self.model.lower_bound, self.model.upper_bound) + noise, self.model.lower_bound, self.model.upper_bound)
+                        #             X = X.at[i].set(x_) 
+                        #             killed.add(i)
+                        #         else: # Good, jump to ~i
+                        #             x_ = self._mapRealsToHypercube(self._mapHypercubeToReals(X[i], self.model.lower_bound, self.model.upper_bound) + noise, self.model.lower_bound, self.model.upper_bound)
+                        #             X = X.at[j].set(x_) 
+                        #             killed.add(j)
+                        # # BIRTH DEATH STEP (try applying this in primal space?)
+                        # if iter_ > 200:
+                        #     lpt = -1 * self.mlpt_sharp(eta)
+                        #     kern_bd, _ = self.bd_kernel(eta, bd_kernel_kwargs)
+                        #     tmp = np.sum(kern_bd, axis=1)
+                        #     Lambda = np.log(tmp / self.nParticles) + np.sum(kern_bd / tmp, axis=1) - lpt - np.mean(np.log(tmp / self.nParticles)) - 1 + np.mean(lpt)
+                        #     r_i = np.random.uniform(low=0, high=1, size=self.nParticles)
+                        #     q = 1 - np.exp(-1 * np.abs(Lambda) * eps0)
+                        #     idxs = np.where(r_i <= q)[0]
+                        #     np.random.shuffle(idxs)
+                        #     killed = set()
+                        #     for i in idxs:
+                        #         if i not in killed:
+                        #             j = np.random.randint(self.nParticles)
+                        #             if Lambda[i] > 0: # Bad, jump somewhere else
+                        #                 eta = eta.at[i].set(eta[j] + 0.0001 * np.random.multivariate_normal(np.zeros(self.DoF), np.eye(self.DoF))) 
+                        #                 killed.add(i)
+                        #             else: # Good, something can jump here
+                        #                 eta = eta.at[j].set(eta[i] + 0.0001 * np.random.multivariate_normal(np.zeros(self.DoF), np.eye(self.DoF))) 
+                        #                 killed.add(j)
+
+
+
+
+                        ### Pullback
+
+                        # X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
+
+
 
 
 

@@ -20,19 +20,29 @@ config.update("jax_debug_nans", True)
 #%%################ 
 # Create model
 ###################
-model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([2, 3, 4, 5, 6, 7, 8, 9, 10]))
+model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([0, 1, 3, 4, 5, 6, 7, 8]))
+# model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([2, 3, 4]))
+# model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([2, 3, 4, 5, 6, 7, 8, 9, 10]))
 
 #%%##########################
 # Setup sampler
 #############################
-nParticles = 10
+nParticles = 100
 h = model.DoF / 10
-nIterations = 200
-# flat_schedule = lambda t: 1
-# cyclic_schedule = lambda t: sampler1._cyclic_schedule(t, nIterations, p=5, C=5)
+nIterations = 500
+flat_schedule = lambda t: 1
+cyclic_schedule = lambda t: sampler1._cyclic_schedule(t, nIterations, p=5, C=5)
+hyperbolic_schedule = lambda t: sampler1._hyperbolic_schedule(t, nIterations)
 sampler1 = samplers(model=model, nIterations=nIterations, nParticles=nParticles, profile=False, kernel_type='Lp')
-kernelKwargs = {'h':h, 'p':1}
-sampler1.apply(method='reparam_sSVN', eps=1, kernelKwargs=kernelKwargs)
+# kernelKwargs = {'h':h, 'p':1}
+kernelKwargs = {'h':h, 'p':1} # CHANGED!!!!!!!!!!!!!!!!!!!
+
+# bd_kernel_kwargs = {'h':0.05, 'M':np.eye(model.DoF)}
+bd_kernel_kwargs = {'h':0.01, 'M':np.eye(model.DoF)}
+
+sampler1.apply(method='reparam_sSVN', eps=1, kernelKwargs=kernelKwargs, schedule=flat_schedule, bd_kernel_kwargs=bd_kernel_kwargs)
+# sampler1.apply(method='langevin', eps=0.01, kernelKwargs=kernelKwargs, schedule=flat_schedule, bd_kernel_kwargs=bd_kernel_kwargs)
+
 
 # %%
 X1 = collect_samples(sampler1.history_path)
@@ -46,7 +56,7 @@ a = extract_velocity_norms(sampler1.history_path)
 # %%
 fig, ax = plt.subplots()
 # ax.plot(a['vsvn'])
-ax.plot(a['vsvgd'])
+ax.plot(np.log(a['vsvgd']))
 
 
 #%%
@@ -59,23 +69,34 @@ for i in range(50):
     # test1/test2
 
 
+#%%
+import h5py
+def extract_gmlpt_norm(file, mode='gmlpt_Y'):
+    with h5py.File(file, 'r') as hf:
+        iters_performed = hf['metadata']['L'][()]
+        for l in range(iters_performed):
+            gmlpt = hf['%i' % l][mode][()]
+            if l == 0:
+                norm_history = np.zeros(iters_performed)
+            norm_history[l] = np.linalg.norm(gmlpt)
+        return norm_history
+#%%
+fig, ax = plt.subplots()
+a = extract_gmlpt_norm(sampler1.history_path, mode='gmlpt_X')
+b = extract_gmlpt_norm(sampler1.history_path, mode='gmlpt_Y')
+ax.set_xlabel('Iteration')
+ax.set_ylabel('<log|g|>')
+ax.set_title('Log Average of gradient norms')
+ax.plot(np.log(a), label='Primal')
+ax.plot(np.log(b), label='Dual')
+ax.legend()
 
-
-
-
-
-# %%
-# import h5py
-# def extract_gmlpt_norm(file, mode='gmlpt_X'):
-#     with h5py.File(file, 'r') as hf:
-#         iters_performed = hf['metadata']['L'][()]
-#         for l in range(iters_performed):
-#             gmlpt = hf['%i' % l][mode][()]
-#             if l == 0:
-#                 norm_history = np.zeros(gmlpt.shape)
-#             norm_history[l] = np.linalg.norm(gmlpt)
-#         return norm_history
-# #%%
-# a = extract_gmlpt_norm(sampler1.history_path, 'dphi')
-# plt.plot(a)
+#%%
+func = lambda X: np.exp(-model.heterodyne_minusLogLikelihood(X))
+# func = lambda X: -1 * model.heterodyne_minusLogLikelihood(X)
+# func = lambda X: -1 * model.standard_minusLogLikelihood(X)
+# func = lambda X: np.maximum(0, model.get)
+# func = lambda X: np.linalg.norm(model.getGradientMinusLogPosterior_ensemble(X), axis=1)
+model.getCrossSection('dL', 'chi2z', func, 100)
+# model.getCrossSection('theta', 'phi', func, 100)
 # %%

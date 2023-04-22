@@ -13,7 +13,7 @@ from pprint import pprint
 sys.path.append("..")
 from models.GWFAST_heterodyne import gwfast_class
 config.update("jax_enable_x64", True)
-model = gwfast_class(chi=1, eps=0.5, mode='TaylorF2') # IMRPhenomD | TaylorF2
+model = gwfast_class(chi=1, eps=0.5, mode='IMRPhenomD') # IMRPhenomD | TaylorF2
 dets = model.detsInNet.keys()
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%############
@@ -78,8 +78,16 @@ for pair in pairs:
     print(pair)
     # model.getCrossSection(pair[0], pair[1], model.standard_minusLogLikelihood, 100)
     # model.getCrossSection(pair[0], pair[1], model.heterodyne_minusLogLikelihood, 300)
-    model.getCrossSection(pair[0], pair[1], None, 300)
+    model.getCrossSection(pair[0], pair[1], None, 100)
     # model.getCrossSection(pair[0], pair[1], model.standard_minusLogLikelihood, 300)
+
+#%%
+x1 = 'dL'
+x2 = 'chi1z'
+# f = lambda X: np.exp(-1 * model.heterodyne_minusLogLikelihood(X))
+f = lambda X: -1 * model.heterodyne_minusLogLikelihood(X)
+model.getCrossSection(x1, x2, f, 200)
+
 
 
 #%%########################### 
