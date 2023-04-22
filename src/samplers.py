@@ -26,7 +26,7 @@ np.seterr(over='raise')
 np.seterr(invalid='raise')
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 class samplers:
-    def __init__(self, model, nIterations, nParticles, kernel_type, profile=None, bounded=None, t=None):
+    def __init__(self, model, nIterations, nParticles, kernel_type, bd_kwargs, profile=None, bounded=None, t=None):
         # Quick settings checks
         assert(nParticles > 0)
         assert(nIterations > 0)
@@ -68,11 +68,16 @@ class samplers:
         kernel_class = kernels(nParticles=self.nParticles, DoF=self.DoF, kernel_type=kernel_type)
         self._getKernelWithDerivatives = kernel_class.getKernelWithDerivatives
 
-        kernel_class_birth_death= kernels(nParticles=nParticles, DoF=self.DoF, kernel_type='RBF')
-        self.bd_kernel = kernel_class_birth_death.kernel_RBF
+        self.bd_kwargs = bd_kwargs
+        kernel_class_birth_death= kernels(nParticles=nParticles, DoF=self.DoF, kernel_type=self.bd_kwargs['kernel_type'])
+        self.bd_kernel = kernel_class_birth_death.getKernelWithDerivatives
 
+        self.bd_kernel_kwargs = copy.deepcopy(self.bd_kwargs)
+        self.bd_kernel_kwargs.pop('use')
+        self.bd_kernel_kwargs.pop('use_metric')
+        self.bd_kernel_kwargs.pop('kernel_type')
 
-    def apply(self, kernelKwargs, method='SVGD', eps=0.1, schedule=None, lamb1=1, lamb2=2, bd_kernel_kwargs={}):
+    def apply(self, kernelKwargs, method='SVGD', eps=0.1, schedule=None, lamb1=1, lamb2=2):
         """
         Evolves a set of particles according to (method) with step-size (eps).
         Args:
@@ -373,32 +378,37 @@ class samplers:
                         eta += (v_svn) * eps0 + v_stc * np.sqrt(eps0)
 
                         # BIRTH DEATH STEP (in dual space)
-                        # if iter_ > 20:
-                        #     lpt = -1 * self.mlpt_sharp(eta)
-                        #     bd_kernel_kwargs['M'] = jnp.mean(Hmlpt_Y, axis=0)
-                        #     kern_bd, _ = self.bd_kernel(eta, bd_kernel_kwargs)
+                        if self.bd_kwargs['use'] == True:
+                            if iter_ > self.bd_kwargs['start_iter']:
+                                lpt = -1 * self.mlpt_sharp(eta)
+                                if self.bd_kwargs['use_metric'] == True:
+                                    self.bd_kernel_kwargs['M'] = jnp.mean(Hmlpt_Y, axis=0)
+                                else:
+                                    self.bd_kernel_kwargs['M'] = jnp.eye(self.DoF)
+                                
+                                kern_bd, _ = self.bd_kernel(eta, self.bd_kernel_kwargs)
 
-                        #     beta = np.log(np.mean(kern_bd, axis=1)) - lpt
-                        #     Lambda = beta - np.mean(beta)
+                                beta = np.log(np.mean(kern_bd, axis=1)) - lpt
+                                Lambda = beta - np.mean(beta)
 
-                        #     # tmp = np.sum(kern_bd, axis=1)
-                        #     # Lambda = np.log(tmp / self.nParticles) + np.sum(kern_bd / tmp, axis=1) - lpt - np.mean(np.log(tmp / self.nParticles)) - 1 + np.mean(lpt)
-                            
-                        #     r_i = np.random.uniform(low=0, high=1, size=self.nParticles)
-                        #     eps_bd = 1
-                        #     q = 1 - np.exp(-1 * np.abs(Lambda) * eps_bd)
-                        #     idxs = np.where(r_i <= q)[0]
-                        #     np.random.shuffle(idxs)
-                        #     killed = set()
-                        #     for i in idxs:
-                        #         if i not in killed:
-                        #             j = np.random.randint(self.nParticles)
-                        #             if Lambda[i] > 0: # Bad, jump somewhere else
-                        #                 eta = eta.at[i].set(eta[j] + 0.0001 * np.random.multivariate_normal(np.zeros(self.DoF), np.eye(self.DoF))) 
-                        #                 killed.add(i)
-                        #             else: # Good, something can jump here
-                        #                 eta = eta.at[j].set(eta[i] + 0.0001 * np.random.multivariate_normal(np.zeros(self.DoF), np.eye(self.DoF))) 
-                        #                 killed.add(j)
+                                # tmp = np.sum(kern_bd, axis=1)
+                                # Lambda = np.log(tmp / self.nParticles) + np.sum(kern_bd / tmp, axis=1) - lpt - np.mean(np.log(tmp / self.nParticles)) - 1 + np.mean(lpt)
+                                
+                                r_i = np.random.uniform(low=0, high=1, size=self.nParticles)
+                                eps_bd = self.bd_kwargs['eps_bd']
+                                q = 1 - np.exp(-1 * np.abs(Lambda) * eps_bd)
+                                idxs = np.where(r_i <= q)[0]
+                                np.random.shuffle(idxs)
+                                killed = set()
+                                for i in idxs:
+                                    if i not in killed:
+                                        j = np.random.randint(self.nParticles)
+                                        if Lambda[i] > 0: # Bad, jump somewhere else
+                                            eta = eta.at[i].set(eta[j] + 0.0001 * np.random.multivariate_normal(np.zeros(self.DoF), np.eye(self.DoF))) 
+                                            killed.add(i)
+                                        else: # Good, something can jump here
+                                            eta = eta.at[j].set(eta[i] + 0.0001 * np.random.multivariate_normal(np.zeros(self.DoF), np.eye(self.DoF))) 
+                                            killed.add(j)
 
                         X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
 

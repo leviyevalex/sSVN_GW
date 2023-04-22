@@ -40,10 +40,10 @@ class kernels:
     @partial(jax.jit, static_argnums=(0,))
     def kernel_RBF(self, X, params):
         U = jax.scipy.linalg.cholesky(params['M'])
-        X = contract('ij, Nj -> Ni', U, X)
+        X = contract('ij, Nj -> Ni', U, X, backend='jax')
         pairwise_displacements = self.getPairwiseDisplacement(X)
-        k = jnp.exp(-contract('mni, mni -> mn', pairwise_displacements, pairwise_displacements) / (2 * params['h']))
-        g1k = -1 * contract('mn, mni -> mni', k, pairwise_displacements) / params['h']
+        k = jnp.exp(-contract('mni, mni -> mn', pairwise_displacements, pairwise_displacements, backend='jax') / (2 * params['h']))
+        g1k = -1 * contract('mn, mni -> mni', k, pairwise_displacements, backend='jax') / params['h']
         g1k = contract('ij, mni -> mnj', U, g1k)
         return (k, g1k) # Derivative returned on first slot
 

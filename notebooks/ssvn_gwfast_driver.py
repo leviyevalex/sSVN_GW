@@ -35,14 +35,21 @@ nIterations = 200
 flat_schedule = lambda t: 1
 cyclic_schedule = lambda t: sampler1._cyclic_schedule(t, nIterations, p=5, C=5)
 hyperbolic_schedule = lambda t: sampler1._hyperbolic_schedule(t, nIterations)
-sampler1 = samplers(model=model, nIterations=nIterations, nParticles=nParticles, profile=False, kernel_type='Lp')
+
+bd_kwargs = {'use': True, 
+             'h': 0.1,
+             'use_metric': True, 
+             'start_iter': 20,
+             'eps_bd': 1,
+             'kernel_type': 'Lp',
+             'p':1}
+
+sampler1 = samplers(model=model, nIterations=nIterations, nParticles=nParticles, profile=False, kernel_type='Lp', bd_kwargs=bd_kwargs)
 # kernelKwargs = {'h':h, 'p':1}
 kernelKwargs = {'h':h, 'p':1} # CHANGED!!!!!!!!!!!!!!!!!!!
 
-# bd_kernel_kwargs = {'h':0.05, 'M':np.eye(model.DoF)}
-bd_kernel_kwargs = {'h':0.1, 'M':np.eye(model.DoF)}
 
-sampler1.apply(method='reparam_sSVN', eps=0.5, kernelKwargs=kernelKwargs, schedule=flat_schedule, bd_kernel_kwargs=bd_kernel_kwargs)
+sampler1.apply(method='reparam_sSVN', eps=0.5, kernelKwargs=kernelKwargs, schedule=flat_schedule)
 # sampler1.apply(method='langevin', eps=0.01, kernelKwargs=kernelKwargs, schedule=flat_schedule, bd_kernel_kwargs=bd_kernel_kwargs)
 
 
