@@ -13,7 +13,7 @@ from pprint import pprint
 sys.path.append("..")
 from models.GWFAST_heterodyne import gwfast_class
 config.update("jax_enable_x64", True)
-model = gwfast_class(chi=1, eps=0.5, mode='IMRPhenomD') # IMRPhenomD | TaylorF2
+model = gwfast_class(chi=1, eps=0.5, mode='TaylorF2') # IMRPhenomD | TaylorF2
 dets = model.detsInNet.keys()
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%############
@@ -73,19 +73,21 @@ ax.legend()
 # Plot cross sections
 ##############################################################
 from itertools import combinations
+# f = lambda X: np.exp(-1 * model.heterodyne_minusLogLikelihood(X))
+f = lambda X: -1 * model.heterodyne_minusLogLikelihood(X)
 pairs = list(combinations(model.gwfast_param_order, 2))
 for pair in pairs:
     print(pair)
     # model.getCrossSection(pair[0], pair[1], model.standard_minusLogLikelihood, 100)
     # model.getCrossSection(pair[0], pair[1], model.heterodyne_minusLogLikelihood, 300)
-    model.getCrossSection(pair[0], pair[1], None, 100)
+    model.getCrossSection(pair[0], pair[1], f, 200)
     # model.getCrossSection(pair[0], pair[1], model.standard_minusLogLikelihood, 300)
 
 #%%
 x1 = 'dL'
 x2 = 'chi1z'
-# f = lambda X: np.exp(-1 * model.heterodyne_minusLogLikelihood(X))
-f = lambda X: -1 * model.heterodyne_minusLogLikelihood(X)
+f = lambda X: np.exp(-1 * model.heterodyne_minusLogLikelihood(X))
+# f = lambda X: -1 * model.heterodyne_minusLogLikelihood(X)
 model.getCrossSection(x1, x2, f, 200)
 
 
@@ -115,6 +117,25 @@ test2 = model.getGradientMinusLogPosterior_ensemble(x)
 print(np.allclose(test1, test2))
 test1/test2
 
+#%%#######################################################
+# Heterodyning effect on derivative components
+##########################################################
+det = 'L1'
+x = model._newDrawFromPrior(1)
+h = model._getJacobianSignal(x, model.fgrid_standard, det)
+fig, ax = plt.subplots(nrows=11, ncols=2, figsize=(10,20))
+for d in range(11):
+    ax[d, 0].plot(model.fgrid_standard, h[d,0].real, label=r'$h_{,%s}$' % model.gwfast_param_order[d])
+    ax[d, 1].plot(model.fgrid_standard, (h[d, 0] / model.h0_standard[det]).real, label=r'$r_{,%s}$' % model.gwfast_param_order[d])
+
+    ax[d, 0].set_xlabel('Frequency (Hz)')
+    ax[d, 1].set_xlabel('Frequency (Hz)')
+    
+    ax[d, 0].legend()
+    ax[d, 1].legend()
+
+plt.tight_layout()
+fig.show()
 
 #%%############################################################
 # Relative error b/w heterodyne, standard likelihood gradients
