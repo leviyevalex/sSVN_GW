@@ -40,6 +40,7 @@ bd_kwargs = {'use': True,
              'h': 0.1,
              'use_metric': True, 
              'start_iter': 20,
+             'end_iter': 50
              'eps_bd': 1,
              'kernel_type': 'Lp',
              'p':1}

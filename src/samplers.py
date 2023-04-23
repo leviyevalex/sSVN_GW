@@ -379,7 +379,7 @@ class samplers:
 
                         # BIRTH DEATH STEP (in dual space)
                         if self.bd_kwargs['use'] == True:
-                            if iter_ > self.bd_kwargs['start_iter']:
+                            if iter_ > self.bd_kwargs['start_iter'] and iter_ < self.bd_kwargs['end_iter']:
                                 lpt = -1 * self.mlpt_sharp(eta)
                                 if self.bd_kwargs['use_metric'] == True:
                                     self.bd_kernel_kwargs['M'] = jnp.mean(Hmlpt_Y, axis=0)
