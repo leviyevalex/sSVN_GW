@@ -13,7 +13,7 @@ from pprint import pprint
 sys.path.append("..")
 from models.GWFAST_heterodyne import gwfast_class
 config.update("jax_enable_x64", True)
-model = gwfast_class(chi=1, eps=0.5, mode='TaylorF2') # IMRPhenomD | TaylorF2
+model = gwfast_class(chi=1, eps=0.1, mode='TaylorF2') # IMRPhenomD | TaylorF2
 dets = model.detsInNet.keys()
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%############
@@ -62,64 +62,65 @@ X = model._newDrawFromPrior(nParticles)
 test1 = model.standard_minusLogLikelihood(X)
 test2 = model.heterodyne_minusLogLikelihood(X) 
 percent_change = (test1 - test2) / test1 * 100
-counts, bins = np.histogram(percent_change, bins=30)
+# counts, bins = np.histogram(percent_change, bins=30)
+counts, bins = np.histogram(test1 - test2, bins=30)
 ax.stairs(counts, bins, label='eps=%.2f, chi=%.2f' % (model.eps, model.chi))
 ax.set_ylabel('Count')
 ax.set_xlabel('Percentage error')
 ax.set_title('Distribution of log-likelihood errors over prior support')
 ax.legend()
 
-#%%###########################################################
-# Plot cross sections
-##############################################################
+#%%#################################################################
+# Get cross sections of energy landscape, grad_norm, or probability
+####################################################################
 from itertools import combinations
-# f = lambda X: np.exp(-1 * model.heterodyne_minusLogLikelihood(X))
-f = lambda X: -1 * model.heterodyne_minusLogLikelihood(X)
-pairs = list(combinations(model.gwfast_param_order, 2))
-for pair in pairs:
-    print(pair)
-    # model.getCrossSection(pair[0], pair[1], model.standard_minusLogLikelihood, 100)
-    # model.getCrossSection(pair[0], pair[1], model.heterodyne_minusLogLikelihood, 300)
-    model.getCrossSection(pair[0], pair[1], f, 200)
-    # model.getCrossSection(pair[0], pair[1], model.standard_minusLogLikelihood, 300)
 
-#%%
+mode = 'energy' 
+# mode = 'probability'
+# mode = 'grad_norm'
+
+if mode == 'probability':
+    f = lambda X: np.exp(-1 * model.heterodyne_minusLogLikelihood(X))
+elif mode == 'energy':
+    f = lambda X: -1 * model.heterodyne_minusLogLikelihood(X)
+elif mode == 'grad_norm':
+    f = lambda X: np.linalg.norm(model.getGradientMinusLogPosterior_ensemble(X), axis=1)
+
+#%% Get cross sections for all pairs
+for pair in list(combinations(model.gwfast_param_order, 2)):
+    print('Getting cross section for %s' % pair)
+    model.getCrossSection(pair[0], pair[1], f, 200)
+
+#%% Get cross sections for single pair
 x1 = 'dL'
 x2 = 'chi1z'
-f = lambda X: np.exp(-1 * model.heterodyne_minusLogLikelihood(X))
-# f = lambda X: -1 * model.heterodyne_minusLogLikelihood(X)
 model.getCrossSection(x1, x2, f, 200)
 
 
-
-#%%########################### 
-# Derivative unit tests follow
-###############################
+### Derivative unit tests follow ###
 
 
-#%%###############################################
-# Confirm standard derivative is correctly coded
-##################################################
+#%%########################################################################
+# Compare JAX/Analytic implementations of standard gradient implementation
+###########################################################################
 x = model._newDrawFromPrior(1)
 func = jax.jacrev(model.standard_minusLogLikelihood)
 test1 = func(x)
-#%%
 test2 = model.standard_gradientMinusLogLikelihood(x)
-np.allclose(test1, test2)
+print(np.allclose(test1, test2))
 
-#%%###############################################
-# Confirm heterodyne derivative is properly coded
-##################################################
+#%%############################################################################
+# Compare JAX/Analytic implementations of heterodyned gradient implementation
+###############################################################################
 x = model._newDrawFromPrior(1)
 func = jax.jacrev(model.heterodyne_minusLogLikelihood)
 test1 = func(x)
 test2 = model.getGradientMinusLogPosterior_ensemble(x)
 print(np.allclose(test1, test2))
-test1/test2
 
-#%%#######################################################
-# Heterodyning effect on derivative components
-##########################################################
+#%%###############################################################
+# Ensure that r_[,j] can be efficiently represented with a spline 
+##################################################################
 det = 'L1'
 x = model._newDrawFromPrior(1)
 h = model._getJacobianSignal(x, model.fgrid_standard, det)
@@ -167,6 +168,186 @@ for i in range(model.DoF):
     dict_variances[var_name] = variance
 fig.tight_layout()
 pprint(dict_variances)
+
+#%%#######################################################
+# Check quality of heterodyne for high error integrals
+##########################################################
+det = 'Virgo'
+fig, ax = plt.subplots(nrows=11, figsize=(10,20))
+for d in range(11):
+    idxs = np.argwhere(percent_change[:, d] > 100)
+    if len(idxs) > 0: 
+        x = store_samples[idxs[0]]
+        for n in range(x.shape[0]):
+            # jac_h = model._getJacobianSignal(x, model.bin_edges, det)
+            # ax[d].plot(model.bin_edges, (jac_h[d, 0] / model.h0_dense[det][model.indicies_kept]).real, label=r'$r_{,%s}$' % model.gwfast_param_order[d])
+
+            jac_h = model._getJacobianSignal(x, model.fgrid_standard, det)
+            ax[d].plot(model.fgrid_standard, (jac_h[d, 0] / model.h0_standard[det]).real, label=r'$r_{,%s}$' % model.gwfast_param_order[d])
+
+            # ax[d].plot(model.bin_edges, (jac_h[d, 0] / model.h0_dense[det][model.indicies_kept]).imag, label=r'$r_{,%s}$' % model.gwfast_param_order[d])
+
+    ax[d].set_xlabel('Frequency (Hz)')
+    ax[d].set_xlabel('Frequency (Hz)')
+
+plt.tight_layout()
+fig.show()
+
+
+#%%
+testa = model._getJacobianSignal(x, model.bin_edges, det)
+testb = model._getJacobianSignal(x, model.fgrid_standard, det)[:, :, model.indicies_kept]
+np.allclose(testa, testb)
+
+#%%
+
+def getGradientMinusLogPosterior_ensemble(self, X):
+    # Remarks:
+    # (i)   second spline data is (d, N, b) shaped
+    nParticles = X.shape[0]
+    grad_log_like = jnp.zeros((nParticles, self.DoF))
+    for det in self.detsInNet.keys():
+        r0, r1 = self.getFirstSplineData(X, det)
+        r0j, r1j = self.getSecondSplineData(X, det)
+        grad_log_like += \
+        jnp.sum((self.B0[det] * r0j.conjugate() * (r0-1)) + (self.B1[det] * (r0j.conjugate() * r1 + r1j.conjugate() * (r0-1))), axis=-1).T.real 
+    return grad_log_like
+
+
+#%%############################################################################
+# Simplified unit test diagram
+###############################################################################
+
+func1 = jax.jit(jax.jacrev(model.standard_minusLogLikelihood))
+func2 = jax.jit(jax.jacrev(model.heterodyne_minusLogLikelihood))
+
+for n in range(200):
+    print(n)
+    X = model._newDrawFromPrior(1)
+    test1 = func1(X)[0]
+    test2 = func2(X)[0]
+
+    if n == 0:
+      percent_change = np.abs((test1 - test2) / test2) * 100
+      store_samples = X
+    else:
+      percent_change = np.concatenate((percent_change, np.abs((test1 - test2) / test2) * 100), axis=0)
+      store_samples = np.concatenate((store_samples, X), axis=0)
+
+fig, ax = plt.subplots(nrows=11, ncols=1, figsize=(4,20))
+dict_variances = {}
+
+for i in range(model.DoF):
+    var_name = model.gwfast_param_order[i]
+    counts, bins = np.histogram(percent_change[:,i], bins=100)
+    variance = np.var(percent_change[:,i])
+    ax[i].stairs(counts, bins, label='eps=%.2f, chi=%.2f, d=%s' % (model.eps, model.chi, var_name))
+    ax[i].set_ylabel('Count')
+    ax[i].set_xlabel('Absolute percentage error')
+    ax[i].set_title('Distribution of derivative errors. var=%f' % variance)
+    ax[i].legend()
+    dict_variances[var_name] = variance
+fig.tight_layout()
+
+#%%#######################################################
+# Plot amplitude evolution
+#################################################
+det = 'L1'
+x = model._newDrawFromPrior(1)
+h = model._getJacobianSignal(x, model.fgrid_standard, det)
+fig, ax = plt.subplots(nrows=11, figsize=(5,20))
+for d in range(11):
+    ax[d].plot(model.fgrid_standard, (np.abs((h[d, 0] / model.h0_standard[det]))))
+    ax[d].set_title('Loglog plot of r_%s amplitude' % model.gwfast_param_order[d])
+    ax[d].set_xlabel('Frequency (Hz)')
+fig.tight_layout()
+
+
+
+#%%
+x = model._newDrawFromPrior(1)
+a = model.getSignal(x, model.fgrid_standard, det)
+fig, ax = plt.subplots()
+ax.plot(model.fgrid_standard, np.abs(a[0] / model.h0_standard[det]))
+fig.show()
+
+
+#%%
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#%%
+fig, ax = plt.subplots(nrows=11, ncols=2, figsize=(10,20))
+for d in range(11):
+    ax[d, 0].plot(model.fgrid_standard, h[d,0].real, label=r'$h_{,%s}$' % model.gwfast_param_order[d])
+    ax[d, 1].plot(model.fgrid_standard, (h[d, 0] / model.h0_standard[det]).real, label=r'$r_{,%s}$' % model.gwfast_param_order[d])
+
+    ax[d, 0].set_xlabel('Frequency (Hz)')
+    ax[d, 1].set_xlabel('Frequency (Hz)')
+    
+    ax[d, 0].legend()
+    ax[d, 1].legend()
+
+plt.tight_layout()
+fig.show()
+
+
+#%%
+fig, ax = plt.subplots()
+# ax.plot(model.h0_standard[det][model.indicies_kept])
+ax.plot(model.h0_standard[det])
+fig.show()
+
+
+
+#%%#####################################################
+# Confirm analytical derivative relationships
+########################################################
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 #%%
 def standard_gradientMinusLogLikelihood(self=model, X): # Checks: XX

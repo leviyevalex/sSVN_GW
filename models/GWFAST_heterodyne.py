@@ -205,9 +205,9 @@ class gwfast_class(object):
         # (v) 
         waveform_model = self.mode
         if waveform_model == 'TaylorF2':
-            self.wf_model = TaylorF2_RestrictedPN() 
+            self.wf_model = TaylorF2_RestrictedPN(apply_fcut=False) 
         elif waveform_model == 'IMRPhenomD':
-            self.wf_model = IMRPhenomD() 
+            self.wf_model = IMRPhenomD(apply_fcut=False) 
         print('Using waveform model: %s' % waveform_model)
 
     def _initFrequencyGrid(self, fmin=20): # Checks: X
@@ -228,7 +228,7 @@ class gwfast_class(object):
 
         ###
 
-        self.nbins_standard = 1000 # 2000
+        self.nbins_standard = 2000 # 2000
         self.fgrid_standard = np.linspace(self.fmin, self.fmax, num=self.nbins_standard + 1).squeeze()
         self.df_standard = (self.fgrid_standard[-1] - self.fgrid_standard[0]) / self.nbins_standard
 
@@ -591,10 +591,11 @@ class gwfast_class(object):
         return rj0, rj1
 
     @partial(jax.jit, static_argnums=(0,))
-    # def heterodyne_minusLogLikelihood(self, X): # Checks X
     def heterodyne_minusLogLikelihood(self, X_reduced): # Checks X
-        # Remarks:
-        # (i) Summary data has shape (b,)
+        """ 
+        Remarks:
+        (i) Summary data has shape (b,)
+        """
         nParticles = X_reduced.shape[0]
         X = jnp.zeros((nParticles, self.DoF_total))
         if len(self.freeze_indicies) > 0:
@@ -610,7 +611,7 @@ class gwfast_class(object):
             log_like += 0.5 * h_h - h_d.real + 0.5 * self.d_d[det]
         return log_like
 
-    # @partial(jax.jit, static_argnums=(0,))
+    @partial(jax.jit, static_argnums=(0,))
     def getGradientMinusLogPosterior_ensemble(self, X):
         # Remarks:
         # (i)   second spline data is (d, N, b) shaped

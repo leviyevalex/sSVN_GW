@@ -338,28 +338,13 @@ class samplers:
 
 
                     elif method == 'reparam_sSVN':
-                        gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
+                        gmlpt_X, Hmlpt_X, gmlpt_Y, Hmlpt_Y = self.getDerivatives_sharp(eta)
 
-                        dxdy = self._jacMapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
-                        boundary_correction_grad = self._getBoundaryGradientCorrection(eta)
-                        boundary_correction_hess = self._getBoundaryHessianCorrection(eta)
-
-                        gmlpt_Y = dxdy * gmlpt_X + boundary_correction_grad
-                        Hmlpt_Y = contract('Ni, Nj, Nij -> Nij', dxdy, dxdy, Hmlpt_X, backend='jax') 
-                        Hmlpt_Y = Hmlpt_Y.at[:, jnp.array(range(self.DoF)), jnp.array(range(self.DoF))].add(boundary_correction_hess)
-
-                        # Annealing modification
-                        # gmlpt_Y = gmlpt_Y * schedule(iter_)
-                        # Hmlpt_Y = Hmlpt_Y * schedule(iter_)
-
-                        M = jnp.mean(Hmlpt_Y, axis=0) # jnp.eye(self.DoF)
-
-                        kernelKwargs['M'] = M
+                        kernelKwargs['M'] = jnp.mean(Hmlpt_Y, axis=0) # jnp.eye(self.DoF)
                         kx, gkx1 = self.__getKernelWithDerivatives_(eta, kernelKwargs)
                         NK = self._reshapeNNDDtoNDND(contract('mn, ij -> mnij', kx, jnp.eye(self.DoF), backend='jax'))
                         H1 = self._getSteinHessianPosdef(Hmlpt_Y, kx, gkx1)
                         lamb = 0.05 # 0.1
-                        # lamb = 0.1 # 0.1
                         H = H1 + NK * lamb
                         UH = jax.scipy.linalg.cholesky(H, lower=False)
 
@@ -370,45 +355,75 @@ class samplers:
                         B = jax.random.normal(subkey, (self.dim,)) # standard normal sample
                         v_stc = self._getSVN_v_stc(kx, UH, B)
 
-                        jv = self.jv(gkx1, alphas)
-
-                        # Armijo linesearch
-                        # eps0 = self.armijoLinesearch(eta, v_svgd, alphas, v_svn, self.mlpt_sharp, jv, eps)
                         eps0 = eps
                         eta += (v_svn) * eps0 + v_stc * np.sqrt(eps0)
 
-                        # BIRTH DEATH STEP (in dual space)
-                        if self.bd_kwargs['use'] == True:
-                            if iter_ > self.bd_kwargs['start_iter'] and iter_ < self.bd_kwargs['end_iter']:
-                                lpt = -1 * self.mlpt_sharp(eta)
-                                if self.bd_kwargs['use_metric'] == True:
-                                    self.bd_kernel_kwargs['M'] = jnp.mean(Hmlpt_Y, axis=0)
-                                else:
-                                    self.bd_kernel_kwargs['M'] = jnp.eye(self.DoF)
-                                
-                                kern_bd, _ = self.bd_kernel(eta, self.bd_kernel_kwargs)
+                        # EXPENSIVE BIRTH DEATH STEP
+                        tau = 0.01
+                        V = self.model.heterodyne_minusLogLikelihood(X)
+                        perturbation = 0.0001 * np.random.multivariate_normal(np.zeros(self.DoF), np.eye(self.DoF), size=self.nParticles)
+                        choices = np.random.choice(self.nParticles, size=self.nParticles)
+                        r = np.random.uniform(low=0, high=1, size=self.nParticles)
+                        for n in range(self.nParticles):
+                            m = choices[n]
 
-                                beta = np.log(np.mean(kern_bd, axis=1)) - lpt
-                                Lambda = beta - np.mean(beta)
+                            # self.bd_kernel_kwargs['M'] = np.mean(Hmlpt_X, axis=0)
+                            # kern_bd, _ = self.bd_kernel(X, self.bd_kernel_kwargs)
 
-                                # tmp = np.sum(kern_bd, axis=1)
-                                # Lambda = np.log(tmp / self.nParticles) + np.sum(kern_bd / tmp, axis=1) - lpt - np.mean(np.log(tmp / self.nParticles)) - 1 + np.mean(lpt)
-                                
-                                r_i = np.random.uniform(low=0, high=1, size=self.nParticles)
-                                eps_bd = self.bd_kwargs['eps_bd']
-                                q = 1 - np.exp(-1 * np.abs(Lambda) * eps_bd)
-                                idxs = np.where(r_i <= q)[0]
-                                np.random.shuffle(idxs)
-                                killed = set()
-                                for i in idxs:
-                                    if i not in killed:
-                                        j = np.random.randint(self.nParticles)
-                                        if Lambda[i] > 0: # Bad, jump somewhere else
-                                            eta = eta.at[i].set(eta[j] + 0.0001 * np.random.multivariate_normal(np.zeros(self.DoF), np.eye(self.DoF))) 
-                                            killed.add(i)
-                                        else: # Good, something can jump here
-                                            eta = eta.at[j].set(eta[i] + 0.0001 * np.random.multivariate_normal(np.zeros(self.DoF), np.eye(self.DoF))) 
-                                            killed.add(j)
+                            self.bd_kernel_kwargs['M'] = np.mean(Hmlpt_Y, axis=0)
+                            kern_bd, _ = self.bd_kernel(eta, self.bd_kernel_kwargs)
+
+                            beta = np.log(np.mean(kern_bd, axis=1)) + V
+                            beta_bar = beta[n] - np.mean(beta)
+                            if 1 - np.exp(-np.abs(beta_bar) * tau) < r[n]:
+                                if beta_bar > 0: 
+                                    eta = eta.at[n].set(eta[m] + perturbation[n])  # Bad:  Jump somewhere else
+                                    V = V.at[n].set(V[m])
+                                    # Hmlpt_X = Hmlpt_X.at[n].set(Hmlpt_X[m])
+                                    Hmlpt_Y = Hmlpt_Y.at[n].set(Hmlpt_Y[m])
+                                else:            
+                                    eta = eta.at[m].set(eta[n] + perturbation[n])  # Good: Something can jump here
+                                    V = V.at[m].set(V[n])
+                                    # Hmlpt_X = Hmlpt_X.at[m].set(Hmlpt_X[n])
+                                    Hmlpt_Y = Hmlpt_Y.at[m].set(Hmlpt_Y[n])
+
+
+
+
+
+                        # BIRTH DEATH STEP (in dual space) # INEXPENSIVE VERSION
+                        # if self.bd_kwargs['use'] == True:
+                        #     if iter_ > self.bd_kwargs['start_iter'] and iter_ < self.bd_kwargs['end_iter']:
+                        #         lpt = -1 * self.mlpt_sharp(eta)
+                        #         if self.bd_kwargs['use_metric'] == True:
+                        #             self.bd_kernel_kwargs['M'] = jnp.mean(Hmlpt_Y, axis=0)
+                        #         else:
+                        #             self.bd_kernel_kwargs['M'] = jnp.eye(self.DoF)
+                        #         kern_bd, _ = self.bd_kernel(eta, self.bd_kernel_kwargs)
+                        #         beta = np.log(np.mean(kern_bd, axis=1)) - lpt
+                        #         Lambda = beta - np.mean(beta)
+                        #         # tmp = np.sum(kern_bd, axis=1)
+                        #         # Lambda = np.log(tmp / self.nParticles) + np.sum(kern_bd / tmp, axis=1) - lpt - np.mean(np.log(tmp / self.nParticles)) - 1 + np.mean(lpt)
+                        #         r_i = np.random.uniform(low=0, high=1, size=self.nParticles)
+                        #         eps_bd = self.bd_kwargs['eps_bd']
+                        #         q = 1 - np.exp(-1 * np.abs(Lambda) * eps_bd)
+                        #         idxs = np.where(r_i <= q)[0]
+                        #         np.random.shuffle(idxs)
+                        #         killed = set()
+                        #         for i in idxs:
+                        #             if i not in killed:
+                        #                 j = np.random.randint(self.nParticles)
+                        #                 if Lambda[i] > 0: # Bad, jump somewhere else
+                        #                     eta = eta.at[i].set(eta[j] + 0.0001 * np.random.multivariate_normal(np.zeros(self.DoF), np.eye(self.DoF))) 
+                        #                     killed.add(i)
+                        #                 else: # Good, something can jump here
+                        #                     eta = eta.at[j].set(eta[i] + 0.0001 * np.random.multivariate_normal(np.zeros(self.DoF), np.eye(self.DoF))) 
+                        #                     killed.add(j)
+                        
+
+
+
+
 
                         X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
 
@@ -537,7 +552,7 @@ class samplers:
                         g.create_dataset('eps', data=copy.deepcopy(eps))
                         g.create_dataset('v_svgd', data=copy.deepcopy(v_svgd))
                         if method == 'reparam_sSVN':
-                            g.create_dataset('gmlpt_X', data=copy.deepcopy(gmlpt_X))
+                            # g.create_dataset('gmlpt_X', data=copy.deepcopy(gmlpt_X))
                             g.create_dataset('gmlpt_Y', data=copy.deepcopy(gmlpt_Y))
                             g.create_dataset('v_svn', data=copy.deepcopy(v_svn))
                             g.create_dataset('DJ', data=np.sum(v_svgd * alphas))
@@ -1247,10 +1262,39 @@ class samplers:
         return (np.sqrt(2 * self.nParticles) * K @ tmp1).reshape(self.nParticles, self.DoF)
 
 
+######################################################################
+    # @partial(jax.jit, static_argnums=(0,))
+    def getDerivatives_sharp(self, eta):
+        X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
+        
+        gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
+        
+        dxdy = self._jacMapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
+        boundary_correction_grad = self._getBoundaryGradientCorrection(eta)
+        boundary_correction_hess = self._getBoundaryHessianCorrection(eta)
+
+        gmlpt_Y = dxdy * gmlpt_X + boundary_correction_grad
+        Hmlpt_Y = contract('Ni, Nj, Nij -> Nij', dxdy, dxdy, Hmlpt_X, backend='jax') 
+        Hmlpt_Y = Hmlpt_Y.at[:, jnp.array(range(self.DoF)), jnp.array(range(self.DoF))].add(boundary_correction_hess)
+
+        return gmlpt_X, Hmlpt_X, gmlpt_Y, Hmlpt_Y
+
+    @partial(jax.jit, static_argnums=(0,))
+    def getGradient_sharp(self, eta):
+        X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
+        gmlpt_X = self.model.getGradientMinusLogPosterior_ensemble(X)
+        dxdy = self._jacMapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
+        boundary_correction_grad = self._getBoundaryGradientCorrection(eta)
+        gmlpt_Y = dxdy * gmlpt_X + boundary_correction_grad
+        return gmlpt_Y
+
+
+
 
 #######################################################
 # Linesearch methods
 #######################################################
+    @partial(jax.jit, static_argnums=(0,))
     def mlpt_sharp(self, eta): # Checks: X
         """ 
         # Remarks:
@@ -1264,8 +1308,18 @@ class samplers:
         # a = self.model.getMinusLogPosterior_ensemble(X) - jnp.log(jnp.abs(det_dxdy))
         return a
 
-    def jv(self, gkx1, alphas):
-        return contract('mnj, ni -> mij', gkx1, alphas)
+    # @partial(jax.jit, static_argnums=(0,))
+    # def mlpt_sharp_single(self, eta):
+    #     dxdy = self._jacMapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
+    #     det_dxdy = jnp.prod(dxdy, axis=-1) # Determinant is product of diagonal entries 
+    #     X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
+    #     a = self.model.heterodyne_minusLogLikelihood(X) - jnp.log(jnp.abs(det_dxdy))
+    #     # a = self.model.getMinusLogPosterior_ensemble(X) - jnp.log(jnp.abs(det_dxdy))
+    #     return a
+
+
+    # def jv(self, gkx1, alphas):
+    #     return contract('mnj, ni -> mij', gkx1, alphas)
 
     def armijoLinesearch(self, X, v_svgd, alphas, w, mlpt, jw, step=1):
         """ 
