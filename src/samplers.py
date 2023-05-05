@@ -18,6 +18,7 @@ from functools import partial
 from src.JAX_kernels import kernels
 # from sklearn import metrics
 from jax.config import config
+import random # Used for birth death set selection
 config.update("jax_enable_x64", True)
 
 log = logging.getLogger(__name__)
@@ -346,113 +347,33 @@ class samplers:
                         H1 = self._getSteinHessianPosdef(Hmlpt_Y, kx, gkx1)
                         lamb = 0.05 # 0.1
                         H = H1 + NK * lamb
-                        UH = jax.scipy.linalg.cholesky(H, lower=False)
+                        # UH = jax.scipy.linalg.cholesky(H, lower=False)
+                        UH = self.getCho(H)
 
                         v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt_Y) 
                         v_svn, alphas = self._getSVN_direction(kx, v_svgd, UH)
 
                         key, subkey = jax.random.split(key)
-                        B = jax.random.normal(subkey, (self.dim,)) # standard normal sample
-                        v_stc = self._getSVN_v_stc(kx, UH, B)
+                        # B = jax.random.normal(subkey, (self.dim,)) # standard normal sample
+                        # v_stc = self._getSVN_v_stc(kx, UH, B)
 
                         eps0 = eps
-                        eta += (v_svn) * eps0 + v_stc * np.sqrt(eps0)
+                        # eta += (v_svn) * eps0 + v_stc * np.sqrt(eps0)
+                        # eta += (v_svn) * eps0
 
-                        # EXPENSIVE BIRTH DEATH STEP
-                        tau = 0.01
-                        V = self.model.heterodyne_minusLogLikelihood(X)
-                        perturbation = 0.0001 * np.random.multivariate_normal(np.zeros(self.DoF), np.eye(self.DoF), size=self.nParticles)
-                        choices = np.random.choice(self.nParticles, size=self.nParticles)
-                        r = np.random.uniform(low=0, high=1, size=self.nParticles)
-                        for n in range(self.nParticles):
-                            m = choices[n]
-
-                            # self.bd_kernel_kwargs['M'] = np.mean(Hmlpt_X, axis=0)
-                            # kern_bd, _ = self.bd_kernel(X, self.bd_kernel_kwargs)
-
-                            self.bd_kernel_kwargs['M'] = np.mean(Hmlpt_Y, axis=0)
-                            kern_bd, _ = self.bd_kernel(eta, self.bd_kernel_kwargs)
-
-                            beta = np.log(np.mean(kern_bd, axis=1)) + V
-                            beta_bar = beta[n] - np.mean(beta)
-                            if 1 - np.exp(-np.abs(beta_bar) * tau) < r[n]:
-                                if beta_bar > 0: 
-                                    eta = eta.at[n].set(eta[m] + perturbation[n])  # Bad:  Jump somewhere else
-                                    V = V.at[n].set(V[m])
-                                    # Hmlpt_X = Hmlpt_X.at[n].set(Hmlpt_X[m])
-                                    Hmlpt_Y = Hmlpt_Y.at[n].set(Hmlpt_Y[m])
-                                else:            
-                                    eta = eta.at[m].set(eta[n] + perturbation[n])  # Good: Something can jump here
-                                    V = V.at[m].set(V[n])
-                                    # Hmlpt_X = Hmlpt_X.at[m].set(Hmlpt_X[n])
-                                    Hmlpt_Y = Hmlpt_Y.at[m].set(Hmlpt_Y[n])
+                        # Birth death modifications
+                        jump_idxs = self.birthDeathJumpIndicies(eta)
+                        noise = self.proposalNoise(jump_idxs, kx, UH, key)
+                        eta = eta[jump_idxs] + eps * v_svn[jump_idxs] + np.sqrt(eps) * noise
 
 
 
-
-
-                        # BIRTH DEATH STEP (in dual space) # INEXPENSIVE VERSION
-                        # if self.bd_kwargs['use'] == True:
-                        #     if iter_ > self.bd_kwargs['start_iter'] and iter_ < self.bd_kwargs['end_iter']:
-                        #         lpt = -1 * self.mlpt_sharp(eta)
-                        #         if self.bd_kwargs['use_metric'] == True:
-                        #             self.bd_kernel_kwargs['M'] = jnp.mean(Hmlpt_Y, axis=0)
-                        #         else:
-                        #             self.bd_kernel_kwargs['M'] = jnp.eye(self.DoF)
-                        #         kern_bd, _ = self.bd_kernel(eta, self.bd_kernel_kwargs)
-                        #         beta = np.log(np.mean(kern_bd, axis=1)) - lpt
-                        #         Lambda = beta - np.mean(beta)
-                        #         # tmp = np.sum(kern_bd, axis=1)
-                        #         # Lambda = np.log(tmp / self.nParticles) + np.sum(kern_bd / tmp, axis=1) - lpt - np.mean(np.log(tmp / self.nParticles)) - 1 + np.mean(lpt)
-                        #         r_i = np.random.uniform(low=0, high=1, size=self.nParticles)
-                        #         eps_bd = self.bd_kwargs['eps_bd']
-                        #         q = 1 - np.exp(-1 * np.abs(Lambda) * eps_bd)
-                        #         idxs = np.where(r_i <= q)[0]
-                        #         np.random.shuffle(idxs)
-                        #         killed = set()
-                        #         for i in idxs:
-                        #             if i not in killed:
-                        #                 j = np.random.randint(self.nParticles)
-                        #                 if Lambda[i] > 0: # Bad, jump somewhere else
-                        #                     eta = eta.at[i].set(eta[j] + 0.0001 * np.random.multivariate_normal(np.zeros(self.DoF), np.eye(self.DoF))) 
-                        #                     killed.add(i)
-                        #                 else: # Good, something can jump here
-                        #                     eta = eta.at[j].set(eta[i] + 0.0001 * np.random.multivariate_normal(np.zeros(self.DoF), np.eye(self.DoF))) 
-                        #                     killed.add(j)
-                        
 
 
 
 
 
                         X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
-
-                        # BIRTH DEATH STEP (in primal space)
-                        # if iter_ > 25:
-                        #     lpt = -1 * self.model.heterodyne_minusLogLikelihood(X)
-                        #     kern_bd, _ = self.bd_kernel(X, bd_kernel_kwargs)
-                        #     tmp = np.sum(kern_bd, axis=1)
-                        #     Lambda = np.log(tmp / self.nParticles) + np.sum(kern_bd / tmp, axis=1) - lpt - np.mean(np.log(tmp / self.nParticles)) - 1 + np.mean(lpt)
-                        #     r_i = np.random.uniform(low=0, high=1, size=self.nParticles)
-                        #     tau = 1
-                        #     eps_bd = 2
-                        #     q = 1 - np.exp(-tau * np.abs(Lambda) * eps_bd) # Exponential clock
-                        #     idxs = np.where(r_i <= q)[0]
-                        #     np.random.shuffle(idxs)
-                        #     killed = set()
-                        #     for i in idxs:
-                        #         if i not in killed:
-                        #             j = np.random.randint(self.nParticles)
-                        #             noise = 0.0001 * np.random.multivariate_normal(np.zeros(self.DoF), np.eye(self.DoF))
-                        #             if Lambda[i] > 0: # Bad, jump to ~j
-                        #                 x_ = self._mapRealsToHypercube(self._mapHypercubeToReals(X[j], self.model.lower_bound, self.model.upper_bound) + noise, self.model.lower_bound, self.model.upper_bound)
-                        #                 X = X.at[i].set(x_) 
-                        #                 killed.add(i)
-                        #             else: # Good, jump to ~i
-                        #                 x_ = self._mapRealsToHypercube(self._mapHypercubeToReals(X[i], self.model.lower_bound, self.model.upper_bound) + noise, self.model.lower_bound, self.model.upper_bound)
-                        #                 X = X.at[j].set(x_) 
-                        #                 killed.add(j)
-
 
 
 
@@ -668,7 +589,7 @@ class samplers:
         return v_svn, alphas
 
     @partial(jax.jit, static_argnums=(0,))
-    def _getSVN_v_stc(self, kx, UH, B):
+    def _getSVN_v_stc(self, kx, UH, key):
         """
         Get noise injection velocity field for SVN
         Args:
@@ -679,8 +600,12 @@ class samplers:
 
         """
         # B = np.random.normal(0, 1, self.dim)
+        B = jax.random.normal(key, (self.dim,))
         tmp1 = jax.scipy.linalg.solve_triangular(UH, B, lower=False).reshape(self.nParticles, self.DoF)
         return jnp.sqrt(2 / self.nParticles) * contract('mn, ni -> mi', kx, tmp1, backend='jax')
+
+
+
 
     def _getSteinHessianBlockDiagonal(self, Hmlpt, kx, gkx):
         """
@@ -1288,9 +1213,9 @@ class samplers:
         gmlpt_Y = dxdy * gmlpt_X + boundary_correction_grad
         return gmlpt_Y
 
-
-
-
+    @partial(jax.jit, static_argnums=(0,))
+    def getCho(self, H):
+        return jax.scipy.linalg.cholesky(H, lower=False)
 #######################################################
 # Linesearch methods
 #######################################################
@@ -1321,6 +1246,49 @@ class samplers:
     # def jv(self, gkx1, alphas):
     #     return contract('mnj, ni -> mij', gkx1, alphas)
 
+
+    def birthDeathJumpIndicies(self, eta):
+        output = np.arange(self.nParticles)
+        
+        alive = MyDS()
+        for i in range(self.nParticles):
+            alive.add(i)
+        
+        tau = 0.01
+
+        V = self.mlpt_sharp(eta)
+
+        self.bd_kernel_kwargs['M'] = np.eye(self.DoF)
+
+        kern_bd, _ = self.bd_kernel(eta, self.bd_kernel_kwargs)
+
+        beta = np.log(np.mean(kern_bd, axis=1)) + V
+
+        Lambda = beta - np.mean(beta) # Mass excess / deficit
+        
+        r = np.random.uniform(low=0, high=1, size=self.nParticles)
+        
+        xi = np.argwhere(r < 1 - np.exp(-np.abs(Lambda) * tau))[:, 0]
+
+        for i in xi:
+            if alive.contains(i):
+                j = alive.getRandom()
+                if Lambda[i] > 0:
+                    output[i] = j
+                    alive.remove(i)
+                elif Lambda[i] < 0:
+                    output[j] = i 
+                    alive.remove(j)
+
+        return output
+
+    @partial(jax.jit, static_argnums=(0,))
+    def proposalNoise(self, idxs, kx, UH, key):
+        subkeys = jax.random.split(key, self.nParticles)
+        f = lambda n, key: self._getSVN_v_stc(kx, UH, key)[n]
+        return jax.vmap(f, [0, 0], 0)(idxs, subkeys)
+
+
     def armijoLinesearch(self, X, v_svgd, alphas, w, mlpt, jw, step=1):
         """ 
         Linesearch procedure for SVN
@@ -1347,6 +1315,7 @@ class samplers:
         a = jnp.trace(Hmlpt,axis1=1, axis2=2)
         # print(jnp.any(a>0))
         return 1 - lamb1 * (mlpt) - lamb2 * jnp.maximum(0, a)
+
 
 
     # def get_mirror_kernel_new(self, X, kx, gkx2):
@@ -1416,3 +1385,183 @@ class samplers:
 ###################################
 # dxdy = self._jacMapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
 # M = contract('Ni, Nj, Nij -> ij', dxdy, dxdy, Hmlpt, backend='jax') / self.nParticles 
+
+############## Birth death code 
+                        # BIRTH DEATH STEP (in primal space)
+                        # if iter_ > 25:
+                        #     lpt = -1 * self.model.heterodyne_minusLogLikelihood(X)
+                        #     kern_bd, _ = self.bd_kernel(X, bd_kernel_kwargs)
+                        #     tmp = np.sum(kern_bd, axis=1)
+                        #     Lambda = np.log(tmp / self.nParticles) + np.sum(kern_bd / tmp, axis=1) - lpt - np.mean(np.log(tmp / self.nParticles)) - 1 + np.mean(lpt)
+                        #     r_i = np.random.uniform(low=0, high=1, size=self.nParticles)
+                        #     tau = 1
+                        #     eps_bd = 2
+                        #     q = 1 - np.exp(-tau * np.abs(Lambda) * eps_bd) # Exponential clock
+                        #     idxs = np.where(r_i <= q)[0]
+                        #     np.random.shuffle(idxs)
+                        #     killed = set()
+                        #     for i in idxs:
+                        #         if i not in killed:
+                        #             j = np.random.randint(self.nParticles)
+                        #             noise = 0.0001 * np.random.multivariate_normal(np.zeros(self.DoF), np.eye(self.DoF))
+                        #             if Lambda[i] > 0: # Bad, jump to ~j
+                        #                 x_ = self._mapRealsToHypercube(self._mapHypercubeToReals(X[j], self.model.lower_bound, self.model.upper_bound) + noise, self.model.lower_bound, self.model.upper_bound)
+                        #                 X = X.at[i].set(x_) 
+                        #                 killed.add(i)
+                        #             else: # Good, jump to ~i
+                        #                 x_ = self._mapRealsToHypercube(self._mapHypercubeToReals(X[i], self.model.lower_bound, self.model.upper_bound) + noise, self.model.lower_bound, self.model.upper_bound)
+                        #                 X = X.at[j].set(x_) 
+                        #                 killed.add(j)
+
+
+                        # EXPENSIVE BIRTH DEATH STEP
+                        # if self.bd_kwargs['use'] == True:
+                        #     tau = self.bd_kwargs['eps_bd']
+                        #     V = self.mlpt_sharp(eta)
+                        #     choices = np.random.choice(self.nParticles, size=self.nParticles)
+                        #     r = np.random.uniform(low=0, high=1, size=self.nParticles)
+                        #     killed = set()
+                        #     for n in range(self.nParticles):
+                        #         m = choices[n]
+                        #         if self.bd_kwargs['use_metric'] == True:
+                        #             self.bd_kernel_kwargs['M'] = np.mean(Hmlpt_X, axis=0) # np.eye(self.DoF) # 
+                        #         else:
+                        #             self.bd_kernel_kwargs['M'] = np.eye(self.DoF) # 
+                        #         kern_bd, _ = self.bd_kernel(eta, self.bd_kernel_kwargs)
+                        #         beta = np.log(np.mean(kern_bd, axis=1)) + V
+                        #         beta_bar = beta[n] - np.mean(beta)
+                        #         if r[n] < 1 - np.exp(-np.abs(beta_bar) * tau):
+                        #             if beta_bar > 0: # Bad:  Jump somewhere else
+                        #                 killed.add(n)
+                        #                 key, subkey = jax.random.split(key)
+                        #                 B = jax.random.normal(subkey, (self.dim,)) # standard normal sample
+                        #                 v_stc = self._getSVN_v_stc(kx, UH, B)
+                        #                 eta = eta.at[n].set(eta[m] + eps0 * v_svn[m] + np.sqrt(eps0) * v_stc[m])  
+                        #                 V = V.at[n].set(V[m])
+                        #                 # Hmlpt_X = Hmlpt_X.at[n].set(Hmlpt_X[m])
+                        #             else: # Good: Something can jump here        
+                        #                 killed.add(m)
+                        #                 key, subkey = jax.random.split(key)
+                        #                 B = jax.random.normal(subkey, (self.dim,)) # standard normal sample
+                        #                 v_stc = self._getSVN_v_stc(kx, UH, B)
+                        #                 eta = eta.at[m].set(eta[n] + eps0 * v_svn[n] + np.sqrt(eps0) * v_stc[n])  
+                        #                 V = V.at[m].set(V[n])
+                        #                 # Hmlpt_X = Hmlpt_X.at[m].set(Hmlpt_X[n])
+                        #     killed = np.array(killed)
+                        #     killed = np.setdiff1d(np.arange(self.nParticles), killed)
+                        # eta = eta.at[r > 1 - np.exp(-np.abs() * tau)] (v_svn) * eps0 + v_stc * np.sqrt(eps0)
+
+
+
+
+                        # BIRTH DEATH STEP (in dual space) # INEXPENSIVE VERSION
+                        # if self.bd_kwargs['use'] == True:
+                        #     if iter_ > self.bd_kwargs['start_iter'] and iter_ < self.bd_kwargs['end_iter']:
+                        #         lpt = -1 * self.mlpt_sharp(eta)
+                        #         if self.bd_kwargs['use_metric'] == True:
+                        #             self.bd_kernel_kwargs['M'] = jnp.mean(Hmlpt_Y, axis=0)
+                        #         else:
+                        #             self.bd_kernel_kwargs['M'] = jnp.eye(self.DoF)
+                        #         kern_bd, _ = self.bd_kernel(eta, self.bd_kernel_kwargs)
+                        #         beta = np.log(np.mean(kern_bd, axis=1)) - lpt
+                        #         Lambda = beta - np.mean(beta)
+                        #         # tmp = np.sum(kern_bd, axis=1)
+                        #         # Lambda = np.log(tmp / self.nParticles) + np.sum(kern_bd / tmp, axis=1) - lpt - np.mean(np.log(tmp / self.nParticles)) - 1 + np.mean(lpt)
+                        #         r_i = np.random.uniform(low=0, high=1, size=self.nParticles)
+                        #         eps_bd = self.bd_kwargs['eps_bd']
+                        #         q = 1 - np.exp(-1 * np.abs(Lambda) * eps_bd)
+                        #         idxs = np.where(r_i <= q)[0]
+                        #         np.random.shuffle(idxs)
+                        #         killed = set()
+                        #         for i in idxs:
+                        #             if i not in killed:
+                        #                 j = np.random.randint(self.nParticles)
+                        #                 if Lambda[i] > 0: # Bad, jump somewhere else
+                        #                     eta = eta.at[i].set(eta[j] + 0.0001 * np.random.multivariate_normal(np.zeros(self.DoF), np.eye(self.DoF))) 
+                        #                     killed.add(i)
+                        #                 else: # Good, something can jump here
+                        #                     eta = eta.at[j].set(eta[i] + 0.0001 * np.random.multivariate_normal(np.zeros(self.DoF), np.eye(self.DoF))) 
+                        #                     killed.add(j)
+                        
+
+class MyDS:
+    """
+    Note: Solution adapted from  
+    https://www.geeksforgeeks.org/design-a-data-structure-that-supports-insert-delete-search-and-getrandom-in-constant-time/
+    """
+ 
+    # Constructor (creates a list and a hash)
+    def __init__(self):
+         
+        # A resizable array
+        self.arr = []
+ 
+        # A hash where keys are lists elements
+        # and values are indexes of the list
+        self.hashd = {}
+ 
+    # A Theta(1) function to add an element
+    # to MyDS data structure
+    def add(self, x):
+         
+        # If element is already present,
+        # then nothing has to be done
+        if x in self.hashd:
+            return
+ 
+        # Else put element at
+        # the end of the list
+        s = len(self.arr)
+        self.arr.append(x)
+ 
+        # Also put it into hash
+        self.hashd[x] = s
+ 
+    # A Theta(1) function to remove an element
+    # from MyDS data structure
+    def remove(self, x):
+         
+        # Check if element is present
+        index = self.hashd.get(x, None)
+        if index == None:
+            return
+ 
+        # If present, then remove
+        # element from hash
+        del self.hashd[x]
+ 
+        # Swap element with last element
+        # so that removal from the list
+        # can be done in O(1) time
+        size = len(self.arr)
+        last = self.arr[size - 1]
+        self.arr[index], \
+        self.arr[size - 1] = self.arr[size - 1], \
+                             self.arr[index]
+ 
+        # Remove last element (This is O(1))
+        del self.arr[-1]
+ 
+        # Update hash table for
+        # new index of last element
+        self.hashd[last] = index
+ 
+    # Returns a random element from MyDS
+    def getRandom(self):
+         
+         
+        # Find a random index from 0 to size - 1
+        index = random.randrange(0, len(self.arr))
+ 
+        # Return element at randomly picked index
+        return self.arr[index]
+ 
+    # Returns index of element
+    # if element is present,
+    # otherwise none
+    def search(self, x):
+        return self.hashd.get(x, None)
+    
+    # Alex added this: check if element is in here
+    def contains(self, x):
+        return x in self.hashd
