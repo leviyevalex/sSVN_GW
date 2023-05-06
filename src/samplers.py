@@ -1250,9 +1250,12 @@ class samplers:
     def birthDeathJumpIndicies(self, eta):
         output = np.arange(self.nParticles)
         
-        alive = MyDS()
+        # alive = MyDS()
+        alive = ListDict()
+
         for i in range(self.nParticles):
-            alive.add(i)
+            # alive.add(i)
+            alive.add_item(i)
         
         tau = 0.01
 
@@ -1271,14 +1274,26 @@ class samplers:
         xi = np.argwhere(r < 1 - np.exp(-np.abs(Lambda) * tau))[:, 0]
 
         for i in xi:
-            if alive.contains(i):
-                j = alive.getRandom()
+            if i in alive:
+                j = alive.choose_random_item()
                 if Lambda[i] > 0:
                     output[i] = j
-                    alive.remove(i)
+                    alive.remove_item(i)
                 elif Lambda[i] < 0:
                     output[j] = i 
-                    alive.remove(j)
+                    alive.remove_item(j)
+
+        # Using geeks solution:
+            # for i in xi:
+            #     if alive.contains(i):
+            #         j = alive.getRandom()
+            #         if Lambda[i] > 0:
+            #             output[i] = j
+            #             alive.remove(i)
+            #         elif Lambda[i] < 0:
+            #             output[j] = i 
+            #             alive.remove(j)
+
 
         return output
 
@@ -1535,9 +1550,12 @@ class MyDS:
         # can be done in O(1) time
         size = len(self.arr)
         last = self.arr[size - 1]
-        self.arr[index], \
-        self.arr[size - 1] = self.arr[size - 1], \
-                             self.arr[index]
+
+        try:
+            self.arr[index], self.arr[size - 1] = self.arr[size - 1], self.arr[index]
+        except:
+            pass
+            1 + 1
  
         # Remove last element (This is O(1))
         del self.arr[-1]
@@ -1565,3 +1583,37 @@ class MyDS:
     # Alex added this: check if element is in here
     def contains(self, x):
         return x in self.hashd
+
+
+########################
+# Stackexchange class 
+########################
+class ListDict(object):
+    def __init__(self):
+        self.item_to_position = {}
+        self.items = []
+
+    def add_item(self, item):
+        if item in self.item_to_position:
+            return
+        self.items.append(item)
+        self.item_to_position[item] = len(self.items)-1
+
+    def remove_item(self, item):
+        position = self.item_to_position.pop(item)
+        last_item = self.items.pop()
+        if position != len(self.items):
+            self.items[position] = last_item
+            self.item_to_position[last_item] = position
+
+    def choose_random_item(self):
+        return random.choice(self.items)
+
+    def __contains__(self, item):
+        return item in self.item_to_position
+
+    def __iter__(self):
+        return iter(self.items)
+
+    def __len__(self):
+        return len(self.items)
