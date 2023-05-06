@@ -339,43 +339,30 @@ class samplers:
 
 
                     elif method == 'reparam_sSVN':
+                        # SVN calculations
                         gmlpt_X, Hmlpt_X, gmlpt_Y, Hmlpt_Y = self.getDerivatives_sharp(eta)
-
                         kernelKwargs['M'] = jnp.mean(Hmlpt_Y, axis=0) # jnp.eye(self.DoF)
                         kx, gkx1 = self.__getKernelWithDerivatives_(eta, kernelKwargs)
                         NK = self._reshapeNNDDtoNDND(contract('mn, ij -> mnij', kx, jnp.eye(self.DoF), backend='jax'))
                         H1 = self._getSteinHessianPosdef(Hmlpt_Y, kx, gkx1)
                         lamb = 0.05 # 0.1
                         H = H1 + NK * lamb
-                        # UH = jax.scipy.linalg.cholesky(H, lower=False)
                         UH = self.getCho(H)
-
                         v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt_Y) 
                         v_svn, alphas = self._getSVN_direction(kx, v_svgd, UH)
 
                         key, subkey = jax.random.split(key)
-                        # B = jax.random.normal(subkey, (self.dim,)) # standard normal sample
-                        # v_stc = self._getSVN_v_stc(kx, UH, B)
 
-                        eps0 = eps
-                        # eta += (v_svn) * eps0 + v_stc * np.sqrt(eps0)
-                        # eta += (v_svn) * eps0
+                        # Standard update
+                        # v_stc = self._getSVN_v_stc(kx, UH, key)
+                        # eta += eps * v_svn + np.sqrt(eps) * v_stc 
 
-                        # Birth death modifications
+                        # Birth death update
                         jump_idxs = self.birthDeathJumpIndicies(eta)
                         noise = self.proposalNoise(jump_idxs, kx, UH, key)
                         eta = eta[jump_idxs] + eps * v_svn[jump_idxs] + np.sqrt(eps) * noise
 
-
-
-
-
-
-
-
                         X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
-
-
 
                     elif method=='langevin':
                         v_svgd = 0 # for output issues
@@ -458,7 +445,7 @@ class samplers:
                     # Update progress bar
                     # ITER.set_description('Stepsize %f | Median bandwidth: %f | SVN norm: %f | Noise norm: %f | SVGD norm %f | Dampening %f' % (eps, self._bandwidth_MED(X), np.linalg.norm(v_svn), np.linalg.norm(v_stc), np.linalg.norm(v_svgd),  lamb))
                     # ITER.set_description('Stepsize %f | Median bandwidth: %f' % (eps1, self._bandwidth_MED(X)))
-                    ITER.set_description('Stepsize %f | Median bandwidth: %f' % (eps0, self._bandwidth_MED(X)))
+                    ITER.set_description('Stepsize %f | Median bandwidth: %f' % (eps, self._bandwidth_MED(X)))
 
 
                     # Store relevant per iteration information
@@ -1229,8 +1216,8 @@ class samplers:
         dxdy = self._jacMapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
         det_dxdy = jnp.prod(dxdy, axis=-1) # Determinant is product of diagonal entries 
         X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
-        a = self.model.heterodyne_minusLogLikelihood(X) - jnp.log(jnp.abs(det_dxdy))
-        # a = self.model.getMinusLogPosterior_ensemble(X) - jnp.log(jnp.abs(det_dxdy))
+        # a = self.model.heterodyne_minusLogLikelihood(X) - jnp.log(jnp.abs(det_dxdy))
+        a = self.model.getMinusLogPosterior_ensemble(X) - jnp.log(jnp.abs(det_dxdy))
         return a
 
     # @partial(jax.jit, static_argnums=(0,))
@@ -1248,31 +1235,23 @@ class samplers:
 
 
     def birthDeathJumpIndicies(self, eta):
+        # Definitions
         output = np.arange(self.nParticles)
-        
-        # alive = MyDS()
-        alive = ListDict()
-
-        for i in range(self.nParticles):
-            # alive.add(i)
-            alive.add_item(i)
-        
-        tau = 0.01
-
-        V = self.mlpt_sharp(eta)
-
         self.bd_kernel_kwargs['M'] = np.eye(self.DoF)
+        alive = ListDict()
+        tau = 0.01
+        for i in range(self.nParticles):
+            alive.add_item(i)
 
+        # Calculations
+        V = self.mlpt_sharp(eta)
         kern_bd, _ = self.bd_kernel(eta, self.bd_kernel_kwargs)
-
         beta = np.log(np.mean(kern_bd, axis=1)) + V
-
         Lambda = beta - np.mean(beta) # Mass excess / deficit
-        
         r = np.random.uniform(low=0, high=1, size=self.nParticles)
-        
         xi = np.argwhere(r < 1 - np.exp(-np.abs(Lambda) * tau))[:, 0]
 
+        # Calculate jumps
         for i in xi:
             if i in alive:
                 j = alive.choose_random_item()
@@ -1282,18 +1261,6 @@ class samplers:
                 elif Lambda[i] < 0:
                     output[j] = i 
                     alive.remove_item(j)
-
-        # Using geeks solution:
-            # for i in xi:
-            #     if alive.contains(i):
-            #         j = alive.getRandom()
-            #         if Lambda[i] > 0:
-            #             output[i] = j
-            #             alive.remove(i)
-            #         elif Lambda[i] < 0:
-            #             output[j] = i 
-            #             alive.remove(j)
-
 
         return output
 
@@ -1499,96 +1466,14 @@ class samplers:
                         #                     killed.add(j)
                         
 
-class MyDS:
-    """
-    Note: Solution adapted from  
-    https://www.geeksforgeeks.org/design-a-data-structure-that-supports-insert-delete-search-and-getrandom-in-constant-time/
-    """
- 
-    # Constructor (creates a list and a hash)
-    def __init__(self):
-         
-        # A resizable array
-        self.arr = []
- 
-        # A hash where keys are lists elements
-        # and values are indexes of the list
-        self.hashd = {}
- 
-    # A Theta(1) function to add an element
-    # to MyDS data structure
-    def add(self, x):
-         
-        # If element is already present,
-        # then nothing has to be done
-        if x in self.hashd:
-            return
- 
-        # Else put element at
-        # the end of the list
-        s = len(self.arr)
-        self.arr.append(x)
- 
-        # Also put it into hash
-        self.hashd[x] = s
- 
-    # A Theta(1) function to remove an element
-    # from MyDS data structure
-    def remove(self, x):
-         
-        # Check if element is present
-        index = self.hashd.get(x, None)
-        if index == None:
-            return
- 
-        # If present, then remove
-        # element from hash
-        del self.hashd[x]
- 
-        # Swap element with last element
-        # so that removal from the list
-        # can be done in O(1) time
-        size = len(self.arr)
-        last = self.arr[size - 1]
-
-        try:
-            self.arr[index], self.arr[size - 1] = self.arr[size - 1], self.arr[index]
-        except:
-            pass
-            1 + 1
- 
-        # Remove last element (This is O(1))
-        del self.arr[-1]
- 
-        # Update hash table for
-        # new index of last element
-        self.hashd[last] = index
- 
-    # Returns a random element from MyDS
-    def getRandom(self):
-         
-         
-        # Find a random index from 0 to size - 1
-        index = random.randrange(0, len(self.arr))
- 
-        # Return element at randomly picked index
-        return self.arr[index]
- 
-    # Returns index of element
-    # if element is present,
-    # otherwise none
-    def search(self, x):
-        return self.hashd.get(x, None)
-    
-    # Alex added this: check if element is in here
-    def contains(self, x):
-        return x in self.hashd
-
-
 ########################
 # Stackexchange class 
 ########################
 class ListDict(object):
+    """  
+    Solution adapted from 
+    https://stackoverflow.com/questions/15993447/python-data-structure-for-efficient-add-remove-and-random-choice
+    """
     def __init__(self):
         self.item_to_position = {}
         self.items = []
