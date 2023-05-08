@@ -340,7 +340,20 @@ class samplers:
 
                     elif method == 'reparam_sSVN':
                         # SVN calculations
-                        gmlpt_X, Hmlpt_X, gmlpt_Y, Hmlpt_Y = self.getDerivatives_sharp(eta)
+
+                        # Regular calculation
+                        # gmlpt_X, Hmlpt_X, gmlpt_Y, Hmlpt_Y = self.getDerivatives_sharp(eta)
+
+                        # Batched calculation
+                        nBatches = 10
+                        gmlpt_Y, Hmlpt_Y = jnp.zeros((self.nParticles, self.DoF)), jnp.zeros((self.nParticles, self.DoF, self.DoF))
+                        nPerBatch = int(self.nParticles / nBatches)
+                        for b in range(nBatches):
+                            _eta = eta[nPerBatch*b:nPerBatch*(b + 1)]
+                            _, _, _gmlpt_Y, _Hmlpt_Y = self.getDerivatives_sharp(_eta)                        
+                            gmlpt_Y = gmlpt_Y.at[nPerBatch*b:nPerBatch*(b + 1)].set(_gmlpt_Y)
+                            Hmlpt_Y = Hmlpt_Y.at[nPerBatch*b:nPerBatch*(b + 1)].set(_Hmlpt_Y)
+  
                         kernelKwargs['M'] = jnp.mean(Hmlpt_Y, axis=0) # jnp.eye(self.DoF)
                         kx, gkx1 = self.__getKernelWithDerivatives_(eta, kernelKwargs)
                         NK = self._reshapeNNDDtoNDND(contract('mn, ij -> mnij', kx, jnp.eye(self.DoF), backend='jax'))

@@ -20,10 +20,10 @@ config.update("jax_debug_nans", True)
 #%%################ 
 # Create model
 ###################
-model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([0, 1, 3, 4, 5, 6, 7, 8]))
+# model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([0, 1, 3, 4, 5, 6, 7, 8]))
 # model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([2, 3, 4, 5, 6, 7, 8, 9, 10]))
 
-# model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([]))
+model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([]))
 
 # model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([2, 3, 4, 5, 6, 7, 8, 9, 10]))
 # model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([0, 1, 3, 4, 5, 6, 7, 8]))
@@ -34,6 +34,7 @@ model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([
 # Setup sampler
 #############################
 nParticles = 100
+# h = model.DoF / 10
 h = model.DoF / 10
 nIterations = 200
 
@@ -44,6 +45,7 @@ bd_kwargs = {'use': True,
              'end_iter': nIterations+5,
              'eps_bd': 0.01,
              'kernel_type': 'Lp',
+            #  'p':0.5}
              'p':0.5}
 
 sampler1 = samplers(model=model, nIterations=nIterations, nParticles=nParticles, profile=False, kernel_type='Lp', bd_kwargs=bd_kwargs)
@@ -51,7 +53,7 @@ sampler1 = samplers(model=model, nIterations=nIterations, nParticles=nParticles,
 kernelKwargs = {'h':h, 'p':1} # CHANGED!!!!!!!!!!!!!!!!!!!
 
 
-sampler1.apply(method='reparam_sSVN', eps=1, kernelKwargs=kernelKwargs)
+sampler1.apply(method='reparam_sSVN', eps=0.1, kernelKwargs=kernelKwargs)
 # sampler1.apply(method='langevin', eps=0.01, kernelKwargs=kernelKwargs, schedule=flat_schedule, bd_kernel_kwargs=bd_kernel_kwargs)
 
 
@@ -67,7 +69,8 @@ a = extract_velocity_norms(sampler1.history_path)
 # %%
 fig, ax = plt.subplots()
 # ax.plot(a['vsvn'])
-ax.plot(np.log(a['vsvgd']))
+# ax.plot(np.log(a['vsvgd']))
+ax.plot((a['vsvgd']))
 
 
 #%%
