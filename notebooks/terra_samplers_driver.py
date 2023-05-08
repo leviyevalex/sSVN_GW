@@ -23,7 +23,8 @@ from models.GWFAST_heterodyne import gwfast_class
 import numpy as np
 
 # gwclass = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([2, 3, 4, 5, 6, 7, 8, 9, 10]))
-gwclass = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([]))
+gwclass = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([9, 10]))
+# gwclass = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([]))
 
 #%% Likelihood wrapper
 tfpd = tfp.distributions
