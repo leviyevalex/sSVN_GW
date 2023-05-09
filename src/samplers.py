@@ -1257,12 +1257,23 @@ class samplers:
             alive.add_item(i)
 
         # Calculations
-        V = self.mlpt_sharp(eta)
-        kern_bd, _ = self.bd_kernel(eta, self.bd_kernel_kwargs)
+
+        # Dual
+        # V = self.mlpt_sharp(eta)
+        # kern_bd, _ = self.bd_kernel(eta, self.bd_kernel_kwargs)
+
+        # Primal
+        X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
+        V = self.model.getMinusLogPosterior_ensemble(X)
+        # V = self.model.standard_minusLogLikelihood(X)
+        # V = self.model.heterodyne_minusLogLikelihood(X)
+        kern_bd, _ = self.bd_kernel(X, self.bd_kernel_kwargs)
+
         beta = np.log(np.mean(kern_bd, axis=1)) + V
         Lambda = beta - np.mean(beta) # Mass excess / deficit
         r = np.random.uniform(low=0, high=1, size=self.nParticles)
         xi = np.argwhere(r < 1 - np.exp(-np.abs(Lambda) * tau))[:, 0]
+        np.random.shuffle(xi)
 
         # Calculate jumps
         for i in xi:

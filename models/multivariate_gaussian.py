@@ -70,7 +70,7 @@ class multivariate_gaussian:
     #         priorDict['x_%i' % i] = [-2 ,2]
     #     return priorDict
 
-    def newDrawFromLikelihood(self, nParticles):
+    def newDrawFromPosterior(self, nParticles):
         return np.random.multivariate_normal(mean=self.mu, cov=np.diag(self.sigma), size=nParticles)
         # raise NotImplementedError
 

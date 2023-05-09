@@ -23,7 +23,7 @@ from models.GWFAST_heterodyne import gwfast_class
 import numpy as np
 
 # gwclass = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([2, 3, 4, 5, 6, 7, 8, 9, 10]))
-gwclass = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([9, 10]))
+gwclass = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([]))
 # gwclass = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([]))
 
 #%% Likelihood wrapper
@@ -38,11 +38,11 @@ def prior_model() -> PriorModelGen:
 
 model = Model(prior_model=prior_model, log_likelihood=log_likelihood)
 
-ns = exact_ns = ExactNestedSampler(model=model, num_live_points=1000, num_parallel_samplers=1, max_samples=1e4)
+ns = exact_ns = ExactNestedSampler(model=model, num_live_points=200, num_parallel_samplers=1, max_samples=1e4)
 
 # termination_reason, state = exact_ns(random.PRNGKey(42), term_cond=TerminationCondition(live_evidence_frac=1e-4))
-# termination_reason, state = exact_ns(random.PRNGKey(42), term_cond=TerminationCondition(live_evidence_frac=1e-4))
-termination_reason, state = exact_ns(random.PRNGKey(42), term_cond=TerminationCondition(max_samples=1e5))
+termination_reason, state = exact_ns(random.PRNGKey(42), term_cond=TerminationCondition(live_evidence_frac=1e-4))
+# termination_reason, state = exact_ns(random.PRNGKey(42), term_cond=TerminationCondition(max_samples=1e5))
 
 results = exact_ns.to_results(state, termination_reason)
 
