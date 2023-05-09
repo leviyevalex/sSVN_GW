@@ -43,9 +43,10 @@ HRD2 = hybrid_rosenbrock(n2, n1, mu2, B2)
 mixture_weights = np.array([0.5, 0.5])
 lower_bound = np.ones(DoF) * (0.9)
 upper_bound = np.ones(DoF) * (1.2)
-model = Mixture([HRD1, HRD2], mixture_weights, lower_bound, upper_bound)
+model = Mixture([HRD1, HRD2], mixture_weights, lower_bound, upper_bound, DoF=DoF)
 
 #%% Mixture of Gaussians
+DoF = 10
 # Component 1 settings
 mu1 = np.ones(DoF) * 2
 Sigma1 = np.ones(DoF)
@@ -58,22 +59,16 @@ G2 = multivariate_gaussian(mu=mu2, sigma=Sigma2)
 
 # Mixture settings
 mixture_weights = np.array([0.5, 0.5])
-lower_bound = np.ones(DoF) * (0.9)
-upper_bound = np.ones(DoF) * (1.2)
-model = Mixture([G1, G2], mixture_weights, lower_bound, upper_bound)
+lower_bound = np.ones(DoF) * (-4)
+upper_bound = np.ones(DoF) * (4)
+model = Mixture([G1, G2], mixture_weights, lower_bound, upper_bound, DoF=DoF)
 
-#%%
+#%% Samples from unconstrained mixture 
 N = 300000
 samples = model.newDrawFromPosterior(N)
 corner.corner(samples)
 
-
-
-
-
-
-#%%
-#%% Get i.i.d samples from mixture
+#%% Samples from constrained mixture
 np.random.seed(2)
 N = 5000000
 ground_truth_samples = model.newDrawFromPosterior(N)
@@ -81,15 +76,7 @@ truth_table = ((ground_truth_samples > model.lower_bound) & (ground_truth_sample
 idx = np.where(np.all(truth_table, axis=1))[0]
 print('%i samples obtained from rejection sampling' % idx.shape[0])
 bounded_iid_samples = ground_truth_samples[idx]
-
-#%% Geometry investigation
-
-corner.corner(bounded_iid_samples)
-
-
-
-
-
+corner.corner(bounded_iid_samples[0:30000])
 
 #%%##########################
 # Birth death version
@@ -110,15 +97,7 @@ bd_kwargs = {'use': True,
 sampler1 = samplers(model=model, nIterations=nIterations, nParticles=nParticles, profile=False, kernel_type='Lp', bd_kwargs=bd_kwargs)
 kernelKwargs = {'h':h, 'p':1} 
 
-sampler1.apply(method='reparam_sSVN', eps=0.5, kernelKwargs=kernelKwargs)
-
-
-
-
-
-
-
-
+sampler1.apply(method='reparam_sSVN', eps=1, kernelKwargs=kernelKwargs)
 
 
 # %%

@@ -104,6 +104,10 @@ class multivariate_gaussian:
     # Get vectorized methods
     ######################################################################################
     @partial(jax.jit, static_argnums=(0,))
+    def getMinusLogPosterior_ensemble(self, thetas):
+        return jax.vmap(self.getMinusLogPosterior)(thetas)
+
+    @partial(jax.jit, static_argnums=(0,))
     def getGradientMinusLogPosterior_ensemble(self, thetas):
         return jax.vmap(self.getGradientMinusLogPosterior)(thetas)
 

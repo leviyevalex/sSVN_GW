@@ -16,14 +16,29 @@ import numpy as np
 # from models.JAXHRD import HRD
 
 class Mixture:
-    def __init__(self, components, mixture_weights, lower_bound, upper_bound):
+    def __init__(self, components, mixture_weights, lower_bound, upper_bound, DoF):
         self.nComponents = len(components)
         assert self.nComponents == len(mixture_weights)
         self.components = components
         self.mixture_weights = mixture_weights 
+        self.DoF = DoF
+        self.id = 'mixture'
+
+        # Record evaluations
+        self.nLikelihoodEvaluations = 0
+        self.nGradLikelihoodEvaluations = 0
+        self.nHessLikelihoodEvaluations = 0
 
         self.lower_bound = lower_bound
         self.upper_bound = upper_bound
+
+    def getMinusLogPosterior_ensemble(self, X):
+        nParticles = X.shape[0]
+        p = jnp.zeros(nParticles)
+        for k in range(self.nComponents):
+            V = self.components[k].getMinusLogPosterior_ensemble(X)
+            p += jnp.exp(-V) * self.mixture_weights[k]
+        return -jnp.log(p)
 
     def getDerivativesMinusLogPosterior_ensemble(self, X):
         nParticles = X.shape[0]
@@ -31,19 +46,19 @@ class Mixture:
         Hmlpt = jnp.zeros((nParticles, self.DoF, self.DoF))
 
         # Calculate posterior values for each component
-        p = jnp.zeros((self.nComponents, self.nParticles)) 
+        p = jnp.zeros((self.nComponents, nParticles)) 
         for i in range(self.nComponents):
             V = self.components[i].getMinusLogPosterior_ensemble(X)
             p = p.at[i].set(jnp.exp(-V))
 
         # Calculate derivative weights
-        weights_ = self.weight_mixtures * p
+        weights_ = self.mixture_weights[..., np.newaxis] * p
         weights = weights_ / np.mean(weights_, axis=0)
 
         for i in range(self.nComponents):
-            gmlpt_, Hmlpt_ = self.getDerivativesvesMinusLogPosterior_ensemble(X)
-            gmlpt += weights[i] * gmlpt_  
-            Hmlpt += weights[i] * Hmlpt_  
+            gmlpt_, Hmlpt_ = self.components[i].getDerivativesMinusLogPosterior_ensemble(X)
+            gmlpt += weights[i][..., np.newaxis] * gmlpt_  
+            Hmlpt += weights[i][..., np.newaxis, np.newaxis] * Hmlpt_  
 
         return gmlpt, Hmlpt
     
@@ -64,6 +79,22 @@ class Mixture:
 
         return samples 
 
+    def _newDrawFromPrior(self, nSamples):
+        """
+        Return samples from a uniform prior. Included for convenience.
+        Args:
+            nParticles (int): Number of samples to draw.
+
+        Returns: 
+            array: (nSamples, DoF) shaped array of samples from uniform prior
+
+        """
+        # return np.random.uniform(low=-6, high=6, size=(nSamples, self.DoF))
+        draw = np.zeros((nSamples, self.DoF))
+        for d in range(self.DoF):
+            draw[:,d] = np.random.uniform(low=self.lower_bound[d], high=self.upper_bound[d], size=nSamples)
+
+        return draw
 # #%%
 # import numpy as np
 # # N = 5
