@@ -339,10 +339,15 @@ class samplers:
 
 
                     elif method == 'reparam_sSVN':
-                        # SVN calculations
 
-                        # Regular calculation
-                        gmlpt_X, Hmlpt_X, gmlpt_Y, Hmlpt_Y = self.getDerivatives_sharp(eta)
+                        # Reparameterization to R^d
+                        mlpt_X = self.model.getMinusLogPosterior_ensemble(X)
+                        gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
+                        phi = (self.model.upper_bound - self.model.lower_bound) / (4 * jnp.cosh(eta / 2) ** 2)
+                        mlpt_Y = mlpt_X - jnp.sum(jnp.log(phi), axis=1)
+                        gmlpt_Y = gmlpt_X * phi + jnp.tanh(eta / 2)
+                        Hmlpt_Y = Hmlpt_X * contract('Ni,Nj -> Nij', phi, phi)
+                        Hmlpt_Y = Hmlpt_Y.at[:, jnp.arange(self.DoF), jnp.arange(self.DoF)].add(1 / (2 * jnp.cosh(eta / 2) ** 2))
 
                         # Batched calculation
                         # nBatches = 10
@@ -366,14 +371,15 @@ class samplers:
 
                         key, subkey = jax.random.split(key)
 
-                        # Standard update
-                        # v_stc = self._getSVN_v_stc(kx, UH, key)
-                        # eta += eps * v_svn + np.sqrt(eps) * v_stc 
-
-                        # Birth death update
-                        jump_idxs = self.birthDeathJumpIndicies(eta)
-                        noise = self.proposalNoise(jump_idxs, kx, UH, key)
-                        eta = eta[jump_idxs] + eps * v_svn[jump_idxs] + np.sqrt(eps) * noise
+                        if self.bd_kwargs['use'] == False:
+                            # Standard update
+                            v_stc = self._getSVN_v_stc(kx, UH, key)
+                            eta += eps * v_svn + np.sqrt(eps) * v_stc 
+                        else:
+                            # Birth death update
+                            jump_idxs = self.birthDeathJumpIndicies(eta)
+                            noise = self.proposalNoise(jump_idxs, kx, UH, key)
+                            eta = eta[jump_idxs] + eps * v_svn[jump_idxs] + np.sqrt(eps) * noise
 
                         X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
 
@@ -531,7 +537,8 @@ class samplers:
 
             log.info('OUTPUT: Run completed successfully! Data stored in:\n %s' % self.history_path)
 
-        except Exception:
+        except Exception as e:
+            print(e)
             log.error("Error occurred in apply()", exc_info=True)
 
 ########################################################################################################################
@@ -550,7 +557,9 @@ class samplers:
 
         """
         if reg == None:
-            v_svgd = -1 * contract('mn, mo -> no', kx, gmlpt, backend='jax') / self.nParticles + jnp.mean(gkx, axis=0)
+            # TODO: I BELIEVE THERE MAY BE A MINUS SIGN ERROR HERE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+            # v_svgd = -1 * contract('mn, mo -> no', kx, gmlpt, backend='jax') / self.nParticles + jnp.mean(gkx, axis=0)
+            v_svgd = -1 * contract('mn, mo -> no', kx, gmlpt, backend='jax') / self.nParticles - jnp.mean(gkx, axis=0)
         else:
             v_svgd = -1 * contract('mn, mo -> no', kx, gmlpt, backend='jax') / self.nParticles + jnp.mean(gkx * reg[:, np.newaxis, np.newaxis], axis=0)
         return v_svgd
@@ -620,7 +629,7 @@ class samplers:
         """
         return (contract('mn, nij -> mij' , kx ** 2, Hmlpt) + contract('mni, mnj -> mij', gkx, gkx)) / self.nParticles
 
-    @partial(jax.jit, static_argnums=(0,))
+    # @partial(jax.jit, static_argnums=(0,))
     def _getSteinHessianPosdef(self, Hmlpt, kx, gkx, reg=None):
         """
         Calculate SVN Hessian $H = H_1 + H_2$.
@@ -636,7 +645,9 @@ class samplers:
         """
         H1 = contract("xy, xz, xbd -> yzbd", kx, kx, Hmlpt, backend='jax')
         if reg == None:
-            H2 = contract('xzi, xzj -> zij', gkx, gkx, backend='jax')
+            # H2 = contract('xzi, xzj -> zij', gkx, gkx, backend='jax')
+            # TODO DOUBLE CHECKING THIS ONE (THEY AGREE)
+            H2 = contract('xzi, xzj -> xij', gkx, gkx, backend='jax')
         else:
             H2 = contract('xzi, xzj -> zij', gkx, gkx, backend='jax') * reg[:, np.newaxis, np.newaxis]
 
@@ -1188,7 +1199,7 @@ class samplers:
 
 
 ######################################################################
-    # @partial(jax.jit, static_argnums=(0,))
+    @partial(jax.jit, static_argnums=(0,))
     def getDerivatives_sharp(self, eta):
         X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
         

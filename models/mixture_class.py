@@ -53,7 +53,7 @@ class Mixture:
 
         # Calculate derivative weights
         weights_ = self.mixture_weights[..., np.newaxis] * p
-        weights = weights_ / np.mean(weights_, axis=0)
+        weights = weights_ / np.sum(weights_, axis=0)
 
         for i in range(self.nComponents):
             gmlpt_, Hmlpt_ = self.components[i].getDerivativesMinusLogPosterior_ensemble(X)
@@ -67,10 +67,11 @@ class Mixture:
         bins[1:] = np.cumsum(self.mixture_weights)
         r = np.random.uniform(size=N)
         counts, _ = np.histogram(r, bins=bins)
+        samples = None
         for i in range(self.nComponents):
             n = counts[i]
             if n > 0:
-                if i == 0:
+                if samples is None:
                     samples = self.components[i].newDrawFromPosterior(n)
                 else:
                     samples = np.vstack((samples, self.components[i].newDrawFromPosterior(n)))

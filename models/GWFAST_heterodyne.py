@@ -133,7 +133,8 @@ class gwfast_class(object):
         tcoal = float(utils.GPSt_to_LMST(tGPS, lat=0., long=0.)) * self.seconds_per_day # [0, 1] 
         injParams['Mc']      = np.array([34.3089283])          # (1)   # (0)               # [M_solar]
         injParams['eta']     = np.array([0.2485773])           # (2)   # (1)               # [Unitless]
-        injParams['dL']      = np.array([2.634])               # (3)   # (2)               # [Gigaparsecs]
+        # injParams['dL']      = np.array([2.634])               # (3)   # (2)               # [Gigaparsecs]
+        injParams['dL']      = np.array([1])               # (3)   # (2)               # [Gigaparsecs]
         injParams['theta']   = np.array([2.78560281])          # (4)   # (3)               # [Rad]
         injParams['phi']     = np.array([1.67687425])          # (5)   # (4)               # [Rad]
         injParams['iota']    = np.array([2.67548653])          # (6)   # (5)               # [Rad]
@@ -156,11 +157,12 @@ class gwfast_class(object):
         priorDict['chi1z']   = [-0.99, 0.99]                       # [Unitless]
         priorDict['chi2z']   = [-0.99, 0.99]                       # [Unitless]
 
-        for param in ['Phicoal', 'psi', 'iota', 'theta', 'phi']:
-            x = injParams[param][0]
-            delta = x - (priorDict[param][1] + priorDict[param][0]) / 2
-            priorDict[param][0] += delta
-            priorDict[param][1] += delta
+        # for param in ['Phicoal', 'psi', 'iota', 'theta', 'phi']:
+        # for param in ['Phicoal', 'psi', 'phi']:
+        #     x = injParams[param][0]
+        #     delta = x - (priorDict[param][1] + priorDict[param][0]) / 2
+        #     priorDict[param][0] += delta
+            # priorDict[param][1] += delta
 
         self.priorDict = priorDict
         self.injParams = injParams

@@ -17,8 +17,10 @@ import logging
 import sys
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 import corner
+
 from jax import random
 import jax.numpy as jnp
+import jax
 
 #%% Mixture of HRD 
 n2  = 3
@@ -57,11 +59,16 @@ mu2 = np.ones(DoF) * -2
 Sigma2 = np.ones(DoF)
 G2 = multivariate_gaussian(mu=mu2, sigma=Sigma2)
 
+# Component 3 settings
+mu3 = np.zeros(DoF)
+Sigma3 = np.ones(DoF)
+G3 = multivariate_gaussian(mu=mu3, sigma=Sigma3)
+
 # Mixture settings
-mixture_weights = np.array([0.5, 0.5])
+mixture_weights = np.array([0.2, 0.5, 0.3])
 lower_bound = np.ones(DoF) * (-4)
 upper_bound = np.ones(DoF) * (4)
-model = Mixture([G1, G2], mixture_weights, lower_bound, upper_bound, DoF=DoF)
+model = Mixture([G1, G2, G3], mixture_weights, lower_bound, upper_bound, DoF=DoF)
 
 #%% Samples from unconstrained mixture 
 N = 300000
@@ -76,14 +83,14 @@ truth_table = ((ground_truth_samples > model.lower_bound) & (ground_truth_sample
 idx = np.where(np.all(truth_table, axis=1))[0]
 print('%i samples obtained from rejection sampling' % idx.shape[0])
 bounded_iid_samples = ground_truth_samples[idx]
-corner.corner(bounded_iid_samples[0:30000])
+# corner.corner(bounded_iid_samples[0:30000])
 
 #%%##########################
 # Birth death version
 #############################
-nParticles = 100
+nParticles = 200
 h = model.DoF / 10
-nIterations = 200
+nIterations = 500
 
 bd_kwargs = {'use': True, 
              'h': 0.05,
@@ -92,12 +99,31 @@ bd_kwargs = {'use': True,
              'end_iter': nIterations+5,
              'eps_bd': 0.01,
              'kernel_type': 'Lp',
-             'p':0.5}
+             'p':2}
 
 sampler1 = samplers(model=model, nIterations=nIterations, nParticles=nParticles, profile=False, kernel_type='Lp', bd_kwargs=bd_kwargs)
 kernelKwargs = {'h':h, 'p':1} 
 
 sampler1.apply(method='reparam_sSVN', eps=1, kernelKwargs=kernelKwargs)
 
+
+# %%
+X1 = collect_samples(sampler1.history_path)
+fig1 = corner.corner(bounded_iid_samples[0:30000], hist_kwargs={'density':True})
+corner.corner(X1, color='r', fig=fig1, hist_kwargs={'density':True})
+# %%
+
+#%% Test derivative code
+x = model.newDrawFromPosterior(1)
+test1 = jax.jacrev(model.getMinusLogPosterior_ensemble)(x)
+test2, _ = model.getDerivativesMinusLogPosterior_ensemble(x)
+np.allclose(test1, test2)
+
+# %%
+component_model = model.components[1]
+x = component_model.newDrawFromPosterior(1)
+test1 = jax.jacrev(component_model.getMinusLogPosterior_ensemble)(x)
+test2, _ = component_model.getDerivativesMinusLogPosterior_ensemble(x)
+np.allclose(test1, test2)
 
 # %%
