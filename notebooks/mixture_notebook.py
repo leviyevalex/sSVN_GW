@@ -47,28 +47,53 @@ lower_bound = np.ones(DoF) * (0.9)
 upper_bound = np.ones(DoF) * (1.2)
 model = Mixture([HRD1, HRD2], mixture_weights, lower_bound, upper_bound, DoF=DoF)
 
-#%% Mixture of Gaussians
+#%% Mixture of Gaussians (Increasing diagonal)
 DoF = 10
 # Component 1 settings
-mu1 = np.ones(DoF) * 2
+mu1 = np.ones(DoF) * -2
 Sigma1 = np.ones(DoF)
 G1 = multivariate_gaussian(mu=mu1, sigma=Sigma1)
 
 # Component 2 settings
-mu2 = np.ones(DoF) * -2
+mu2 = np.ones(DoF) * 0
 Sigma2 = np.ones(DoF)
 G2 = multivariate_gaussian(mu=mu2, sigma=Sigma2)
 
 # Component 3 settings
-mu3 = np.zeros(DoF)
+mu3 = np.ones(DoF) * 2
 Sigma3 = np.ones(DoF)
 G3 = multivariate_gaussian(mu=mu3, sigma=Sigma3)
 
 # Mixture settings
-mixture_weights = np.array([0.2, 0.5, 0.3])
+mixture_weights = np.array([0.2, 0.3, 0.5])
 lower_bound = np.ones(DoF) * (-4)
 upper_bound = np.ones(DoF) * (4)
 model = Mixture([G1, G2, G3], mixture_weights, lower_bound, upper_bound, DoF=DoF)
+
+#%% Mixture of Gaussians (Triangle)
+DoF = 10
+# Component 1 settings
+mu1 = np.zeros(DoF)
+mu1[0] = -2
+Sigma1 = np.ones(DoF)
+G1 = multivariate_gaussian(mu=mu1, sigma=Sigma1)
+
+# Component 2 settings
+mu2 = np.zeros(DoF)
+mu2[0] = 2
+Sigma2 = np.ones(DoF)
+G2 = multivariate_gaussian(mu=mu2, sigma=Sigma2)
+
+# Mixture settings
+mixture_weights = np.array([0.2, 0.8])
+lower_bound = np.ones(DoF) * (-4)
+upper_bound = np.ones(DoF) * (4)
+model = Mixture([G1, G2, G3], mixture_weights, lower_bound, upper_bound, DoF=DoF)
+
+
+
+
+
 
 #%% Samples from unconstrained mixture 
 N = 300000
@@ -90,9 +115,9 @@ bounded_iid_samples = ground_truth_samples[idx]
 #############################
 nParticles = 200
 h = model.DoF / 10
-nIterations = 500
+nIterations = 200
 
-bd_kwargs = {'use': True, 
+bd_kwargs = {'use': False, 
              'h': 0.05,
              'use_metric': False, 
              'start_iter': -1,
