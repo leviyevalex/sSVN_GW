@@ -310,44 +310,49 @@ class samplers:
                         X += eps * v_svn + np.sqrt(eps) * v_stc
 
                     elif method == 'reparam_sSVGD':
-                        gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
-                        eps0=eps
-
-                        dxdy = self._jacMapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
-                        boundary_correction_grad = self._getBoundaryGradientCorrection(eta)
-                        boundary_correction_hess = self._getBoundaryHessianCorrection(eta)
-
-                        gmlpt_Y = dxdy * gmlpt_X + boundary_correction_grad
-                        Hmlpt_Y = contract('Ni, Nj, Nij -> Nij', dxdy, dxdy, Hmlpt_X, backend='jax') 
-                        Hmlpt_Y = Hmlpt_Y.at[:, jnp.array(range(self.DoF)), jnp.array(range(self.DoF))].add(boundary_correction_hess)
-
-                        M = jnp.eye(self.DoF) # jnp.mean(Hmlpt_Y, axis=0) # 
-                        # M = jnp.mean(Hmlpt_Y, axis=0) # 
-                        kernelKwargs['M'] = M
-                        kx, gkx1 = self.__getKernelWithDerivatives_(eta, kernelKwargs)
-
-                        v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt_Y)
-
-                        key, subkey = jax.random.split(key)
-                        Bdn = jax.random.normal(subkey, (self.DoF, self.nParticles)) # standard normal sample
-
-                        v_stc = self.getSVGD_v_stc(kx, Bdn)
-                        # v_stc = self.get_vSVGD_stc(kx)
-                        eta += (v_svgd) * eps + v_stc * np.sqrt(eps)
-
-                        X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
-
-
-                    elif method == 'reparam_sSVN':
-
                         # Reparameterization to R^d
-                        mlpt_X = self.model.getMinusLogPosterior_ensemble(X)
-                        gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
                         phi = (self.model.upper_bound - self.model.lower_bound) / (4 * jnp.cosh(eta / 2) ** 2)
+                        mlpt_X = self.model.getMinusLogPosterior_ensemble(X)
                         mlpt_Y = mlpt_X - jnp.sum(jnp.log(phi), axis=1)
+                        gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
                         gmlpt_Y = gmlpt_X * phi + jnp.tanh(eta / 2)
                         Hmlpt_Y = Hmlpt_X * contract('Ni,Nj -> Nij', phi, phi)
                         Hmlpt_Y = Hmlpt_Y.at[:, jnp.arange(self.DoF), jnp.arange(self.DoF)].add(1 / (2 * jnp.cosh(eta / 2) ** 2))
+
+                        # Stein variational gradient descent
+                        M = jnp.eye(self.DoF) # jnp.mean(Hmlpt_Y, axis=0)  
+                        kernelKwargs['M'] = M
+                        kx, gkx1 = self.__getKernelWithDerivatives_(eta, kernelKwargs)
+                        v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt_Y)
+
+                        # Birth-death step
+                        key, subkey = jax.random.split(key)
+                        if self.bd_kwargs['use'] == False: # Standard update
+                            v_stc = self._getSVGD_v_stc(kx, subkey)
+                            eta += eps * v_svgd + np.sqrt(eps) * v_stc 
+                        else: # Birth death update
+                            jump_idxs = self.birthDeathJumpIndicies(eta)
+                            noise = self.proposalNoise_SVGD(jump_idxs, kx, subkey)
+                            eta = eta[jump_idxs] + eps * v_svgd[jump_idxs] + np.sqrt(eps) * noise
+
+
+
+                        # Sample noise
+                        # key, subkey = jax.random.split(key)
+                        # v_stc = self.getSVGD_v_stc(kx, subkey)
+
+                        # Update
+                        # eta += (v_svgd) * eps + v_stc * np.sqrt(eps)
+
+                        X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
+
+                        ################
+                        # Scratchwork
+                        ################
+                        # NK = self._reshapeNNDDtoNDND(contract('mn, ij -> mnij', kx, jnp.eye(self.DoF), backend='jax'))
+                        # H1 = self._getSteinHessianPosdef(Hmlpt_Y, kx, gkx1)
+                        # lamb = 0.05 # 0.1
+                        # H = H1 + NK * lamb
 
                         # Batched calculation
                         # nBatches = 10
@@ -358,27 +363,36 @@ class samplers:
                         #     _, _, _gmlpt_Y, _Hmlpt_Y = self.getDerivatives_sharp(_eta)                        
                         #     gmlpt_Y = gmlpt_Y.at[nPerBatch*b:nPerBatch*(b + 1)].set(_gmlpt_Y)
                         #     Hmlpt_Y = Hmlpt_Y.at[nPerBatch*b:nPerBatch*(b + 1)].set(_Hmlpt_Y)
-  
+
+                    elif method == 'reparam_sSVN':
+                        # Reparameterization to R^d
+                        phi = (self.model.upper_bound - self.model.lower_bound) / (4 * jnp.cosh(eta / 2) ** 2)
+                        mlpt_X = self.model.getMinusLogPosterior_ensemble(X)
+                        mlpt_Y = mlpt_X - jnp.sum(jnp.log(phi), axis=1)
+                        gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
+                        gmlpt_Y = gmlpt_X * phi + jnp.tanh(eta / 2)
+                        Hmlpt_Y = Hmlpt_X * contract('Ni,Nj -> Nij', phi, phi)
+                        Hmlpt_Y = Hmlpt_Y.at[:, jnp.arange(self.DoF), jnp.arange(self.DoF)].add(1 / (2 * jnp.cosh(eta / 2) ** 2))
+
+                        # Stein variational Newton step
                         kernelKwargs['M'] = jnp.mean(Hmlpt_Y, axis=0) # jnp.eye(self.DoF)
                         kx, gkx1 = self.__getKernelWithDerivatives_(eta, kernelKwargs)
-                        NK = self._reshapeNNDDtoNDND(contract('mn, ij -> mnij', kx, jnp.eye(self.DoF), backend='jax'))
-                        H1 = self._getSteinHessianPosdef(Hmlpt_Y, kx, gkx1)
-                        lamb = 0.05 # 0.1
-                        H = H1 + NK * lamb
+                        H = self.get_H_lambda(Hmlpt_Y, kx, gkx1, damping=0.05)
                         UH = self.getCho(H)
                         v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt_Y) 
                         v_svn, alphas = self._getSVN_direction(kx, v_svgd, UH)
 
+                        # Birth-death step
+                        self.bd_kernel_kwargs['M'] = jnp.eye(self.DoF)
+                        kern_bd, _ = self.bd_kernel(X, self.bd_kernel_kwargs)
                         key, subkey = jax.random.split(key)
-
-                        if self.bd_kwargs['use'] == False:
-                            # Standard update
-                            v_stc = self._getSVN_v_stc(kx, UH, key)
+                        if self.bd_kwargs['use'] == False: # Standard update
+                            v_stc = self._getSVN_v_stc(kx, UH, subkey)
                             eta += eps * v_svn + np.sqrt(eps) * v_stc 
-                        else:
-                            # Birth death update
-                            jump_idxs = self.birthDeathJumpIndicies(eta)
-                            noise = self.proposalNoise(jump_idxs, kx, UH, key)
+                        else: # Birth death update
+                            jump_idxs = self.birthDeathJumpIndicies(kern_bd, mlpt_X)
+                            # jump_idxs = self.birthDeathJumpIndicies(kx, mlpt_Y)
+                            noise = self.proposalNoise(jump_idxs, kx, UH, subkey)
                             eta = eta[jump_idxs] + eps * v_svn[jump_idxs] + np.sqrt(eps) * noise
 
                         X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
@@ -565,7 +579,7 @@ class samplers:
         return v_svgd
 
     # @partial(jax.jit, static_argnums=(0,))
-    def getSVGD_v_stc(self, kx, Bdn):
+    def _getSVGD_v_stc(self, kx, key):
         """
         Get noise injection velocity field for SVGD
         Args:
@@ -575,8 +589,7 @@ class samplers:
         Returns:
 
         """
-        # if Bdn is None:
-            # Bdn = np.random.normal(0, 1, (self.DoF, self.nParticles))
+        Bdn = jax.random.normal(key, (self.DoF, self.nParticles)) # standard normal sample
         alpha, L_kx = self._getMinimumPerturbationCholesky(kx)
         return jnp.sqrt(2 / self.nParticles) * contract('mn, in -> im', L_kx, Bdn, backend='jax').flatten(order='F').reshape(self.nParticles, self.DoF)
 
@@ -628,6 +641,13 @@ class samplers:
 
         """
         return (contract('mn, nij -> mij' , kx ** 2, Hmlpt) + contract('mni, mnj -> mij', gkx, gkx)) / self.nParticles
+
+    def get_H_lambda(self, Hmlpt, kx, gkx, damping=0.05):
+        T1 = contract('mk, nk, kij -> mnij', kx, kx, Hmlpt, backend='jax') / self.nParticles 
+        T2 = contract('mki, mkj -> mij', gkx, gkx, backend='jax') / self.nParticles
+        T1 = T1.at[jnp.arange(self.nParticles), jnp.arange(self.nParticles)].add(T2)
+        T1 = T1.at[..., jnp.arange(self.DoF), jnp.arange(self.DoF)].add(damping * kx[..., None])
+        return self._reshapeNNDDtoNDND(T1)
 
     # @partial(jax.jit, static_argnums=(0,))
     def _getSteinHessianPosdef(self, Hmlpt, kx, gkx, reg=None):
@@ -1257,16 +1277,6 @@ class samplers:
     # def jv(self, gkx1, alphas):
     #     return contract('mnj, ni -> mij', gkx1, alphas)
 
-
-    def birthDeathJumpIndicies(self, eta):
-        # Definitions
-        output = np.arange(self.nParticles)
-        self.bd_kernel_kwargs['M'] = np.eye(self.DoF)
-        alive = ListDict()
-        tau = 0.01
-        for i in range(self.nParticles):
-            alive.add_item(i)
-
         # Calculations
 
         # Dual
@@ -1274,19 +1284,26 @@ class samplers:
         # kern_bd, _ = self.bd_kernel(eta, self.bd_kernel_kwargs)
 
         # Primal
-        X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
-        V = self.model.getMinusLogPosterior_ensemble(X)
-        # V = self.model.standard_minusLogLikelihood(X)
-        # V = self.model.heterodyne_minusLogLikelihood(X)
-        kern_bd, _ = self.bd_kernel(X, self.bd_kernel_kwargs)
+        # X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
+        # V = self.model.getMinusLogPosterior_ensemble(X)
+        # kern_bd, _ = self.bd_kernel(X, self.bd_kernel_kwargs)
 
+
+    def birthDeathJumpIndicies(self, kern_bd, V, tau=0.01):
+        # Data structure for calculation
+        alive = ListDict()
+        for i in range(self.nParticles):
+            alive.add_item(i)
+
+        # Get particles with significant mass discrepancy
         beta = np.log(np.mean(kern_bd, axis=1)) + V
-        Lambda = beta - np.mean(beta) # Mass excess / deficit
+        Lambda = beta - np.mean(beta) 
         r = np.random.uniform(low=0, high=1, size=self.nParticles)
         xi = np.argwhere(r < 1 - np.exp(-np.abs(Lambda) * tau))[:, 0]
         np.random.shuffle(xi)
 
-        # Calculate jumps
+        # Particle jumps
+        output = np.arange(self.nParticles)
         for i in xi:
             if i in alive:
                 j = alive.choose_random_item()
@@ -1305,6 +1322,11 @@ class samplers:
         f = lambda n, key: self._getSVN_v_stc(kx, UH, key)[n]
         return jax.vmap(f, [0, 0], 0)(idxs, subkeys)
 
+    # @partial(jax.jit, static_argnums=(0,))
+    def proposalNoise_SVGD(self, idxs, kx, key):
+        subkeys = jax.random.split(key, self.nParticles)
+        f = lambda n, key: self._getSVGD_v_stc(kx, key)[n]
+        return jax.vmap(f, [0, 0], 0)(idxs, subkeys)
 
     def armijoLinesearch(self, X, v_svgd, alphas, w, mlpt, jw, step=1):
         """ 

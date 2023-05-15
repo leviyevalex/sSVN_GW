@@ -32,6 +32,7 @@ class Mixture:
         self.lower_bound = lower_bound
         self.upper_bound = upper_bound
 
+    @partial(jax.jit, static_argnums=(0,))
     def getMinusLogPosterior_ensemble(self, X):
         nParticles = X.shape[0]
         p = jnp.zeros(nParticles)
@@ -39,7 +40,8 @@ class Mixture:
             V = self.components[k].getMinusLogPosterior_ensemble(X)
             p += jnp.exp(-V) * self.mixture_weights[k]
         return -jnp.log(p)
-
+        
+    @partial(jax.jit, static_argnums=(0,))
     def getDerivativesMinusLogPosterior_ensemble(self, X):
         nParticles = X.shape[0]
         gmlpt = jnp.zeros((nParticles, self.DoF))
