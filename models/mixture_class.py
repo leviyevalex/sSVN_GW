@@ -132,3 +132,202 @@ class Mixture:
 
 # return np.shuffle(samples)
 # # %%
+
+#%%
+# import numpy as np
+# import matplotlib.pyplot as plt
+# import matplotlib.animation as animation
+
+# def quadratic(x):
+#     return 0.5 * np.sum(x**2)
+
+# def nag_update(x, velocity, momentum, learning_rate):
+#     gradient = x
+#     velocity_new = momentum * velocity - learning_rate * gradient
+#     x_new = x + momentum * velocity_new - learning_rate * gradient
+#     return x_new, velocity_new
+
+# def generate_gif(frames, interval):
+#     fig, ax = plt.subplots()
+#     fig.patch.set_visible(False)
+#     ax.axis('off')
+#     ax.set_aspect('equal')
+
+#     # Create LaTeX-style formatting
+#     ax.text(0.5, 1.05, r'$f(x) = \frac{1}{2} \sum x_i^2$', transform=ax.transAxes,
+#             fontsize=14, ha='center', va='center')
+#     iteration_text = ax.text(0.5, -0.1, '', transform=ax.transAxes,
+#                              fontsize=12, ha='center', va='center')
+
+#     x = np.linspace(-4, 4, 100)
+#     y = np.linspace(-4, 4, 100)
+#     X, Y = np.meshgrid(x, y)
+#     Z = quadratic(np.array([X, Y]))
+
+#     # Contour plot in the background
+#     ax.contourf(X, Y, Z, levels=20, cmap='coolwarm')
+
+#     # Initialize particles
+#     particles, = ax.plot([], [], 'bo', animated=True)
+
+#     def update(i):
+#         particles.set_data(frames[i][:, 0], frames[i][:, 1])
+#         iteration_text.set_text('Iteration: {}'.format(i))
+#         return particles, iteration_text
+
+#     ani = animation.FuncAnimation(fig, update, frames=len(frames), interval=interval, blit=True)
+#     ani.save('nag_evolution.gif', writer='pillow')
+
+# # Parameters
+# momentum = 0.9
+# learning_rate = 0.1
+# num_iterations = 50
+# interval = 200
+
+# # Initialization
+# particles = np.random.normal(0, 1, size=(2,))
+# velocity = np.zeros_like(particles)
+# frames = [particles.copy()]
+
+# # NAG iterations
+# for _ in range(num_iterations):
+#     particles, velocity = nag_update(particles, momentum, learning_rate)
+#     frames.append(particles.copy())
+
+# # Generate GIF and save
+# generate_gif(frames, interval)
+
+# # %%
+# import numpy as np
+# import matplotlib.pyplot as plt
+# import matplotlib.animation as animation
+
+# def quadratic(x):
+#     return 0.5 * np.sum(x**2)
+
+# def nag_update(x, velocity, momentum, learning_rate):
+#     gradient = x
+#     velocity_new = momentum * velocity - learning_rate * gradient
+#     x_new = x + momentum * velocity_new - learning_rate * gradient
+#     return x_new, velocity_new
+
+# def generate_gif(frames, interval):
+#     fig, ax = plt.subplots()
+#     fig.patch.set_visible(False)
+#     ax.axis('off')
+#     ax.set_aspect('equal')
+
+#     # Create LaTeX-style formatting
+#     ax.text(0.5, 1.05, r'$f(x) = \frac{1}{2} \sum x_i^2$', transform=ax.transAxes,
+#             fontsize=14, ha='center', va='center')
+#     iteration_text = ax.text(0.5, -0.1, '', transform=ax.transAxes,
+#                              fontsize=12, ha='center', va='center')
+
+#     x = np.linspace(-4, 4, 100)
+#     y = np.linspace(-4, 4, 100)
+#     X, Y = np.meshgrid(x, y)
+#     Z = quadratic(np.array([X, Y]))
+
+#     # Contour plot in the background
+#     ax.contourf(X, Y, Z, levels=20, cmap='coolwarm')
+
+#     # Initialize particles
+#     particles, = ax.plot([], [], 'bo', animated=True)
+
+#     def update(i):
+#         particles.set_data(frames[i][:, 0], frames[i][:, 1])
+#         iteration_text.set_text('Iteration: {}'.format(i))
+#         return particles, iteration_text
+
+#     ani = animation.FuncAnimation(fig, update, frames=len(frames), interval=interval, blit=True)
+#     ani.save('nag_evolution.gif', writer='pillow')
+
+# # Parameters
+# momentum = 0.9
+# learning_rate = 0.1
+# num_iterations = 50
+# interval = 200
+
+# # Initialization
+# particles = np.random.normal(0, 1, size=(2,))
+# velocity = np.zeros_like(particles)
+# frames = [particles.copy()]
+
+# # NAG iterations
+# for _ in range(num_iterations):
+#     particles, velocity = nag_update(particles, velocity, momentum, learning_rate)
+#     frames.append(particles.copy())
+
+# # Generate GIF and save
+# generate_gif(frames, interval)
+
+# # %%
+# import numpy as np
+# import matplotlib.pyplot as plt
+# import matplotlib.animation as animation
+
+# def quadratic(x):
+#     if x.ndim == 0:
+#         return 0.5 * x**2
+#     elif x.ndim == 1:
+#         return 0.5 * np.sum(x**2)
+#     else:
+#         raise ValueError("Input x must be either 0D or 1D.")
+
+# def nag_update(x, velocity, momentum, learning_rate):
+#     gradient = x
+#     velocity_new = momentum * velocity - learning_rate * gradient
+#     x_new = x + momentum * velocity_new - learning_rate * gradient
+#     return x_new, velocity_new
+
+# def generate_gif(frames, interval):
+#     fig, ax = plt.subplots()
+#     fig.patch.set_visible(False)
+#     ax.axis('off')
+#     ax.set_aspect('equal')
+
+#     # Create LaTeX-style formatting
+#     ax.text(0.5, 1.05, r'$f(x) = \frac{1}{2} \sum x_i^2$', transform=ax.transAxes,
+#             fontsize=14, ha='center', va='center')
+#     iteration_text = ax.text(0.5, -0.1, '', transform=ax.transAxes,
+#                              fontsize=12, ha='center', va='center')
+
+#     x = np.linspace(-4, 4, 100)
+#     y = np.linspace(-4, 4, 100)
+#     X, Y = np.meshgrid(x, y)
+#     Z = quadratic(np.array([X, Y]))
+
+#     # Contour plot in the background
+#     ax.contourf(X, Y, Z, levels=20, cmap='coolwarm')
+
+#     # Initialize particles
+#     particles, = ax.plot([], [], 'bo', animated=True)
+
+#     def update(i):
+#         particles.set_data(frames[i][:, 0], frames[i][:, 1])
+#         iteration_text.set_text('Iteration: {}'.format(i))
+#         return particles, iteration_text
+
+#     ani = animation.FuncAnimation(fig, update, frames=len(frames), interval=interval, blit=True)
+#     ani.save('nag_evolution.gif', writer='pillow')
+
+# # Parameters
+# momentum = 0.9
+# learning_rate = 0.1
+# num_iterations = 50
+# interval = 200
+
+# # Initialization
+# particles = np.random.normal(0, 1, size=(2,))
+# velocity = np.zeros_like(particles)
+# frames = [particles.copy()]
+
+# # NAG iterations
+# for _ in range(num_iterations):
+#     particles, velocity = nag_update(particles, velocity, momentum, learning_rate)
+#     frames.append(particles.copy())
+
+# # Generate GIF and save
+# generate_gif(frames, interval)
+
+# # %%

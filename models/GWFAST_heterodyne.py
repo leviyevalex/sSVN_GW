@@ -129,14 +129,14 @@ class gwfast_class(object):
 
 
         # GW150914
-        tGPS = np.array([1.12625946e+09])
+        tGPS = np.array([1.1262594624e+09])
         tcoal = float(utils.GPSt_to_LMST(tGPS, lat=0., long=0.)) * self.seconds_per_day # [0, 1] 
-        injParams['Mc']      = np.array([34.3089283])          # (1)   # (0)               # [M_solar]
+        injParams['Mc']      = np.array([31.39])          # (1)   # (0)               # [M_solar]
         injParams['eta']     = np.array([0.2485773])           # (2)   # (1)               # [Unitless]
         # injParams['dL']      = np.array([2.634])               # (3)   # (2)               # [Gigaparsecs]
-        injParams['dL']      = np.array([1])               # (3)   # (2)               # [Gigaparsecs]
+        injParams['dL']      = np.array([0.43929])               # (3)   # (2)               # [Gigaparsecs]
         injParams['theta']   = np.array([2.78560281])          # (4)   # (3)               # [Rad]
-        injParams['phi']     = np.array([1.67687425])          # (5)   # (4)               # [Rad]
+        injParams['phi']     = np.array([1.67687425])          # (5)   # (4)   RA            # [Rad]
         injParams['iota']    = np.array([2.67548653])          # (6)   # (5)               # [Rad]
         injParams['psi']     = np.array([0.78539816])          # (7)   # (6)               # [Rad]
         injParams['tcoal']   = np.array([tcoal])               # (8)   # (7)               # [sec]
@@ -144,25 +144,29 @@ class gwfast_class(object):
         injParams['chi1z']   = np.array([0.27210419])          # (10)  # (9)               # [Unitless]
         injParams['chi2z']   = np.array([0.33355909])          # (11)  # (10)              # [Unitless]
 
+        # TODO sample in cos iota (uniform prior on cosi) 
+        # cos(\iota)  ~ Unif[-1,1]
+        # cos(\theta) ~ Unif[-1,1]
+
         priorDict = {}
-        priorDict['Mc']      = [20, 50]                            # [M_solar]     
-        priorDict['eta']     = [0.20, 0.25]                        # [Unitless]
-        priorDict['dL']      = [0.05, 5]                           # [GPC]
+        priorDict['Mc']      = [10, 80]                            # [M_solar]     
+        priorDict['eta']     = [0.1, 0.25]                        # [Unitless]
+        priorDict['dL']      = [0.05, 2]                           # [GPC]
         priorDict['theta']   = [0., np.pi]                         # [Rad]
         priorDict['phi']     = [0., 2 * np.pi]                     # [Rad]
         priorDict['iota']    = [0., np.pi]                         # [Rad] # Note: Maybe use cos i variable?
         priorDict['psi']     = [0., np.pi]                         # [Rad]
-        priorDict['tcoal']   = [tcoal - 0.01, tcoal + 0.01]        # [sec]
+        priorDict['tcoal']   = [tcoal - 0.1, tcoal + 0.1]        # [sec]
         priorDict['Phicoal'] = [0., 2 * np.pi]                     # [Rad]
         priorDict['chi1z']   = [-0.99, 0.99]                       # [Unitless]
         priorDict['chi2z']   = [-0.99, 0.99]                       # [Unitless]
 
         # for param in ['Phicoal', 'psi', 'iota', 'theta', 'phi']:
-        # for param in ['Phicoal', 'psi', 'phi']:
-        #     x = injParams[param][0]
-        #     delta = x - (priorDict[param][1] + priorDict[param][0]) / 2
-        #     priorDict[param][0] += delta
-            # priorDict[param][1] += delta
+        for param in ['Phicoal', 'psi', 'phi']:
+            x = injParams[param][0]
+            delta = x - (priorDict[param][1] + priorDict[param][0]) / 2
+            priorDict[param][0] += delta
+            priorDict[param][1] += delta
 
         self.priorDict = priorDict
         self.injParams = injParams

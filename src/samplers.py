@@ -75,8 +75,9 @@ class samplers:
 
         self.bd_kernel_kwargs = copy.deepcopy(self.bd_kwargs)
         self.bd_kernel_kwargs.pop('use')
-        self.bd_kernel_kwargs.pop('use_metric')
         self.bd_kernel_kwargs.pop('kernel_type')
+        self.bd_kernel_kwargs.pop('space')
+        self.bd_kernel_kwargs.pop('stride')
 
     def apply(self, kernelKwargs, method='SVGD', eps=0.1, schedule=None, lamb1=1, lamb2=2):
         """
@@ -311,38 +312,47 @@ class samplers:
 
                     elif method == 'reparam_sSVGD':
                         # Reparameterization to R^d
-                        phi = (self.model.upper_bound - self.model.lower_bound) / (4 * jnp.cosh(eta / 2) ** 2)
                         mlpt_X = self.model.getMinusLogPosterior_ensemble(X)
-                        mlpt_Y = mlpt_X - jnp.sum(jnp.log(phi), axis=1)
                         gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
-                        gmlpt_Y = gmlpt_X * phi + jnp.tanh(eta / 2)
-                        Hmlpt_Y = Hmlpt_X * contract('Ni,Nj -> Nij', phi, phi)
-                        Hmlpt_Y = Hmlpt_Y.at[:, jnp.arange(self.DoF), jnp.arange(self.DoF)].add(1 / (2 * jnp.cosh(eta / 2) ** 2))
+                        mlpt_Y, gmlpt_Y, Hmlpt_Y = self.getUnboundedPotential(eta, mlpt_X, gmlpt_X, Hmlpt_X)
 
                         # Stein variational gradient descent
-                        M = jnp.eye(self.DoF) # jnp.mean(Hmlpt_Y, axis=0)  
-                        kernelKwargs['M'] = M
-                        kx, gkx1 = self.__getKernelWithDerivatives_(eta, kernelKwargs)
+                        # M = jnp.eye(self.DoF) # jnp.mean(Hmlpt_Y, axis=0)  
+                        kernelKwargs['M'] = None
+
+                        # Testing new kernel implementation!!! TODO
+                        # kx, gkx1 = self.__getKernelWithDerivatives_(eta, kernelKwargs)
+                        kx, gkx1 = self.metric_wrapper(self.k_lp, eta, kernelKwargs)
+
                         v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt_Y)
+
+
 
                         # Birth-death step
                         key, subkey = jax.random.split(key)
-                        if self.bd_kwargs['use'] == False: # Standard update
-                            v_stc = self._getSVGD_v_stc(kx, subkey)
-                            eta += eps * v_svgd + np.sqrt(eps) * v_stc 
-                        else: # Birth death update
-                            jump_idxs = self.birthDeathJumpIndicies(eta)
+                        # self.bd_kernel_kwargs['M'] = jnp.eye(self.DoF)
+                        self.bd_kernel_kwargs['M'] = None
+                        n_events = 0
+                        tau = self.bd_kernel_kwargs['tau']
+                        stride = self.bd_kwargs['stride']
+                        use = self.bd_kwargs['use']
+                        if use == True and iter_ !=0 and (iter_ % stride) == 0: # Birth death update
+                            if self.bd_kwargs['space'] == 'primal':
+                                # kern_bd, _ = self.bd_kernel(X, self.bd_kernel_kwargs)
+                                kern_bd, _ = self.metric_wrapper(self.k_lp, X, self.bd_kernel_kwargs)
+                                jump_idxs, n_events = self.birthDeathJumpIndicies(kern_bd, mlpt_X, tau=tau*stride)
+                            elif self.bd_kwargs['space'] == 'dual':
+                                # kern_bd, _ = self.bd_kernel(eta, self.bd_kernel_kwargs)
+                                kern_bd, _ = self.metric_wrapper(self.k_lp, eta, self.bd_kernel_kwargs)
+                                jump_idxs, n_events = self.birthDeathJumpIndicies(kern_bd, mlpt_Y, tau=tau*stride)
+
                             noise = self.proposalNoise_SVGD(jump_idxs, kx, subkey)
                             eta = eta[jump_idxs] + eps * v_svgd[jump_idxs] + np.sqrt(eps) * noise
+                        else: # Standard update
+                            v_stc = self._getSVGD_v_stc(kx, subkey)
+                            eta += eps * v_svgd + np.sqrt(eps) * v_stc 
 
 
-
-                        # Sample noise
-                        # key, subkey = jax.random.split(key)
-                        # v_stc = self.getSVGD_v_stc(kx, subkey)
-
-                        # Update
-                        # eta += (v_svgd) * eps + v_stc * np.sqrt(eps)
 
                         X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
 
@@ -478,7 +488,7 @@ class samplers:
                     # Update progress bar
                     # ITER.set_description('Stepsize %f | Median bandwidth: %f | SVN norm: %f | Noise norm: %f | SVGD norm %f | Dampening %f' % (eps, self._bandwidth_MED(X), np.linalg.norm(v_svn), np.linalg.norm(v_stc), np.linalg.norm(v_svgd),  lamb))
                     # ITER.set_description('Stepsize %f | Median bandwidth: %f' % (eps1, self._bandwidth_MED(X)))
-                    ITER.set_description('Stepsize %f | Median bandwidth: %f' % (eps, self._bandwidth_MED(X)))
+                    ITER.set_description('Stepsize %f | Median bandwidth: %f | n_events: %i' % (eps, self._bandwidth_MED(X), n_events))
 
 
                     # Store relevant per iteration information
@@ -571,9 +581,8 @@ class samplers:
 
         """
         if reg == None:
-            # TODO: I BELIEVE THERE MAY BE A MINUS SIGN ERROR HERE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
             # v_svgd = -1 * contract('mn, mo -> no', kx, gmlpt, backend='jax') / self.nParticles + jnp.mean(gkx, axis=0)
-            v_svgd = -1 * contract('mn, mo -> no', kx, gmlpt, backend='jax') / self.nParticles - jnp.mean(gkx, axis=0)
+            v_svgd = -1 * contract('mn, mo -> no', kx, gmlpt, backend='jax') / self.nParticles + jnp.mean(gkx, axis=0)
         else:
             v_svgd = -1 * contract('mn, mo -> no', kx, gmlpt, backend='jax') / self.nParticles + jnp.mean(gkx * reg[:, np.newaxis, np.newaxis], axis=0)
         return v_svgd
@@ -589,9 +598,14 @@ class samplers:
         Returns:
 
         """
-        Bdn = jax.random.normal(key, (self.DoF, self.nParticles)) # standard normal sample
+        # Bdn = jax.random.normal(key, (self.DoF, self.nParticles)) # standard normal sample
+        # alpha, L_kx = self._getMinimumPerturbationCholesky(kx)
+        # return jnp.sqrt(2 / self.nParticles) * contract('mn, in -> im', L_kx, Bdn, backend='jax').flatten(order='F').reshape(self.nParticles, self.DoF)
         alpha, L_kx = self._getMinimumPerturbationCholesky(kx)
-        return jnp.sqrt(2 / self.nParticles) * contract('mn, in -> im', L_kx, Bdn, backend='jax').flatten(order='F').reshape(self.nParticles, self.DoF)
+        # L_kx = jnp.linalg.cholesky(kx)
+        b = jax.random.normal(key, (self.nParticles, self.DoF)) # standard normal sample
+        return jnp.sqrt(2 / self.nParticles) * (L_kx @ b).reshape(self.DoF,self.nParticles).flatten(order='F').reshape(self.nParticles, self.DoF) 
+
 
     @partial(jax.jit, static_argnums=(0,))
     def _getSVN_direction(self, kx, v_svgd, UH):
@@ -609,6 +623,26 @@ class samplers:
         alphas = jax.scipy.linalg.cho_solve((UH, False), v_svgd.flatten()).reshape(self.nParticles, self.DoF)
         v_svn = contract('mn, ni -> mi', kx, alphas, backend='jax')
         return v_svn, alphas
+
+    def getUnboundedPotential(self, eta, mlpt_X, gmlpt_X, Hmlpt_X):
+        delta = self.model.upper_bound - self.model.lower_bound
+        phi =  delta / (4 * jnp.cosh(eta / 2) ** 2)
+        mlpt_Y = mlpt_X - jnp.sum(jnp.log(phi), axis=1)
+        gmlpt_Y = gmlpt_X * phi + jnp.tanh(eta / 2)
+        Hmlpt_Y = Hmlpt_X * contract('Ni,Nj -> Nij', phi, phi)
+        Hmlpt_Y = Hmlpt_Y.at[:, jnp.arange(self.DoF), jnp.arange(self.DoF)].add(2 * phi / delta)
+        return mlpt_Y, gmlpt_Y, Hmlpt_Y
+
+        # Reparameterization to R^d
+        # delta = self.model.upper_bound - self.model.lower_bound
+        # phi =  delta / (4 * jnp.cosh(eta / 2) ** 2)
+        # mlpt_X = self.model.getMinusLogPosterior_ensemble(X)
+        # mlpt_Y = mlpt_X - jnp.sum(jnp.log(phi), axis=1)
+        # gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
+        # gmlpt_Y = gmlpt_X * phi + jnp.tanh(eta / 2)
+        # Hmlpt_Y = Hmlpt_X * contract('Ni,Nj -> Nij', phi, phi)
+        # Hmlpt_Y = Hmlpt_Y.at[:, jnp.arange(self.DoF), jnp.arange(self.DoF)].add(2 * phi / delta)
+
 
     @partial(jax.jit, static_argnums=(0,))
     def _getSVN_v_stc(self, kx, UH, key):
@@ -1301,6 +1335,7 @@ class samplers:
         r = np.random.uniform(low=0, high=1, size=self.nParticles)
         xi = np.argwhere(r < 1 - np.exp(-np.abs(Lambda) * tau))[:, 0]
         np.random.shuffle(xi)
+        n_events = len(xi)
 
         # Particle jumps
         output = np.arange(self.nParticles)
@@ -1314,7 +1349,7 @@ class samplers:
                     output[j] = i 
                     alive.remove_item(j)
 
-        return output
+        return output, n_events
 
     @partial(jax.jit, static_argnums=(0,))
     def proposalNoise(self, idxs, kx, UH, key):
@@ -1355,6 +1390,38 @@ class samplers:
         # print(jnp.any(a>0))
         return 1 - lamb1 * (mlpt) - lamb2 * jnp.maximum(0, a)
 
+    def k_lp(self, X, kernel_kwargs):
+        """ 
+        Lp kernel implementation
+        """
+        # Definitions
+
+        p = kernel_kwargs['p'] # Order
+        h = kernel_kwargs['h'] # Bandwidth
+        
+        # Get separation vectors
+        separation_vectors = X[:, jnp.newaxis, :] - X[jnp.newaxis, :, :]
+        
+        # Calculate kernel
+        k = jnp.exp(-jnp.sum(jnp.abs(separation_vectors) ** p, axis=-1) / (p * h))
+        
+        # Calculate gradient of kernel
+        gk = -k[..., jnp.newaxis] * jnp.abs(separation_vectors) ** (p - 1) * jnp.sign(separation_vectors) / h
+        return k, gk
+
+
+    def metric_wrapper(self, getKern, X, kernel_kwargs):
+        """ 
+        Wrapper to implement kernel metric reparameterization
+        """
+        metric = kernel_kwargs['M']
+        if metric is not None:
+            U = jnp.linalg.cholesky(metric).T
+            X = contract('ij, mj -> mi', U, X)
+        k, gk = getKern(X, kernel_kwargs)
+        if metric is not None:
+            gk = contract('ij, mnj -> mni', U.T, gk)
+        return k, gk
 
 
     # def get_mirror_kernel_new(self, X, kx, gkx2):
@@ -1559,3 +1626,20 @@ class ListDict(object):
 
     def __len__(self):
         return len(self.items)
+
+
+
+
+
+# elif (iter_ % stride) == 0: # Birth death update
+#     if self.bd_kwargs['space'] == 'primal':
+#         kern_bd, _ = self.bd_kernel(X, self.bd_kernel_kwargs)
+#         jump_idxs, n_events = self.birthDeathJumpIndicies(kern_bd, mlpt_X, tau=tau*stride)
+#     elif self.bd_kwargs['space'] == 'dual':
+#         kern_bd, _ = self.bd_kernel(eta, self.bd_kernel_kwargs)
+#         jump_idxs, n_events = self.birthDeathJumpIndicies(kern_bd, mlpt_Y, tau=tau*stride)
+
+#     noise = self.proposalNoise_SVGD(jump_idxs, kx, subkey)
+#     eta = eta[jump_idxs] + eps * v_svgd[jump_idxs] + np.sqrt(eps) * noise
+
+
