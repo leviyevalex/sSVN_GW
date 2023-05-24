@@ -23,39 +23,38 @@ config.update("jax_debug_nans", True)
 # model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([0, 1, 3, 4, 5, 6, 7, 8]))
 # model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([2, 3, 4, 5, 6, 7, 8, 9, 10]))
 
-model = gwfast_class(eps=0.1, chi=1, mode='TaylorF2', freeze_indicies=np.array([9,10]))
+model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([2,3,4,5,6,7,8,9,10]))
 
 # model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([2, 3, 4, 5, 6, 7, 8, 9, 10]))
 # model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([0, 1, 3, 4, 5, 6, 7, 8]))
 # model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([2, 3, 4]))
 # model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([2, 3, 4, 5, 6, 7, 8, 9, 10]))
 
+#%%
 #%%##########################
-# Setup sampler
+# Birth death version
 #############################
 nParticles = 100
-# h = model.DoF / 10
 h = model.DoF / 10
-nIterations = 500
+nIterations = 1000
+stride = 1
+# Remarks:
+# h=1 works well for separated modes
+# stride = nIterations / 3, where 3 = number of birth-step steps
 
 bd_kwargs = {'use': True, 
-             'h': 0.5,
-             'use_metric': False, 
-             'start_iter': -1,
-             'end_iter': nIterations+5,
-             'eps_bd': 0.01,
              'kernel_type': 'Lp',
-            #  'p':0.5}
-             'p':2}
+             'p':2,
+             'h': 1,
+             'start_iter': -1,
+             'tau': 0.01,
+             'space': 'primal',
+             'stride': stride}
 
 sampler1 = samplers(model=model, nIterations=nIterations, nParticles=nParticles, profile=False, kernel_type='Lp', bd_kwargs=bd_kwargs)
-# kernelKwargs = {'h':h, 'p':1}
-kernelKwargs = {'h':h, 'p':2} # CHANGED!!!!!!!!!!!!!!!!!!!
+kernelKwargs = {'h':h, 'p':2} 
 
-
-sampler1.apply(method='reparam_sSVN', eps=1, kernelKwargs=kernelKwargs)
-# sampler1.apply(method='langevin', eps=0.01, kernelKwargs=kernelKwargs, schedule=flat_schedule, bd_kernel_kwargs=bd_kernel_kwargs)
-
+sampler1.apply(method='reparam_sSVGD', eps=0.5, kernelKwargs=kernelKwargs)
 
 # %%
 X1 = collect_samples(sampler1.history_path)
@@ -106,11 +105,11 @@ ax.plot(np.log(b), label='Dual')
 ax.legend()
 
 #%%
-func = lambda X: np.exp(-model.heterodyne_minusLogLikelihood(X))
+func = lambda X: np.exp(-model.getMinusLogPosterior_ensemble(X))
 # func = lambda X: -1 * model.heterodyne_minusLogLikelihood(X)
-# func = lambda X: -1 * model.standard_minusLogLikelihood(X)
+# func = lambda X: np.exp(-1 * model.standard_minusLogLikelihood(X))
 # func = lambda X: np.maximum(0, model.get)
 # func = lambda X: np.linalg.norm(model.getGradientMinusLogPosterior_ensemble(X), axis=1)
-model.getCrossSection('dL', 'chi2z', func, 100)
+model.getCrossSection('Mc', 'eta', func, 200)
 # model.getCrossSection('theta', 'phi', func, 100)
 # %%

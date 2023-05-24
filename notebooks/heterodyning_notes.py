@@ -13,7 +13,7 @@ from pprint import pprint
 sys.path.append("..")
 from models.GWFAST_heterodyne import gwfast_class
 config.update("jax_enable_x64", True)
-model = gwfast_class(chi=1, eps=0.1, mode='TaylorF2') # IMRPhenomD | TaylorF2
+model = gwfast_class(chi=1, eps=0.5, mode='TaylorF2') # IMRPhenomD | TaylorF2
 dets = model.detsInNet.keys()
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%############
@@ -60,7 +60,8 @@ fig, ax = plt.subplots()
 nParticles = 1000
 X = model._newDrawFromPrior(nParticles)
 test1 = model.standard_minusLogLikelihood(X)
-test2 = model.heterodyne_minusLogLikelihood(X) 
+# test2 = model.heterodyne_minusLogLikelihood(X) 
+test2 = model.getMinusLogPosterior_ensemble(X)
 percent_change = (test1 - test2) / test1 * 100
 # counts, bins = np.histogram(percent_change, bins=30)
 counts, bins = np.histogram(test1 - test2, bins=30)
@@ -80,9 +81,9 @@ mode = 'energy'
 # mode = 'grad_norm'
 
 if mode == 'probability':
-    f = lambda X: np.exp(-1 * model.heterodyne_minusLogLikelihood(X))
+    f = lambda X: np.exp(-1 * model.getMinusLogPosterior_ensemble(X))
 elif mode == 'energy':
-    f = lambda X: -1 * model.heterodyne_minusLogLikelihood(X)
+    f = lambda X: -1 * model.getMinusLogPosterior_ensemble(X)
 elif mode == 'grad_norm':
     f = lambda X: np.linalg.norm(model.getGradientMinusLogPosterior_ensemble(X), axis=1)
 
@@ -92,9 +93,9 @@ for pair in list(combinations(model.gwfast_param_order, 2)):
     model.getCrossSection(pair[0], pair[1], f, 200)
 
 #%% Get cross sections for single pair
-x1 = 'dL'
-x2 = 'chi1z'
-model.getCrossSection(x1, x2, f, 200)
+x1 = 'Mc'
+x2 = 'eta'
+model.getCrossSection(x1, x2, f, 100)
 
 
 ### Derivative unit tests follow ###

@@ -47,7 +47,7 @@ upper_bound = np.ones(DoF) * (4)
 model = Mixture([G1, G2, G3], mixture_weights, lower_bound, upper_bound, DoF=DoF)
 
 #%% Mixture of Gaussians (Separated modes)
-DoF = 20
+DoF = 10
 # Component 1 settings
 mu1 = np.ones(DoF) * -6
 Sigma1 = np.ones(DoF)
@@ -107,7 +107,7 @@ bd_kwargs = {'use': True,
 sampler1 = samplers(model=model, nIterations=nIterations, nParticles=nParticles, profile=False, kernel_type='Lp', bd_kwargs=bd_kwargs)
 kernelKwargs = {'h':h, 'p':2} 
 
-sampler1.apply(method='reparam_sSVGD', eps=1, kernelKwargs=kernelKwargs)
+sampler1.apply(method='reparam_sSVGD', eps=0.5, kernelKwargs=kernelKwargs)
 
 
 

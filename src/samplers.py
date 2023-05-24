@@ -310,51 +310,11 @@ class samplers:
 
                         X += eps * v_svn + np.sqrt(eps) * v_stc
 
-                    elif method == 'reparam_sSVGD':
-                        # Reparameterization to R^d
-                        mlpt_X = self.model.getMinusLogPosterior_ensemble(X)
-                        gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
-                        mlpt_Y, gmlpt_Y, Hmlpt_Y = self.getUnboundedPotential(eta, mlpt_X, gmlpt_X, Hmlpt_X)
-
+                        # Commented out code from reparam_sSVGD
                         # Stein variational gradient descent
                         # M = jnp.eye(self.DoF) # jnp.mean(Hmlpt_Y, axis=0)  
-                        kernelKwargs['M'] = None
-
                         # Testing new kernel implementation!!! TODO
                         # kx, gkx1 = self.__getKernelWithDerivatives_(eta, kernelKwargs)
-                        kx, gkx1 = self.metric_wrapper(self.k_lp, eta, kernelKwargs)
-
-                        v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt_Y)
-
-
-
-                        # Birth-death step
-                        key, subkey = jax.random.split(key)
-                        # self.bd_kernel_kwargs['M'] = jnp.eye(self.DoF)
-                        self.bd_kernel_kwargs['M'] = None
-                        n_events = 0
-                        tau = self.bd_kernel_kwargs['tau']
-                        stride = self.bd_kwargs['stride']
-                        use = self.bd_kwargs['use']
-                        if use == True and iter_ !=0 and (iter_ % stride) == 0: # Birth death update
-                            if self.bd_kwargs['space'] == 'primal':
-                                # kern_bd, _ = self.bd_kernel(X, self.bd_kernel_kwargs)
-                                kern_bd, _ = self.metric_wrapper(self.k_lp, X, self.bd_kernel_kwargs)
-                                jump_idxs, n_events = self.birthDeathJumpIndicies(kern_bd, mlpt_X, tau=tau*stride)
-                            elif self.bd_kwargs['space'] == 'dual':
-                                # kern_bd, _ = self.bd_kernel(eta, self.bd_kernel_kwargs)
-                                kern_bd, _ = self.metric_wrapper(self.k_lp, eta, self.bd_kernel_kwargs)
-                                jump_idxs, n_events = self.birthDeathJumpIndicies(kern_bd, mlpt_Y, tau=tau*stride)
-
-                            noise = self.proposalNoise_SVGD(jump_idxs, kx, subkey)
-                            eta = eta[jump_idxs] + eps * v_svgd[jump_idxs] + np.sqrt(eps) * noise
-                        else: # Standard update
-                            v_stc = self._getSVGD_v_stc(kx, subkey)
-                            eta += eps * v_svgd + np.sqrt(eps) * v_stc 
-
-
-
-                        X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
 
                         ################
                         # Scratchwork
@@ -374,36 +334,92 @@ class samplers:
                         #     gmlpt_Y = gmlpt_Y.at[nPerBatch*b:nPerBatch*(b + 1)].set(_gmlpt_Y)
                         #     Hmlpt_Y = Hmlpt_Y.at[nPerBatch*b:nPerBatch*(b + 1)].set(_Hmlpt_Y)
 
+
+                        # Birth-death step
+                        # self.bd_kernel_kwargs['M'] = jnp.eye(self.DoF)
+                        # kern_bd, _ = self.bd_kernel(X, self.bd_kernel_kwargs)
+                        # key, subkey = jax.random.split(key)
+                        # if self.bd_kwargs['use'] == False: # Standard update
+                        #     v_stc = self._getSVN_v_stc(kx, UH, subkey)
+                        #     eta += eps * v_svn + np.sqrt(eps) * v_stc 
+                        # else: # Birth death update
+                        #     jump_idxs = self.birthDeathJumpIndicies(kern_bd, mlpt_X)
+                        #     # jump_idxs = self.birthDeathJumpIndicies(kx, mlpt_Y)
+                        #     noise = self.proposalNoise(jump_idxs, kx, UH, subkey)
+                        #     eta = eta[jump_idxs] + eps * v_svn[jump_idxs] + np.sqrt(eps) * noise
+
+                    elif method == 'reparam_sSVGD':
+                        # Reparameterization to R^d
+                        mlpt_X = self.model.getMinusLogPosterior_ensemble(X)
+                        gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
+                        mlpt_Y, gmlpt_Y, Hmlpt_Y = self.getUnboundedPotential(eta, mlpt_X, gmlpt_X, Hmlpt_X)
+
+                        # Calculate SVGD direction
+                        kernelKwargs['M'] = None
+                        kx, gkx1 = self.metric_wrapper(self.k_lp, eta, kernelKwargs)
+                        v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt_Y)
+
+                        # Birth-death step
+                        self.bd_kernel_kwargs['M'] = None
+                        tau = self.bd_kernel_kwargs['tau']
+                        stride = self.bd_kwargs['stride']
+                        use = self.bd_kwargs['use']
+                        start_iter = self.bd_kwargs['start_iter']
+
+                        key, subkey = jax.random.split(key)
+                        n_events = 0
+                        if use == True and iter_ !=0 and (iter_ % stride) == 0 and (iter_ > start_iter): # Update with teleportation
+                            if self.bd_kwargs['space'] == 'primal':
+                                kern_bd, _ = self.metric_wrapper(self.k_lp, X, self.bd_kernel_kwargs)
+                                jump_idxs, n_events = self.birthDeathJumpIndicies(kern_bd, mlpt_X, tau=tau*stride)
+                            elif self.bd_kwargs['space'] == 'dual':
+                                kern_bd, _ = self.metric_wrapper(self.k_lp, eta, self.bd_kernel_kwargs)
+                                jump_idxs, n_events = self.birthDeathJumpIndicies(kern_bd, mlpt_Y, tau=tau*stride)
+                            noise = self.proposalNoise_SVGD(jump_idxs, kx, subkey)
+                            eta = eta[jump_idxs] + eps * v_svgd[jump_idxs] + np.sqrt(eps) * noise
+                        else: # Standard update
+                            v_stc = self._getSVGD_v_stc(kx, subkey)
+                            eta += eps * v_svgd + np.sqrt(eps) * v_stc 
+
+                        X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
+
+
                     elif method == 'reparam_sSVN':
                         # Reparameterization to R^d
-                        phi = (self.model.upper_bound - self.model.lower_bound) / (4 * jnp.cosh(eta / 2) ** 2)
                         mlpt_X = self.model.getMinusLogPosterior_ensemble(X)
-                        mlpt_Y = mlpt_X - jnp.sum(jnp.log(phi), axis=1)
                         gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
-                        gmlpt_Y = gmlpt_X * phi + jnp.tanh(eta / 2)
-                        Hmlpt_Y = Hmlpt_X * contract('Ni,Nj -> Nij', phi, phi)
-                        Hmlpt_Y = Hmlpt_Y.at[:, jnp.arange(self.DoF), jnp.arange(self.DoF)].add(1 / (2 * jnp.cosh(eta / 2) ** 2))
+                        mlpt_Y, gmlpt_Y, Hmlpt_Y = self.getUnboundedPotential(eta, mlpt_X, gmlpt_X, Hmlpt_X)
 
                         # Stein variational Newton step
                         kernelKwargs['M'] = jnp.mean(Hmlpt_Y, axis=0) # jnp.eye(self.DoF)
-                        kx, gkx1 = self.__getKernelWithDerivatives_(eta, kernelKwargs)
+                        kx, gkx1 = self.metric_wrapper(self.k_lp, eta, kernelKwargs)
                         H = self.get_H_lambda(Hmlpt_Y, kx, gkx1, damping=0.05)
                         UH = self.getCho(H)
                         v_svgd = self._getSVGD_direction(kx, gkx1, gmlpt_Y) 
                         v_svn, alphas = self._getSVN_direction(kx, v_svgd, UH)
 
                         # Birth-death step
-                        self.bd_kernel_kwargs['M'] = jnp.eye(self.DoF)
-                        kern_bd, _ = self.bd_kernel(X, self.bd_kernel_kwargs)
+                        self.bd_kernel_kwargs['M'] = None
+                        tau = self.bd_kernel_kwargs['tau']
+                        stride = self.bd_kwargs['stride']
+                        use = self.bd_kwargs['use']
+                        start_iter = self.bd_kwargs['start_iter']
+
                         key, subkey = jax.random.split(key)
-                        if self.bd_kwargs['use'] == False: # Standard update
-                            v_stc = self._getSVN_v_stc(kx, UH, subkey)
-                            eta += eps * v_svn + np.sqrt(eps) * v_stc 
-                        else: # Birth death update
-                            jump_idxs = self.birthDeathJumpIndicies(kern_bd, mlpt_X)
-                            # jump_idxs = self.birthDeathJumpIndicies(kx, mlpt_Y)
+                        n_events = 0
+                        if use == True and iter_ !=0 and (iter_ % stride) == 0 and (iter_ > start_iter): # Update with teleportation
+                            if self.bd_kwargs['space'] == 'primal':
+                                kern_bd, _ = self.metric_wrapper(self.k_lp, X, self.bd_kernel_kwargs)
+                                jump_idxs, n_events = self.birthDeathJumpIndicies(kern_bd, mlpt_X, tau=tau*stride)
+                            elif self.bd_kwargs['space'] == 'dual':
+                                kern_bd, _ = self.metric_wrapper(self.k_lp, eta, self.bd_kernel_kwargs)
+                                jump_idxs, n_events = self.birthDeathJumpIndicies(kern_bd, mlpt_Y, tau=tau*stride)
                             noise = self.proposalNoise(jump_idxs, kx, UH, subkey)
                             eta = eta[jump_idxs] + eps * v_svn[jump_idxs] + np.sqrt(eps) * noise
+                        else: # Standard update
+                            v_stc = self._getSVN_v_stc(kx, UH, subkey)
+                            eta += eps * v_svn + np.sqrt(eps) * v_stc 
+
 
                         X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
 
@@ -1390,6 +1406,7 @@ class samplers:
         # print(jnp.any(a>0))
         return 1 - lamb1 * (mlpt) - lamb2 * jnp.maximum(0, a)
 
+    @partial(jax.jit, static_argnums=(0,))
     def k_lp(self, X, kernel_kwargs):
         """ 
         Lp kernel implementation
@@ -1409,7 +1426,7 @@ class samplers:
         gk = -k[..., jnp.newaxis] * jnp.abs(separation_vectors) ** (p - 1) * jnp.sign(separation_vectors) / h
         return k, gk
 
-
+    # @partial(jax.jit, static_argnums=(0,))
     def metric_wrapper(self, getKern, X, kernel_kwargs):
         """ 
         Wrapper to implement kernel metric reparameterization

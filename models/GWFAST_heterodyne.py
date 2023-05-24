@@ -149,17 +149,31 @@ class gwfast_class(object):
         # cos(\theta) ~ Unif[-1,1]
 
         priorDict = {}
-        priorDict['Mc']      = [10, 80]                            # [M_solar]     
-        priorDict['eta']     = [0.1, 0.25]                        # [Unitless]
+        # Use these for testing
+        priorDict['Mc']      = [20, 40]                            # [M_solar]     
+        priorDict['eta']     = [0.2, 0.25]                         # [Unitless]
         priorDict['dL']      = [0.05, 2]                           # [GPC]
         priorDict['theta']   = [0., np.pi]                         # [Rad]
         priorDict['phi']     = [0., 2 * np.pi]                     # [Rad]
         priorDict['iota']    = [0., np.pi]                         # [Rad] # Note: Maybe use cos i variable?
         priorDict['psi']     = [0., np.pi]                         # [Rad]
-        priorDict['tcoal']   = [tcoal - 0.1, tcoal + 0.1]        # [sec]
+        priorDict['tcoal']   = [tcoal - 0.01, tcoal + 0.01]          # [sec]
         priorDict['Phicoal'] = [0., 2 * np.pi]                     # [Rad]
         priorDict['chi1z']   = [-0.99, 0.99]                       # [Unitless]
         priorDict['chi2z']   = [-0.99, 0.99]                       # [Unitless]
+
+        # Use these for the full problem
+        # priorDict['Mc']      = [10, 80]                            # [M_solar]     
+        # priorDict['eta']     = [0.1, 0.25]                         # [Unitless]
+        # priorDict['dL']      = [0.05, 2]                           # [GPC]
+        # priorDict['theta']   = [0., np.pi]                         # [Rad]
+        # priorDict['phi']     = [0., 2 * np.pi]                     # [Rad]
+        # priorDict['iota']    = [0., np.pi]                         # [Rad] # Note: Maybe use cos i variable?
+        # priorDict['psi']     = [0., np.pi]                         # [Rad]
+        # priorDict['tcoal']   = [tcoal - 0.1, tcoal + 0.1]          # [sec]
+        # priorDict['Phicoal'] = [0., 2 * np.pi]                     # [Rad]
+        # priorDict['chi1z']   = [-0.99, 0.99]                       # [Unitless]
+        # priorDict['chi2z']   = [-0.99, 0.99]                       # [Unitless]
 
         # for param in ['Phicoal', 'psi', 'iota', 'theta', 'phi']:
         for param in ['Phicoal', 'psi', 'phi']:
@@ -591,7 +605,9 @@ class gwfast_class(object):
         return rj0, rj1
 
     @partial(jax.jit, static_argnums=(0,))
-    def heterodyne_minusLogLikelihood(self, X_reduced): # Checks X
+    # def heterodyne_minusLogLikelihood(self, X_reduced): # Checks X
+    def getMinusLogPosterior_ensemble(self, X_reduced): # Checks X
+
         """ 
         Remarks:
         (i) Summary data has shape (b,)
