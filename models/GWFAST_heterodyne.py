@@ -67,8 +67,17 @@ class gwfast_class(object):
 
         self._initFrequencyGrid()
         self._initDetectors()
-        self.h0_standard = self._getInjectedSignals(self.injParams, self.fgrid_standard) # Fiducial signal
-        self.h0_dense = self._getInjectedSignals(self.injParams, self.fgrid_dense)       # Fiducial signal
+
+        # NEW
+        self.h0_standard = {}
+        self.h0_dense = {}
+        for det in self.detsInNet.keys():
+            self.h0_standard[det] = self.getSignal(self.true_params[None,:], self.fgrid_standard, det).squeeze()
+            self.h0_dense[det] = self.getSignal(self.true_params[None,:], self.fgrid_dense, det).squeeze()
+
+        # OLD
+        # self.h0_standard = self._getInjectedSignals(self.injParams, self.fgrid_standard) # Fiducial signal
+        # self.h0_dense = self._getInjectedSignals(self.injParams, self.fgrid_dense)       # Fiducial signal
 
         # Form data used in injection
         self.d_dense = {}
@@ -79,7 +88,8 @@ class gwfast_class(object):
 
         # Heterodyned strategy
         self.d_d = self._precomputeDataInnerProduct()
-        self._reinitialize(chi=chi, eps=eps)
+        # TODO reenable when using heterodyne
+        # self._reinitialize(chi=chi, eps=eps)
 
         # Debugging (ignore)
         self.hj0 = None
@@ -131,18 +141,17 @@ class gwfast_class(object):
         # GW150914
         tGPS = np.array([1.1262594624e+09])
         tcoal = float(utils.GPSt_to_LMST(tGPS, lat=0., long=0.)) * self.seconds_per_day # [0, 1] 
-        injParams['Mc']      = np.array([31.39])          # (1)   # (0)               # [M_solar]
-        injParams['eta']     = np.array([0.2485773])           # (2)   # (1)               # [Unitless]
-        # injParams['dL']      = np.array([2.634])               # (3)   # (2)               # [Gigaparsecs]
-        injParams['dL']      = np.array([0.43929])               # (3)   # (2)               # [Gigaparsecs]
-        injParams['theta']   = np.array([2.78560281])          # (4)   # (3)               # [Rad]
-        injParams['phi']     = np.array([1.67687425])          # (5)   # (4)   RA            # [Rad]
-        injParams['iota']    = np.array([2.67548653])          # (6)   # (5)               # [Rad]
-        injParams['psi']     = np.array([0.78539816])          # (7)   # (6)               # [Rad]
-        injParams['tcoal']   = np.array([tcoal])               # (8)   # (7)               # [sec]
-        injParams['Phicoal'] = np.array([0.1])                 # (9)   # (8)               # [Rad]
-        injParams['chi1z']   = np.array([0.27210419])          # (10)  # (9)               # [Unitless]
-        injParams['chi2z']   = np.array([0.33355909])          # (11)  # (10)              # [Unitless]
+        injParams['Mc']      = np.array([31.39])               # (1)   # (0)   # [M_solar]      # Chirp mass
+        injParams['eta']     = np.array([0.2485773])           # (2)   # (1)   # [Unitless]     # Symmetric mass ratio
+        injParams['dL']      = np.array([0.43929])             # (3)   # (2)   # [Gigaparsecs]  # Luminosity distance
+        injParams['theta']   = np.array([2.78560281])          # (4)   # (3)   # [Rad]          # Declination
+        injParams['phi']     = np.array([1.67687425])          # (5)   # (4)   # [Rad]          # Right ascention
+        injParams['iota']    = np.array([2.67548653])          # (6)   # (5)   # [Rad]          # Inclination
+        injParams['psi']     = np.array([0.78539816])          # (7)   # (6)   # [Rad]
+        injParams['tcoal']   = np.array([tcoal])               # (8)   # (7)   # [sec]
+        injParams['Phicoal'] = np.array([0.1])                 # (9)   # (8)   # [Rad]
+        injParams['chi1z']   = np.array([0.27210419])          # (10)  # (9)   # [Unitless]
+        injParams['chi2z']   = np.array([0.33355909])          # (11)  # (10)  # [Unitless]
 
         # TODO sample in cos iota (uniform prior on cosi) 
         # cos(\iota)  ~ Unif[-1,1]
@@ -151,13 +160,13 @@ class gwfast_class(object):
         priorDict = {}
         # Use these for testing
         priorDict['Mc']      = [20, 40]                            # [M_solar]     
-        priorDict['eta']     = [0.2, 0.25]                         # [Unitless]
+        priorDict['eta']     = [0.1, 0.25]                         # [Unitless]
         priorDict['dL']      = [0.05, 2]                           # [GPC]
         priorDict['theta']   = [0., np.pi]                         # [Rad]
         priorDict['phi']     = [0., 2 * np.pi]                     # [Rad]
         priorDict['iota']    = [0., np.pi]                         # [Rad] # Note: Maybe use cos i variable?
         priorDict['psi']     = [0., np.pi]                         # [Rad]
-        priorDict['tcoal']   = [tcoal - 0.01, tcoal + 0.01]          # [sec]
+        priorDict['tcoal']   = [tcoal - 0.1, tcoal + 0.1]          # [sec]
         priorDict['Phicoal'] = [0., 2 * np.pi]                     # [Rad]
         priorDict['chi1z']   = [-0.99, 0.99]                       # [Unitless]
         priorDict['chi2z']   = [-0.99, 0.99]                       # [Unitless]
@@ -176,11 +185,11 @@ class gwfast_class(object):
         # priorDict['chi2z']   = [-0.99, 0.99]                       # [Unitless]
 
         # for param in ['Phicoal', 'psi', 'iota', 'theta', 'phi']:
-        for param in ['Phicoal', 'psi', 'phi']:
-            x = injParams[param][0]
-            delta = x - (priorDict[param][1] + priorDict[param][0]) / 2
-            priorDict[param][0] += delta
-            priorDict[param][1] += delta
+        # for param in ['Phicoal', 'psi', 'phi']:
+        #     x = injParams[param][0]
+        #     delta = x - (priorDict[param][1] + priorDict[param][0]) / 2
+        #     priorDict[param][0] += delta
+        #     priorDict[param][1] += delta
 
         self.priorDict = priorDict
         self.injParams = injParams
@@ -211,9 +220,20 @@ class gwfast_class(object):
         # detector_ASD['H1']    = 'O3-H1-C01_CLEAN_SUB60HZ-1251752040.0_sensitivity_strain_asd.txt'
         # detector_ASD['Virgo'] = 'O3-V1_sensitivity_strain_asd.txt'
 
-        LV_detectors['L1']['psd_path']    = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['L1']) # (iv) 
-        LV_detectors['H1']['psd_path']    = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['H1'])
-        LV_detectors['Virgo']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['Virgo'])
+        # Uses GWfast PSDs. Make sure to change this back if using GWFAST!
+        # LV_detectors['L1']['psd_path']    = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['L1']) # (iv) 
+        # LV_detectors['H1']['psd_path']    = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['H1'])
+        # LV_detectors['Virgo']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['Virgo'])
+
+        # O4 PSD
+        detector_ASD['L1']    = '/home/alex/anaconda3/envs/myenv/lib/python3.10/site-packages/bilby/gw/detector/noise_curves/aLIGO_O4_high_asd.txt'
+        detector_ASD['H1']    = '/home/alex/anaconda3/envs/myenv/lib/python3.10/site-packages/bilby/gw/detector/noise_curves/aLIGO_O4_high_asd.txt'
+        detector_ASD['Virgo'] = '/mnt/c/sSVN_GW/notebooks/AdV_ASD.txt'
+
+        LV_detectors['L1']['psd_path']    = detector_ASD['L1'] # (iv) 
+        LV_detectors['H1']['psd_path']    = detector_ASD['H1']
+        LV_detectors['Virgo']['psd_path'] = detector_ASD['Virgo']
+
         self.NetDict = LV_detectors
 
         # (v) 
@@ -228,19 +248,14 @@ class gwfast_class(object):
         """
         Setup frequency grids that will be used
         Remarks:                                           
-        (i)   Setup [f_min, f_max] interval
-        (ii)  Standard frequency grid setup
-        (iii) Once nbins_standard is calculated, df_standard must be updated
-        (iv)  Dense frequency setup for heterodyning
-        (v)   gwfast sets h(fcut; theta_0) to 0, causing division by zero errors.
-              This ensures that we do not evaluate the fiducial signal at fcut.
-              Note: This is a hack, and would better be fixed in gwfast. 
+        (i)    Setup [f_min, f_max] interval
+        (ii)   gwfast sets h(fcut; theta_0) to 0, causing division by zero errors.
+               This ensures that we do not evaluate the fiducial signal at fcut.
+               Note: This is a hack, and would better be fixed in gwfast. 
         """
         # (i)
         self.fmin = fmin  # 10
-        self.fmax = self.wf_model.fcut(**self.injParams)[0] - 1e-7 # (v)
-
-        ###
+        self.fmax = self.wf_model.fcut(**self.injParams)[0] - 1e-7 # (ii)
 
         self.nbins_standard = 2000 # 2000
         self.fgrid_standard = np.linspace(self.fmin, self.fmax, num=self.nbins_standard + 1).squeeze()
@@ -281,44 +296,18 @@ class gwfast_class(object):
             self.PSD_standard[det] = jnp.interp(self.fgrid_standard, self.detsInNet[det].strainFreq, self.detsInNet[det].noiseCurve, left=1., right=1.).squeeze()
             self.PSD_dense[det] = jnp.interp(self.fgrid_dense, self.detsInNet[det].strainFreq, self.detsInNet[det].noiseCurve, left=1., right=1.).squeeze()
 
-    def _getInjectedSignals(self, injParams, fgrid):
-        """
-        Fiducial signals over dense grid (one for each detector)
-        Note: See remarks on self.getSignal
-        Remarks:
-        (i)   Squeeze to return (f,) shaped array
-        (ii)  Signal returns a 0 for the maximum frequency. This is a hack which fixes this issue
-        (iii) `tcoal` in GWstrain must be in units of days.
-        """
-        dict_params_neglected = self._getDictParamsNeglected(1)
-        h0 = {}
-        for det in self.detsInNet.keys():
-            h0[det] = self.detsInNet[det].GWstrain(fgrid, 
-                                                   Mc      = injParams['Mc'].astype('complex128'),
-                                                   eta     = injParams['eta'].astype('complex128'),
-                                                   dL      = injParams['dL'].astype('complex128'),
-                                                   theta   = injParams['theta'].astype('complex128'),
-                                                   phi     = injParams['phi'].astype('complex128'),
-                                                   iota    = injParams['iota'].astype('complex128'),
-                                                   psi     = injParams['psi'].astype('complex128'),
-                                                   tcoal   = injParams['tcoal'].astype('complex128') / self.seconds_per_day, # (iii)
-                                                   Phicoal = injParams['Phicoal'].astype('complex128'),
-                                                   chiS    = injParams['chi1z'].astype('complex128'),
-                                                   chiA    = injParams['chi2z'].astype('complex128'),
-                                                   is_chi1chi2 = 'True',
-                                                   **dict_params_neglected).squeeze() # (i)
-
-        return h0
 
     def getSignal(self, X, f_grid, det):
-        """ 
-        Method to calculate signal for each X[i] over f_grid in detector det.
-        Remarks:
+        """Method to calculate signal for each X[i] over f_grid in detector det
+
+        Remarks
+        -------
+
         (i)   Same frequency grid is currently being used for each particle
         (ii)  gwfast.GWstrain expects an f x N matrix
         (iii) gwfast.GWstrain expects `tcoal` in units of seconds
         (iv)  Transpose is included to return an N x f matrix
-        (v)   X must be (N x f) shaped, for one sample is must be (1 x f) shaped!!!
+        (v)   X must be (N x d) shaped, for one sample is must be (1 x d) shaped
         """
         nParticles = X.shape[0]
         dict_params_neglected = self._getDictParamsNeglected(nParticles)
@@ -716,8 +705,8 @@ class gwfast_class(object):
         for i, param in enumerate(self.gwfast_param_order): # Assuming uniform on all parameters
             low = self.priorDict[param][0]
             high = self.priorDict[param][1]
-            buffer = (high-low) / 5
-            # buffer = 0
+            # buffer = (high-low) / 5
+            buffer = 0
             prior_draw[:, i] = np.random.uniform(low=low+buffer, high=high-buffer, size=n)
             # prior_draw[:, i] = np.random.uniform(low=self.true_params[i] - 1e-7, high=self.true_params[i] + 1e-7, size=n)
             # print('modified priors to be at mode!')
@@ -961,3 +950,70 @@ class gwfast_class(object):
         # self.df_dense = (self.fmax - self.fmin) / self.nbins_dense
         # print('Dense bins: % i bins' % self.nbins_dense)
         # self.fgrid_dense = np.linspace(self.fmin, self.fmax, num=self.nbins_dense + 1).squeeze()
+
+
+
+
+    # def _getInjectedSignals(self, injParams, fgrid):
+    #     """
+    #     Fiducial signals over dense grid (one for each detector)
+    #     Note: See remarks on self.getSignal
+    #     Remarks:
+    #     (i)   Squeeze to return (f,) shaped array
+    #     (ii)  Signal returns a 0 for the maximum frequency. This is a hack which fixes this issue
+    #     (iii) `tcoal` in GWstrain must be in units of days.
+    #     """
+    #     dict_params_neglected = self._getDictParamsNeglected(1)
+    #     h0 = {}
+    #     for det in self.detsInNet.keys():
+    #         h0[det] = self.detsInNet[det].GWstrain(fgrid, 
+    #                                                Mc      = injParams['Mc'].astype('complex128'),
+    #                                                eta     = injParams['eta'].astype('complex128'),
+    #                                                dL      = injParams['dL'].astype('complex128'),
+    #                                                theta   = injParams['theta'].astype('complex128'),
+    #                                                phi     = injParams['phi'].astype('complex128'),
+    #                                                iota    = injParams['iota'].astype('complex128'),
+    #                                                psi     = injParams['psi'].astype('complex128'),
+    #                                                tcoal   = injParams['tcoal'].astype('complex128') / self.seconds_per_day, # (iii)
+    #                                                Phicoal = injParams['Phicoal'].astype('complex128'),
+    #                                                chiS    = injParams['chi1z'].astype('complex128'),
+    #                                                chiA    = injParams['chi2z'].astype('complex128'),
+    #                                                is_chi1chi2 = 'True',
+    #                                                **dict_params_neglected).squeeze() # (i)
+
+    #     return h0
+
+
+    # See if explicitly not using unpacking dict gives different results?
+    # def old_getSignal(self, X, f_grid, det):
+    #     """ 
+    #     Method to calculate signal for each X[i] over f_grid in detector det.
+    #     Remarks:
+    #     (i)   Same frequency grid is currently being used for each particle
+    #     (ii)  gwfast.GWstrain expects an f x N matrix
+    #     (iii) gwfast.GWstrain expects `tcoal` in units of seconds
+    #     (iv)  Transpose is included to return an N x f matrix
+    #     (v)   X must be (N x f) shaped, for one sample is must be (1 x f) shaped!!!
+    #     """
+    #     nParticles = X.shape[0]
+    #     dict_params_neglected = self._getDictParamsNeglected(nParticles)
+    #     fgrids = jnp.repeat(f_grid[...,np.newaxis], nParticles, axis=1) # (i)
+    #     X_ = X.T.astype('complex128')
+    #     signal = (self.detsInNet[det].GWstrain(fgrids, # (ii)                        
+    #                                            Mc      = X_[0],
+    #                                            eta     = X_[1],
+    #                                            dL      = X_[2],
+    #                                            theta   = X_[3],
+    #                                            phi     = X_[4],
+    #                                            iota    = X_[5],
+    #                                            psi     = X_[6],
+    #                                            tcoal   = X_[7] / self.seconds_per_day, # (iii)
+    #                                            Phicoal = X_[8],
+    #                                            chiS    = X_[9],
+    #                                            chiA    = X_[10],
+    #                                            is_chi1chi2 = 'True',
+    #                                            **dict_params_neglected)).T # (iv) 
+                            
+    #     return signal 
+
+

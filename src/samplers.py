@@ -423,6 +423,37 @@ class samplers:
 
                         X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
 
+                    elif method=='MALA':
+                        # Generate a random Gaussian noise for each point in the ensemble
+                        key, subkey = jax.random.split(key)
+                        noise = jax.random.normal(subkey, shape=X.shape)
+                    
+                        # Compute the proposal X_prime for each point
+                        grad_V = self.model.getGradientMinusLogPosterior_ensemble(X)
+                        X_prime = X - eps * grad_V + jnp.sqrt(2 * eps) * noise
+                    
+                        # Calculate log of posterior ratio
+                        V = self.model.getMinusLogPosterior_ensemble(X)
+                        V_prime = self.model.getMinusLogPosterior_ensemble(X_prime)
+                        log_posterior_ratio = V - V_prime
+
+                        # Calculate log of proposal ratio
+                        grad_V_prime = self.model.getGradientMinusLogPosterior_ensemble(X_prime)
+                        log_proposal_ratio = \
+                        jnp.sum((X_prime - X + eps * grad_V) ** 2, axis=-1) / (4 * eps) - \
+                        jnp.sum((X - X_prime + eps * grad_V_prime) ** 2, axis=-1) / (4 * eps)
+
+                        # Calculate acceptance probability for each point
+                        log_alpha = log_posterior_ratio + log_proposal_ratio
+                        alpha = jnp.minimum(1, jnp.exp(log_alpha))
+
+                        # Accept or reject the proposals based on the acceptance probability
+                        key, subkey = jax.random.split(key)
+                        idxs_accepted = jnp.argwhere(jax.random.uniform(subkey, shape=(self.nParticles,)) < alpha)[:,0]
+                        X[idxs_accepted,:] = X_prime[idxs_accepted,:]
+                        n_events = len(idxs_accepted)
+
+
                     elif method=='langevin':
                         v_svgd = 0 # for output issues
                         gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
@@ -517,7 +548,8 @@ class samplers:
                         #     g.create_dataset('X', data=copy.deepcopy(self._mapRealsToHypercube(X, self.model.lower_bound, self.model.upper_bound)))
                         # g.create_dataset('h', data=copy.deepcopy(h))
                         g.create_dataset('eps', data=copy.deepcopy(eps))
-                        g.create_dataset('v_svgd', data=copy.deepcopy(v_svgd))
+                        if method != 'MALA':
+                            g.create_dataset('v_svgd', data=copy.deepcopy(v_svgd))
                         if method == 'reparam_sSVN':
                             # g.create_dataset('gmlpt_X', data=copy.deepcopy(gmlpt_X))
                             g.create_dataset('gmlpt_Y', data=copy.deepcopy(gmlpt_Y))

@@ -89,8 +89,8 @@ bounded_iid_samples = ground_truth_samples[idx]
 #############################
 nParticles = 100
 h = model.DoF / 10
-nIterations = 500
-stride = 101
+nIterations = 200
+stride = 21
 # Remarks:
 # h=1 works well for separated modes
 # stride = nIterations / 3, where 3 = number of birth-step steps
@@ -98,16 +98,16 @@ stride = 101
 bd_kwargs = {'use': True, 
              'kernel_type': 'Lp',
              'p':2,
-             'h': 1,
+             'h': 0.01,
              'start_iter': -1,
              'tau': 0.01,
              'space': 'primal',
              'stride': stride}
 
 sampler1 = samplers(model=model, nIterations=nIterations, nParticles=nParticles, profile=False, kernel_type='Lp', bd_kwargs=bd_kwargs)
-kernelKwargs = {'h':h, 'p':2} 
+kernelKwargs = {'h':h, 'p':1} 
 
-sampler1.apply(method='reparam_sSVGD', eps=0.5, kernelKwargs=kernelKwargs)
+sampler1.apply(method='reparam_sSVN', eps=1, kernelKwargs=kernelKwargs)
 
 
 

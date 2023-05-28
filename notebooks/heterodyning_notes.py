@@ -13,7 +13,7 @@ from pprint import pprint
 sys.path.append("..")
 from models.GWFAST_heterodyne import gwfast_class
 config.update("jax_enable_x64", True)
-model = gwfast_class(chi=1, eps=0.5, mode='TaylorF2') # IMRPhenomD | TaylorF2
+model = gwfast_class(chi=1, eps=0.5, mode='IMRPhenomD') # IMRPhenomD | TaylorF2
 dets = model.detsInNet.keys()
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%############
@@ -53,6 +53,15 @@ ax[0].legend()
 ax[1].legend()
 fig.show()
 
+#%%
+##########################################################
+# Log likelihood value at injection should be zero
+##########################################################
+x = model.true_params[np.newaxis,:]
+log_like = model.standard_minusLogLikelihood(x)
+log_like == 0
+
+
 #%%###################################################
 # Relative error b/w heterodyne, standard likelihoods
 ######################################################
@@ -79,11 +88,14 @@ from itertools import combinations
 mode = 'energy' 
 # mode = 'probability'
 # mode = 'grad_norm'
+beta = 1e-4
 
 if mode == 'probability':
-    f = lambda X: np.exp(-1 * model.getMinusLogPosterior_ensemble(X))
+    # f = lambda X: np.exp(-1 * model.getMinusLogPosterior_ensemble(X))
+    f = lambda X: np.exp(-1 * beta * model.standard_minusLogLikelihood(X))
 elif mode == 'energy':
-    f = lambda X: -1 * model.getMinusLogPosterior_ensemble(X)
+    # f = lambda X: -1 * model.getMinusLogPosterior_ensemble(X)
+    f = lambda X: -1 * beta * model.standard_minusLogLikelihood(X)
 elif mode == 'grad_norm':
     f = lambda X: np.linalg.norm(model.getGradientMinusLogPosterior_ensemble(X), axis=1)
 
