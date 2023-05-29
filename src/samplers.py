@@ -424,6 +424,7 @@ class samplers:
                         X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
 
                     elif method=='MALA':
+                        n_events = 0
                         # Generate a random Gaussian noise for each point in the ensemble
                         key, subkey = jax.random.split(key)
                         noise = jax.random.normal(subkey, shape=X.shape)
@@ -431,6 +432,8 @@ class samplers:
                         # Compute the proposal X_prime for each point
                         grad_V = self.model.getGradientMinusLogPosterior_ensemble(X)
                         X_prime = X - eps * grad_V + jnp.sqrt(2 * eps) * noise
+                        # X = X - eps * grad_V + jnp.sqrt(2 * eps) * noise
+
                     
                         # Calculate log of posterior ratio
                         V = self.model.getMinusLogPosterior_ensemble(X)
