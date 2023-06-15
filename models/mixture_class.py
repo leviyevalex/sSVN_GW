@@ -32,15 +32,104 @@ class Mixture:
         self.lower_bound = lower_bound
         self.upper_bound = upper_bound
 
-    @partial(jax.jit, static_argnums=(0,))
-    def getMinusLogPosterior_ensemble(self, X):
+    def getPosterior_ensemble(self, X):
         nParticles = X.shape[0]
         p = jnp.zeros(nParticles)
         for k in range(self.nComponents):
-            V = self.components[k].getMinusLogPosterior_ensemble(X)
-            p += jnp.exp(-V) * self.mixture_weights[k]
+            p += self.components[k].getPosterior_ensemble(X) * self.mixture_weights[k]
+        return p
+
+    def getMinusLogPosterior_ensemble(self, X):
+        p = self.getPosterior_ensemble(X)
         return -jnp.log(p)
+
+    def getDerivativeWeights(self, X):
+        p = self.getPosterior_ensemble(X)
+        weights_ = self.mixture_weights[..., np.newaxis] * p
+        weights = weights_ / np.sum(weights_, axis=0)
+        return weights
+
+    def getDerivativesMinusLogPosterior_ensemble(self, X):
+        nParticles = X.shape[0]
+        weights = self.getDerivativeWeights(X)
+        gmlpt = jnp.zeros((nParticles, self.DoF))
+
+        for i in range(self.nComponents):
+            gmlpt_, Hmlpt_ = self.components[i].getDerivativesMinusLogPosterior_ensemble(X)
+            gmlpt += weights[i][..., np.newaxis] * gmlpt_  
+            Hmlpt += weights[i][..., np.newaxis, np.newaxis] * Hmlpt_  
+
+        return gmlpt, Hmlpt
+
+
+
+
+
+
+
+        for i in range(self.nComponents):
+            gmlpt_, Hmlpt_ = self.components[i].getDerivativesMinusLogPosterior_ensemble(X)
+            gmlpt += weights[i][..., np.newaxis] * gmlpt_ 
+
+
+
+
+
+
+    def getGradientMinusLogPosterior_ensemble(self, X):
+        nParticles = X.shape[0]
+        gmlpt = jnp.zeros((nParticles, self.DoF))
+        Hmlpt = jnp.zeros((nParticles, self.DoF, self.DoF))
+
+        # Calculate posterior values for each component
+        p = jnp.zeros((self.nComponents, nParticles)) 
+        for i in range(self.nComponents):
+            V = self.components[i].getMinusLogPosterior_ensemble(X)
+            p = p.at[i].set(jnp.exp(-V))
+
+        # Calculate derivative weights
+        weights_ = self.mixture_weights[..., np.newaxis] * p
+        weights = weights_ / np.sum(weights_, axis=0)
+
+        for i in range(self.nComponents):
+            gmlpt_, Hmlpt_ = self.components[i].getDerivativesMinusLogPosterior_ensemble(X)
+            gmlpt += weights[i][..., np.newaxis] * gmlpt_ 
+            Hmlpt += weights[i][..., np.newaxis, np.newaxis] * Hmlpt_  
+
+        return gmlpt
+
+    # @partial(jax.jit, static_argnums=(0,))
+    # def getMinusLogPosterior_ensemble(self, X):
+    #     nParticles = X.shape[0]
+    #     p = jnp.zeros(nParticles)
+    #     for k in range(self.nComponents):
+    #         V = self.components[k].getMinusLogPosterior_ensemble(X)
+    #         p += jnp.exp(-V) * self.mixture_weights[k]
+    #     return -jnp.log(p)
         
+    # @partial(jax.jit, static_argnums=(0,))
+    # def getGradientMinusLogPosterior_ensemble(self, X):
+    #     nParticles = X.shape[0]
+    #     gmlpt = jnp.zeros((nParticles, self.DoF))
+    #     Hmlpt = jnp.zeros((nParticles, self.DoF, self.DoF))
+
+    #     # Calculate posterior values for each component
+    #     p = jnp.zeros((self.nComponents, nParticles)) 
+    #     for i in range(self.nComponents):
+    #         V = self.components[i].getMinusLogPosterior_ensemble(X)
+    #         p = p.at[i].set(jnp.exp(-V))
+
+    #     # Calculate derivative weights
+    #     weights_ = self.mixture_weights[..., np.newaxis] * p
+    #     weights = weights_ / np.sum(weights_, axis=0)
+
+    #     for i in range(self.nComponents):
+    #         gmlpt_, Hmlpt_ = self.components[i].getDerivativesMinusLogPosterior_ensemble(X)
+    #         gmlpt += weights[i][..., np.newaxis] * gmlpt_ 
+    #         Hmlpt += weights[i][..., np.newaxis, np.newaxis] * Hmlpt_  
+
+    #     return gmlpt
+
     @partial(jax.jit, static_argnums=(0,))
     def getDerivativesMinusLogPosterior_ensemble(self, X):
         nParticles = X.shape[0]

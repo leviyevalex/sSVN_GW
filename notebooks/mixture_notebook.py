@@ -23,6 +23,7 @@ import jax.numpy as jnp
 import jax
 
 
+
 #%% Mixture of Gaussians (Increasing diagonal)
 DoF = 10
 # Component 1 settings
@@ -72,7 +73,7 @@ model = Mixture([G1, G2], mixture_weights, lower_bound, upper_bound, DoF=DoF)
 #%% Samples from unconstrained mixture 
 N = 300000
 samples = model.newDrawFromPosterior(N)
-corner.corner(samples)
+# corner.corner(samples)
 
 #%% Samples from constrained mixture
 np.random.seed(2)
@@ -89,13 +90,13 @@ bounded_iid_samples = ground_truth_samples[idx]
 #############################
 nParticles = 100
 h = model.DoF / 10
-nIterations = 200
-stride = 21
+nIterations = 1000
+stride = 101
 # Remarks:
 # h=1 works well for separated modes
 # stride = nIterations / 3, where 3 = number of birth-step steps
 
-bd_kwargs = {'use': True, 
+bd_kwargs = {'use': False, 
              'kernel_type': 'Lp',
              'p':2,
              'h': 0.01,
@@ -107,13 +108,14 @@ bd_kwargs = {'use': True,
 sampler1 = samplers(model=model, nIterations=nIterations, nParticles=nParticles, profile=False, kernel_type='Lp', bd_kwargs=bd_kwargs)
 kernelKwargs = {'h':h, 'p':1} 
 
-sampler1.apply(method='reparam_sSVN', eps=1, kernelKwargs=kernelKwargs)
+sampler1.apply(method='reparam_sSVGD', eps=0.1, kernelKwargs=kernelKwargs)
 
 
 
 # %%
 X1 = collect_samples(sampler1.history_path)
 fig1 = corner.corner(bounded_iid_samples[0:30000], hist_kwargs={'density':True})
+# fig1 = corner.corner(samples[0:30000], hist_kwargs={'density':True})
 corner.corner(X1, color='r', fig=fig1, hist_kwargs={'density':True})
 # %%
 

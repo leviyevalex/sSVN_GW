@@ -370,7 +370,8 @@ class samplers:
                         n_events = 0
                         if use == True and iter_ !=0 and (iter_ % stride) == 0 and (iter_ > start_iter): # Update with teleportation
                             if self.bd_kwargs['space'] == 'primal':
-                                kern_bd, _ = self.metric_wrapper(self.k_lp, X, self.bd_kernel_kwargs)
+                                kern_bd = self.gaussian_kernel(X, self.bd_kernel_kwargs['h'])
+                                # kern_bd, _ = self.metric_wrapper(self.k_lp, X, self.bd_kernel_kwargs)
                                 jump_idxs, n_events = self.birthDeathJumpIndicies(kern_bd, mlpt_X, tau=tau*stride)
                             elif self.bd_kwargs['space'] == 'dual':
                                 kern_bd, _ = self.metric_wrapper(self.k_lp, eta, self.bd_kernel_kwargs)
@@ -1375,14 +1376,29 @@ class samplers:
 
 
     def birthDeathJumpIndicies(self, kern_bd, V, tau=0.01):
+        """ 
+        Remarks
+        -------
+
+        (1) Uses discrepancy from original paper
+        (2) uses discrepancy from sequal paper
+
+        """
         # Data structure for calculation
         alive = ListDict()
         for i in range(self.nParticles):
             alive.add_item(i)
 
         # Get particles with significant mass discrepancy
-        beta = np.log(np.mean(kern_bd, axis=1)) + V
-        Lambda = beta - np.mean(beta) 
+        # beta = np.log(np.mean(kern_bd, axis=1)) + V
+        # Lambda = beta - np.mean(beta) 
+
+        # Get particles with significant mass discrepancy
+        tmp1 = np.mean(kern_bd, axis=1)
+        Lambda = np.log(tmp1) + V
+        Lambda = Lambda - np.mean(Lambda) - 1 + np.mean(kern_bd / tmp1, axis=1)
+
+        # Calculate number of events
         r = np.random.uniform(low=0, high=1, size=self.nParticles)
         xi = np.argwhere(r < 1 - np.exp(-np.abs(Lambda) * tau))[:, 0]
         np.random.shuffle(xi)
@@ -1474,6 +1490,31 @@ class samplers:
         if metric is not None:
             gk = contract('ij, mnj -> mni', U.T, gk)
         return k, gk
+
+    def gaussian_kernel(self, x, sigma):
+        """
+        Computes the normalized Gaussian kernel.
+
+        Arguments:
+        x -- N x d array, where N is the number of samples and d is the dimensionality
+        sigma -- float, the standard deviation of the Gaussian kernel
+
+        """
+        N, d = x.shape
+
+        # Compute the Gaussian kernel
+        norm_squared = jnp.sum((x[:, None] - x[None, :])**2, axis=-1)
+        kernel = jnp.exp(-norm_squared / (2 * sigma**2))
+
+        # Compute the normalization constant
+        normalization = jnp.sqrt(2 * jnp.pi * sigma**2) ** d
+
+        return kernel / normalization  # Normalize the gradient
+        # diff = x[:, None] - x[None, :]
+        # gradient = (diff / (sigma**2))[:, :, None] * kernel[:, :, None] * norm_squared[:, :, None]
+        
+
+
 
 
     # def get_mirror_kernel_new(self, X, kx, gkx2):
