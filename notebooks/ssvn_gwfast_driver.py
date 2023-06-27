@@ -23,7 +23,7 @@ config.update("jax_debug_nans", True)
 # model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([0, 1, 3, 4, 5, 6, 7, 8]))
 # model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([2, 3, 4, 5, 6, 7, 8, 9, 10]))
 
-model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([2,3,4,5,6,7,8,9,10]))
+model = gwfast_class(eps=0.5, chi=1, mode='IMRPhenomD', freeze_indicies=np.array([2,3,4,5,6,7,8,9,10]))
 
 # model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([2, 3, 4, 5, 6, 7, 8, 9, 10]))
 # model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([0, 1, 3, 4, 5, 6, 7, 8]))
@@ -36,8 +36,8 @@ model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([
 #############################
 nParticles = 100
 h = model.DoF / 10
-nIterations = 1000
-stride = 1
+nIterations = 500
+stride = 100
 # Remarks:
 # h=1 works well for separated modes
 # stride = nIterations / 3, where 3 = number of birth-step steps
@@ -54,7 +54,7 @@ bd_kwargs = {'use': True,
 sampler1 = samplers(model=model, nIterations=nIterations, nParticles=nParticles, profile=False, kernel_type='Lp', bd_kwargs=bd_kwargs)
 kernelKwargs = {'h':h, 'p':2} 
 
-sampler1.apply(method='reparam_sSVGD', eps=0.5, kernelKwargs=kernelKwargs)
+sampler1.apply(method='reparam_sSVGD', eps=0.01, kernelKwargs=kernelKwargs)
 
 # %%
 X1 = collect_samples(sampler1.history_path)

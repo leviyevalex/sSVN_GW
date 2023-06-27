@@ -89,7 +89,7 @@ class gwfast_class(object):
         # Heterodyned strategy
         self.d_d = self._precomputeDataInnerProduct()
         # TODO reenable when using heterodyne
-        # self._reinitialize(chi=chi, eps=eps)
+        self._reinitialize(chi=chi, eps=eps)
 
         # Debugging (ignore)
         self.hj0 = None
@@ -159,14 +159,14 @@ class gwfast_class(object):
 
         priorDict = {}
         # Use these for testing
-        priorDict['Mc']      = [20, 40]                            # [M_solar]     
-        priorDict['eta']     = [0.1, 0.25]                         # [Unitless]
+        priorDict['Mc']      = [25, 35]                            # [M_solar]     
+        priorDict['eta']     = [0.20, 0.25]                         # [Unitless]
         priorDict['dL']      = [0.05, 2]                           # [GPC]
         priorDict['theta']   = [0., np.pi]                         # [Rad]
         priorDict['phi']     = [0., 2 * np.pi]                     # [Rad]
         priorDict['iota']    = [0., np.pi]                         # [Rad] # Note: Maybe use cos i variable?
         priorDict['psi']     = [0., np.pi]                         # [Rad]
-        priorDict['tcoal']   = [tcoal - 0.1, tcoal + 0.1]          # [sec]
+        priorDict['tcoal']   = [tcoal - 0.01, tcoal + 0.01]          # [sec]
         priorDict['Phicoal'] = [0., 2 * np.pi]                     # [Rad]
         priorDict['chi1z']   = [-0.99, 0.99]                       # [Unitless]
         priorDict['chi2z']   = [-0.99, 0.99]                       # [Unitless]
@@ -211,9 +211,9 @@ class gwfast_class(object):
         detector_ASD = dict() # (iii)
 
         # O2 PSD
-        detector_ASD['L1']    = '2017-08-06_DCH_C02_L1_O2_Sensitivity_strain_asd.txt'
-        detector_ASD['H1']    = '2017-06-10_DCH_C02_H1_O2_Sensitivity_strain_asd.txt'
-        detector_ASD['Virgo'] = 'Hrec_hoft_V1O2Repro2A_16384Hz.txt'
+        # detector_ASD['L1']    = '2017-08-06_DCH_C02_L1_O2_Sensitivity_strain_asd.txt'
+        # detector_ASD['H1']    = '2017-06-10_DCH_C02_H1_O2_Sensitivity_strain_asd.txt'
+        # detector_ASD['Virgo'] = 'Hrec_hoft_V1O2Repro2A_16384Hz.txt'
 
         # O3 PSD
         # detector_ASD['L1']    = 'O3-L1-C01_CLEAN_SUB60HZ-1240573680.0_sensitivity_strain_asd.txt'
@@ -226,9 +226,14 @@ class gwfast_class(object):
         # LV_detectors['Virgo']['psd_path'] = os.path.join(glob.detPath, 'LVC_O1O2O3', detector_ASD['Virgo'])
 
         # O4 PSD
-        detector_ASD['L1']    = '/home/alex/anaconda3/envs/myenv/lib/python3.10/site-packages/bilby/gw/detector/noise_curves/aLIGO_O4_high_asd.txt'
-        detector_ASD['H1']    = '/home/alex/anaconda3/envs/myenv/lib/python3.10/site-packages/bilby/gw/detector/noise_curves/aLIGO_O4_high_asd.txt'
-        detector_ASD['Virgo'] = '/mnt/c/sSVN_GW/notebooks/AdV_ASD.txt'
+
+        detector_ASD['L1']    = '/mnt/c/Users/alex/Documents/sSVN_GW/notebooks/aLIGO_O4_high_asd.txt'
+        detector_ASD['H1']    = '/mnt/c/Users/alex/Documents/sSVN_GW/notebooks/aLIGO_O4_high_asd.txt'
+        detector_ASD['Virgo'] = '/mnt/c/Users/alex/Documents/sSVN_GW/notebooks/AdV_ASD.txt'
+
+        # detector_ASD['L1']    = '/home/alex/anaconda3/envs/myenv/lib/python3.10/site-packages/bilby/gw/detector/noise_curves/aLIGO_O4_high_asd.txt'
+        # detector_ASD['H1']    = '/home/alex/anaconda3/envs/myenv/lib/python3.10/site-packages/bilby/gw/detector/noise_curves/aLIGO_O4_high_asd.txt'
+        # detector_ASD['Virgo'] = '/mnt/c/sSVN_GW/notebooks/AdV_ASD.txt'
 
         LV_detectors['L1']['psd_path']    = detector_ASD['L1'] # (iv) 
         LV_detectors['H1']['psd_path']    = detector_ASD['H1']
@@ -257,11 +262,11 @@ class gwfast_class(object):
         self.fmin = fmin  # 10
         self.fmax = self.wf_model.fcut(**self.injParams)[0] - 1e-7 # (ii)
 
-        self.nbins_standard = 2000 # 2000
+        self.nbins_standard = 1000 # 2000
         self.fgrid_standard = np.linspace(self.fmin, self.fmax, num=self.nbins_standard + 1).squeeze()
         self.df_standard = (self.fgrid_standard[-1] - self.fgrid_standard[0]) / self.nbins_standard
 
-        self.nbins_dense = 100000
+        self.nbins_dense = 10000
         self.fgrid_dense = np.linspace(self.fmin, self.fmax, num=self.nbins_dense + 1).squeeze()
         self.df_dense = (self.fgrid_dense[-1] - self.fgrid_dense[0]) / self.nbins_dense
 
@@ -407,17 +412,18 @@ class gwfast_class(object):
         print('SNR: %f' % np.sqrt(SNR))
         return SNR2
 
-    @partial(jax.jit, static_argnums=(0,))
-    def standard_minusLogLikelihood(self, X): # Checks: XX
-        """ 
-        """
-        nParticles = X.shape[0]
-        log_likelihood = jnp.zeros(nParticles)
-        for det in self.detsInNet.keys():
-            template = self.getSignal(X, self.fgrid_standard, det) # signal template
-            residual = template - self.d_standard[det][np.newaxis, ...]
-            log_likelihood += 0.5 * self.square_norm(residual, self.PSD_standard[det], self.df_standard) 
-        return log_likelihood
+    # def standard_minusLogLikelihood(self, X): # Checks: XX
+    # @partial(jax.jit, static_argnums=(0,))
+    # def getMinusLogPosterior_ensemble(self, X): # Checks: XX
+    #     """ 
+    #     """
+    #     nParticles = X.shape[0]
+    #     log_likelihood = jnp.zeros(nParticles)
+    #     for det in self.detsInNet.keys():
+    #         template = self.getSignal(X, self.fgrid_standard, det) # signal template
+    #         residual = template - self.d_standard[det][np.newaxis, ...]
+    #         log_likelihood += 0.5 * self.square_norm(residual, self.PSD_standard[det], self.df_standard) 
+    #     return log_likelihood
 
     @partial(jax.jit, static_argnums=(0,))
     def standard_gradientMinusLogLikelihood(self, X): # Checks: XX
@@ -593,8 +599,10 @@ class gwfast_class(object):
         rj1 = (rj[..., 1:] - rj[..., :-1]) / self.bin_widths
         return rj0, rj1
 
-    @partial(jax.jit, static_argnums=(0,))
+
     # def heterodyne_minusLogLikelihood(self, X_reduced): # Checks X
+
+    @partial(jax.jit, static_argnums=(0,))
     def getMinusLogPosterior_ensemble(self, X_reduced): # Checks X
 
         """ 
