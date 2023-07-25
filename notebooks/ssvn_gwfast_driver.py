@@ -1,8 +1,12 @@
 #%%
+import os, sys, time
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"]="false"
+# os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"]=".XX"
+# os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"]="platform"
+
 import jax.numpy as jnp
 import jax
 import numpy as np
-import os, sys, time
 import matplotlib.pyplot as plt
 from jax.config import config
 from pprint import pprint
@@ -17,27 +21,28 @@ import corner
 from jax.config import config
 config.update("jax_debug_nans", True)
 
+
+
 #%%################ 
 # Create model
 ###################
 # model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([0, 1, 3, 4, 5, 6, 7, 8]))
 # model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([2, 3, 4, 5, 6, 7, 8, 9, 10]))
 
-model = gwfast_class(eps=0.5, chi=1, mode='IMRPhenomD', freeze_indicies=np.array([2,3,4,5,6,7,8,9,10]))
+model = gwfast_class(eps=0.1, chi=1, mode='IMRPhenomD', freeze_indicies=np.array([]))
 
 # model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([2, 3, 4, 5, 6, 7, 8, 9, 10]))
 # model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([0, 1, 3, 4, 5, 6, 7, 8]))
 # model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([2, 3, 4]))
 # model = gwfast_class(eps=0.5, chi=1, mode='TaylorF2', freeze_indicies=np.array([2, 3, 4, 5, 6, 7, 8, 9, 10]))
 
-#%%
 #%%##########################
 # Birth death version
 #############################
 nParticles = 100
 h = model.DoF / 10
-nIterations = 500
-stride = 100
+nIterations = 10
+stride = 200
 # Remarks:
 # h=1 works well for separated modes
 # stride = nIterations / 3, where 3 = number of birth-step steps
@@ -52,13 +57,41 @@ bd_kwargs = {'use': True,
              'stride': stride}
 
 sampler1 = samplers(model=model, nIterations=nIterations, nParticles=nParticles, profile=False, kernel_type='Lp', bd_kwargs=bd_kwargs)
-kernelKwargs = {'h':h, 'p':2} 
+kernelKwargs = {'h':h, 'p':2, 'M': jnp.eye(2)} 
 
-sampler1.apply(method='reparam_sSVGD', eps=0.01, kernelKwargs=kernelKwargs)
+sampler1.apply(method='MALA', eps=0.00001, kernelKwargs=kernelKwargs)
 
 # %%
 X1 = collect_samples(sampler1.history_path)
 a = corner.corner(X1, smooth=0.5, labels=list(np.array(model.gwfast_param_order)[model.active_indicies]), truths=model.true_params[model.active_indicies])
+
+#%% Thin MCMC output ranked by likelihood
+importance = model.getMinusLogPosterior_ensemble(X1)
+
+#%%
+indicies_sorted = jnp.argsort(importance)
+X2 = X1[indicies_sorted[:1000]]
+a = corner.corner(X2, smooth=1, labels=list(np.array(model.gwfast_param_order)[model.active_indicies]), truths=model.true_params[model.active_indicies])
+
+
+#%%
+fig, ax = plt.subplots()
+
+counts, bins = np.histogram(importance)
+plt.stairs(counts, bins)
+
+#%%
+
+corner.corner(X1[np.argwhere(importance < 1000).squeeze()])
+
+
+
+
+
+
+
+
+
 
 #%%
 from scripts.plot_helper_functions import extract_velocity_norms
@@ -105,11 +138,36 @@ ax.plot(np.log(b), label='Dual')
 ax.legend()
 
 #%%
-func = lambda X: np.exp(-model.getMinusLogPosterior_ensemble(X))
+# func = lambda X: np.exp(-model.getMinusLogPosterior_ensemble(X))
+func = lambda X: (-model.getMinusLogPosterior_ensemble(X))
+
 # func = lambda X: -1 * model.heterodyne_minusLogLikelihood(X)
 # func = lambda X: np.exp(-1 * model.standard_minusLogLikelihood(X))
 # func = lambda X: np.maximum(0, model.get)
 # func = lambda X: np.linalg.norm(model.getGradientMinusLogPosterior_ensemble(X), axis=1)
 model.getCrossSection('Mc', 'eta', func, 200)
 # model.getCrossSection('theta', 'phi', func, 100)
+# %%
+import numpy as np
+
+# Input dimensions
+N = 3
+I = 4
+f = 5
+
+# Random input matrices
+J = np.random.randint(1, 10, size=(I, N, f))
+P = np.random.randint(1, 10, size=f)
+
+# Perform the einsum operation
+result_einsum = np.einsum('iNf, jNf, f->Nij', J, J, P)
+
+result_broadcasting = np.sum(J[:,:,np.newaxis,:]*J.transpose(1,0,2) * P, axis=-1).transpose(1,0,2)
+# result_broadcasting = np.swapaxes(result_broadcasting, 0, 1)
+
+# Compare results
+assert np.allclose(result_einsum, result_broadcasting)
+
+print("Results are consistent.")
+
 # %%

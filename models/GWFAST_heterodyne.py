@@ -6,15 +6,16 @@ from random import uniform
 import jax.numpy as jnp
 import jax
 import numpy as np
-import os
+import os, sys
 import time
 import matplotlib.pyplot as plt
-from gwfast.waveforms import TaylorF2_RestrictedPN, IMRPhenomD
+sys.path.append('/mnt/c/Users/alex/Documents/sSVN_GW/gwfast')
+from   gwfast.waveforms import TaylorF2_RestrictedPN, IMRPhenomD
 import gwfast.signal as signal
-from gwfast.network import DetNet
+from   gwfast.network import DetNet
 import gwfast.gwfastGlobals as glob
 import gwfast.gwfastUtils as utils
-from astropy.cosmology import Planck18
+# from astropy.cosmology import Planck18
 from opt_einsum import contract
 from functools import partial
 from jax.config import config
@@ -204,10 +205,10 @@ class gwfast_class(object):
         ################################################################
 
         all_detectors = copy.deepcopy(glob.detectors) # (i)
-        dets = ['L1', 'H1', 'Virgo']
+        self.dets = ['L1', 'H1', 'Virgo']
         # dets = ['Virgo']
-        print('Using detectors', dets)
-        LV_detectors = {det:all_detectors[det] for det in dets} # (ii) 
+        print('Using detectors', self.dets)
+        LV_detectors = {det:all_detectors[det] for det in self.dets} # (ii) 
         detector_ASD = dict() # (iii)
 
         # O2 PSD
@@ -461,12 +462,14 @@ class gwfast_class(object):
 
     #     grad_log_like = jnp.zeros((nParticles, self.DoF_total))
     #     GN = jnp.zeros((nParticles, self.DoF_total, self.DoF_total))
-    #     for det in self.detsInNet.keys():
+    #     for i, det in enumerate(self.detsInNet.keys()):
     #         template  = self.getSignal(X, self.fgrid_standard, det)
     #         jacSignal = self._getJacobianSignal(X, self.fgrid_standard, det)
     #         residual  = template - self.d_standard[det][np.newaxis, ...]
     #         grad_log_like += self.overlap(jacSignal, residual, self.PSD_standard[det], self.df_standard).real
-    #         inner_product = 4 * contract('iNf, jNf, f -> Nij', jacSignal.conjugate(), jacSignal, 1 / self.PSD_standard[det]) * self.df_standard
+    #         # inner_product = 4 * contract('iNf, jNf, f -> Nij', jacSignal.conjugate(), jacSignal, 1 / self.PSD_standard[det], backend='jax) * self.df_standard
+    #         inner_product = 4 * jnp.sum(jacSignal[:,:,jnp.newaxis,:]*jacSignal.conjugate().transpose(1,0,2) / self.PSD_standard[det], axis=-1).transpose(1,0,2) * self.df_standard
+    #         # inner_product = 4 * jnp.einsum('iNf, jNf, f -> Nij', jacSignal.conjugate(), jacSignal, 1 / self.PSD_standard[det]) * self.df_standard
     #         GN += inner_product.real
     #     return grad_log_like[:, self.active_indicies], GN[:, self.active_indicies][:, :, self.active_indicies]
 
@@ -680,33 +683,35 @@ class gwfast_class(object):
     #     return grad_log_like, GN
 
 ################################################################
-    @partial(jax.jit, static_argnums=(0,))
-    def getDerivativesMinusLogPosterior_ensemble(self, X_reduced):
-        """ 
-        Returns subset of derivatives using sparse heterodyned method!
-        """
-        nParticles = X_reduced.shape[0]
-        X = jnp.zeros((nParticles, self.DoF_total))
-        if len(self.freeze_indicies) > 0:
-            X = X.at[:, self.freeze_indicies].set(jnp.tile(self.true_params[self.freeze_indicies], nParticles).reshape(nParticles, len(self.freeze_indicies)))
-        X = X.at[:, self.active_indicies].set(X_reduced)
-        grad_log_like = jnp.zeros((nParticles, self.DoF_total))
-        GN = jnp.zeros((nParticles, self.DoF_total, self.DoF_total))
-        for det in self.detsInNet.keys():
-            r0, r1 = self.getFirstSplineData(X, det)
-            r0j, r1j = self.getSecondSplineData(X, det)
-            grad_log_like += \
-            jnp.sum((self.B0[det] * r0j.conjugate() * (r0-1)) + (self.B1[det] * (r0j.conjugate() * r1 + r1j.conjugate() * (r0-1))), axis=-1).T.real 
+    # @partial(jax.jit, static_argnums=(0,))
+    # def getDerivativesMinusLogPosterior_ensemble(self, X_reduced):
+    #     """ 
+    #     Returns subset of derivatives using sparse heterodyned method!
+    #     """
+    #     nParticles = X_reduced.shape[0]
+    #     X = jnp.zeros((nParticles, self.DoF_total))
+    #     if len(self.freeze_indicies) > 0:
+    #         X = X.at[:, self.freeze_indicies].set(jnp.tile(self.true_params[self.freeze_indicies], nParticles).reshape(nParticles, len(self.freeze_indicies)))
+    #     X = X.at[:, self.active_indicies].set(X_reduced)
+    #     grad_log_like = jnp.zeros((nParticles, self.DoF_total))
+    #     GN = jnp.zeros((nParticles, self.DoF_total, self.DoF_total))
+    #     for det in self.detsInNet.keys():
+    #         r0, r1 = self.getFirstSplineData(X, det)
+    #         r0j, r1j = self.getSecondSplineData(X, det)
+    #         grad_log_like += \
+    #         jnp.sum((self.B0[det] * r0j.conjugate() * (r0-1)) + (self.B1[det] * (r0j.conjugate() * r1 + r1j.conjugate() * (r0-1))), axis=-1).T.real 
 
-            # term1 = contract('b, jNb, kNb -> Njk', self.B0[det], r0j.conjugate(), r0j, backend='jax')
-            # term2 = contract('b, jNb, kNb -> Njk', self.B1[det], r0j.conjugate(), r1j, backend='jax')
-            # term3 = contract('Nkj -> Njk', term2.conjugate(), backend='jax')
-            # GN += term1.real + term2.real + term3.real
+    #         # term1 = contract('b, jNb, kNb -> Njk', self.B0[det], r0j.conjugate(), r0j, backend='jax')
+    #         # term2 = contract('b, jNb, kNb -> Njk', self.B1[det], r0j.conjugate(), r1j, backend='jax')
+    #         # term3 = contract('Nkj -> Njk', term2.conjugate(), backend='jax')
+    #         # GN += term1.real + term2.real + term3.real
 
-            term1 = contract('b, jNb, kNb -> Njk', self.B0[det], r0j.conjugate(), r0j, backend='jax')
-            GN += term1.real 
+    #         # term1 = contract('b, jNb, kNb -> Njk', self.B0[det], r0j.conjugate(), r0j, backend='jax')
+    #         term1 = jnp.einsum('b, jNb, kNb -> Njk', self.B0[det], r0j.conjugate(), r0j)
 
-        return grad_log_like[:, self.active_indicies], GN[:, self.active_indicies][:, :, self.active_indicies]
+    #         GN += term1.real 
+
+    #     return grad_log_like[:, self.active_indicies], GN[:, self.active_indicies][:, :, self.active_indicies]
 
     def _newDrawFromPrior(self, n):
         prior_draw = np.zeros((n, 11))
