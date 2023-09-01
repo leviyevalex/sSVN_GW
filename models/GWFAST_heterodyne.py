@@ -449,29 +449,29 @@ class gwfast_class(object):
             GN += inner_product.real
         return GN
 
-    # @partial(jax.jit, static_argnums=(0,))
-    # def getDerivativesMinusLogPosterior_ensemble(self, X_reduced):
-    #     """ 
-    #     Returns SUBSET of derivatives using "standard" discretization
-    #     """
-    #     nParticles = X_reduced.shape[0]
-    #     X = jnp.zeros((nParticles, self.DoF_total))
-    #     if len(self.freeze_indicies) > 0:
-    #         X = X.at[:, self.freeze_indicies].set(jnp.tile(self.true_params[self.freeze_indicies], nParticles).reshape(nParticles, len(self.freeze_indicies)))
-    #     X = X.at[:, self.active_indicies].set(X_reduced)
+    @partial(jax.jit, static_argnums=(0,))
+    def getDerivativesMinusLogPosterior_ensemble(self, X_reduced):
+        """ 
+        Returns SUBSET of derivatives using "standard" discretization
+        """
+        nParticles = X_reduced.shape[0]
+        X = jnp.zeros((nParticles, self.DoF_total))
+        if len(self.freeze_indicies) > 0:
+            X = X.at[:, self.freeze_indicies].set(jnp.tile(self.true_params[self.freeze_indicies], nParticles).reshape(nParticles, len(self.freeze_indicies)))
+        X = X.at[:, self.active_indicies].set(X_reduced)
 
-    #     grad_log_like = jnp.zeros((nParticles, self.DoF_total))
-    #     GN = jnp.zeros((nParticles, self.DoF_total, self.DoF_total))
-    #     for i, det in enumerate(self.detsInNet.keys()):
-    #         template  = self.getSignal(X, self.fgrid_standard, det)
-    #         jacSignal = self._getJacobianSignal(X, self.fgrid_standard, det)
-    #         residual  = template - self.d_standard[det][np.newaxis, ...]
-    #         grad_log_like += self.overlap(jacSignal, residual, self.PSD_standard[det], self.df_standard).real
-    #         # inner_product = 4 * contract('iNf, jNf, f -> Nij', jacSignal.conjugate(), jacSignal, 1 / self.PSD_standard[det], backend='jax) * self.df_standard
-    #         inner_product = 4 * jnp.sum(jacSignal[:,:,jnp.newaxis,:]*jacSignal.conjugate().transpose(1,0,2) / self.PSD_standard[det], axis=-1).transpose(1,0,2) * self.df_standard
-    #         # inner_product = 4 * jnp.einsum('iNf, jNf, f -> Nij', jacSignal.conjugate(), jacSignal, 1 / self.PSD_standard[det]) * self.df_standard
-    #         GN += inner_product.real
-    #     return grad_log_like[:, self.active_indicies], GN[:, self.active_indicies][:, :, self.active_indicies]
+        grad_log_like = jnp.zeros((nParticles, self.DoF_total))
+        GN = jnp.zeros((nParticles, self.DoF_total, self.DoF_total))
+        for i, det in enumerate(self.detsInNet.keys()):
+            template  = self.getSignal(X, self.fgrid_standard, det)
+            jacSignal = self._getJacobianSignal(X, self.fgrid_standard, det)
+            residual  = template - self.d_standard[det][np.newaxis, ...]
+            grad_log_like += self.overlap(jacSignal, residual, self.PSD_standard[det], self.df_standard).real
+            # inner_product = 4 * contract('iNf, jNf, f -> Nij', jacSignal.conjugate(), jacSignal, 1 / self.PSD_standard[det], backend='jax) * self.df_standard
+            inner_product = 4 * jnp.sum(jacSignal[:,:,jnp.newaxis,:]*jacSignal.conjugate().transpose(1,0,2) / self.PSD_standard[det], axis=-1).transpose(1,0,2) * self.df_standard
+            # inner_product = 4 * jnp.einsum('iNf, jNf, f -> Nij', jacSignal.conjugate(), jacSignal, 1 / self.PSD_standard[det]) * self.df_standard
+            GN += inner_product.real
+        return grad_log_like[:, self.active_indicies], GN[:, self.active_indicies][:, :, self.active_indicies]
 
 
 
@@ -627,30 +627,30 @@ class gwfast_class(object):
             log_like += 0.5 * h_h - h_d.real + 0.5 * self.d_d[det]
         return log_like
 
-    @partial(jax.jit, static_argnums=(0,))
-    def getGradientMinusLogPosterior_ensemble(self, X):
-        # Remarks:
-        # (i)   second spline data is (d, N, b) shaped
-        nParticles = X.shape[0]
-        grad_log_like = jnp.zeros((nParticles, self.DoF))
-        for det in self.detsInNet.keys():
-            # r0, r1 = self.getFirstSplineData(X, det)
-            # rj0, rj1 = self.getSecondSplineData(X, det)
+    # @partial(jax.jit, static_argnums=(0,))
+    # def getGradientMinusLogPosterior_ensemble(self, X):
+    #     # Remarks:
+    #     # (i)   second spline data is (d, N, b) shaped
+    #     nParticles = X.shape[0]
+    #     grad_log_like = jnp.zeros((nParticles, self.DoF))
+    #     for det in self.detsInNet.keys():
+    #         # r0, r1 = self.getFirstSplineData(X, det)
+    #         # rj0, rj1 = self.getSecondSplineData(X, det)
 
-            # hj_d = contract('jNb -> Nj', self.A0[det] * rj0[det].conjugate() \
-            #                            + self.A1[det] * rj1[det].conjugate(), backend='jax')
+    #         # hj_d = contract('jNb -> Nj', self.A0[det] * rj0[det].conjugate() \
+    #         #                            + self.A1[det] * rj1[det].conjugate(), backend='jax')
 
-            # hj_h = contract('jNb -> Nj', self.B0[det] * rj0[det].conjugate() * r0[det][np.newaxis] 
-            #                           +  self.B1[det] *(rj0[det].conjugate() * r1[det][np.newaxis] + rj1[det].conjugate() * r0[det][np.newaxis]), backend='jax')
+    #         # hj_h = contract('jNb -> Nj', self.B0[det] * rj0[det].conjugate() * r0[det][np.newaxis] 
+    #         #                           +  self.B1[det] *(rj0[det].conjugate() * r1[det][np.newaxis] + rj1[det].conjugate() * r0[det][np.newaxis]), backend='jax')
 
-            # grad_log_like += hj_h.real - hj_d.real
+    #         # grad_log_like += hj_h.real - hj_d.real
 
-            r0, r1 = self.getFirstSplineData(X, det)
-            r0j, r1j = self.getSecondSplineData(X, det)
-            grad_log_like += \
-            jnp.sum((self.B0[det] * r0j.conjugate() * (r0-1)) + (self.B1[det] * (r0j.conjugate() * r1 + r1j.conjugate() * (r0-1))), axis=-1).T.real 
+    #         r0, r1 = self.getFirstSplineData(X, det)
+    #         r0j, r1j = self.getSecondSplineData(X, det)
+    #         grad_log_like += \
+    #         jnp.sum((self.B0[det] * r0j.conjugate() * (r0-1)) + (self.B1[det] * (r0j.conjugate() * r1 + r1j.conjugate() * (r0-1))), axis=-1).T.real 
 
-        return grad_log_like
+    #     return grad_log_like
 
     # @partial(jax.jit, static_argnums=(0,))
     # def getGNHessianMinusLogPosterior_ensemble(self, X):

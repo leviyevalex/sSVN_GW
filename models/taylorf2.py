@@ -120,11 +120,11 @@ class taylorf2:
         return overlap(self.gradient_strain(x, self.frequency), residual, power_spectral_density=self.PSD, frequency_spacing=self.deltaf).real
 
     # def potential(self, X):
-    # @partial(jax.jit, static_argnums=(0,))
+    @partial(jax.jit, static_argnums=(0,))
     def getMinusLogPosterior_ensemble(self, X):
         return jax.vmap(self.potential_single)(X)
 
-    # @partial(jax.jit, static_argnums=(0,))
+    @partial(jax.jit, static_argnums=(0,))
     def gradient_potential(self, X):
         return jax.vmap(self.gradient_potential_single)(X)
 
