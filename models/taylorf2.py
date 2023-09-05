@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import os 
 import numpy as np
 from functools import partial
+from opt_einsum import contract
 
 config.update("jax_enable_x64", True)
 
@@ -13,15 +14,17 @@ class taylorf2:
         self.injection = injection 
         self.priorDict = priorDict
         self.id = 'simple_model'
-        self.DoF = 5
+        # self.DoF = 5
+        self.DoF = 5 # 
+        
 
         # Record evaluations
         self.nLikelihoodEvaluations = 0
         self.nGradLikelihoodEvaluations = 0
         self.nHessLikelihoodEvaluations = 0
 
-        self.lower_bound = np.zeros(5)
-        self.upper_bound = np.zeros(5)
+        self.lower_bound = np.zeros(self.DoF)
+        self.upper_bound = np.zeros(self.DoF)
 
         for i in range(self.DoF):
             self.lower_bound[i] = self.priorDict[i][0]
@@ -48,7 +51,8 @@ class taylorf2:
         asd = np.loadtxt(asd_path, usecols=(0,1))
         freq_data = asd[:,0]
         psd_data = asd[:,1] ** 2
-        self.PSD = jnp.interp(self.frequency, freq_data, psd_data, left=1., right=1.).squeeze()
+        # self.PSD = jnp.interp(self.frequency, freq_data, psd_data, left=1., right=1.).squeeze()
+        self.PSD = jnp.interp(self.frequency, freq_data, psd_data, left=1., right=1.).squeeze() * 1e40 # NOTE TODO ##################### changed scale!!!!!!!
 
         # Precompute strain corresponding to injection 
         self.data = self.strain(self.injection, self.frequency)
@@ -63,6 +67,9 @@ class taylorf2:
         chirp_mass = x[2]
         symmetric_mass_ratio = x[3]
         Amplitude = x[4]
+
+        # Amplitude = x[4] * self.A0
+
         # m_sun_sec = 5e-6
         m_sun_sec = self.m_sunsec
         
@@ -118,6 +125,15 @@ class taylorf2:
         residual = self.strain(x, self.frequency) - self.data
 
         return overlap(self.gradient_strain(x, self.frequency), residual, power_spectral_density=self.PSD, frequency_spacing=self.deltaf).real
+
+    def fisher_single(self, x):
+        nabla_h = self.gradient_strain(x, self.frequency)
+        inner_product = 4 * contract('if, jf, f -> ij', nabla_h.conjugate(), nabla_h, 1 / self.PSD) * self.deltaf
+        return inner_product.real
+
+    @partial(jax.jit, static_argnums=(0,))
+    def fisher_ensemble(self, X):
+        return jax.vmap(self.fisher_single)(X)
 
     # def potential(self, X):
     @partial(jax.jit, static_argnums=(0,))

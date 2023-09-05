@@ -125,8 +125,8 @@ class samplers:
                         n_events = 0
                         if use == True and iter_ !=0 and (iter_ % stride) == 0 and (iter_ > start_iter): # Update with teleportation
                             if self.bd_kwargs['space'] == 'primal':
-                                kern_bd = self.gaussian_kernel(X, self.bd_kernel_kwargs['h'])
-                                # kern_bd, _ = self.metric_wrapper(self.k_lp, X, self.bd_kernel_kwargs)
+                                # kern_bd = self.gaussian_kernel(X, self.bd_kernel_kwargs['h'])
+                                kern_bd, _ = self.metric_wrapper(self.k_lp, X, self.bd_kernel_kwargs)
                                 jump_idxs, n_events = self.birthDeathJumpIndicies(kern_bd, mlpt_X, tau=tau*stride)
                             elif self.bd_kwargs['space'] == 'dual':
                                 kern_bd, _ = self.metric_wrapper(self.k_lp, eta, self.bd_kernel_kwargs)
