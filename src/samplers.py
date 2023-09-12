@@ -975,12 +975,15 @@ class samplers:
         r = np.random.uniform(low=0, high=1, size=self.nParticles)
         xi = np.argwhere(r < 1 - np.exp(-np.abs(Lambda) * tau))[:, 0]
         np.random.shuffle(xi)
-        n_events = len(xi)
+
+        # n_events = len(xi)
+        n_events = 0
 
         # Particle jumps
         output = np.arange(self.nParticles)
         for i in xi:
             if i in alive:
+                n_events += 1
                 j = alive.choose_random_item()
                 if Lambda[i] > 0:
                     output[i] = j
