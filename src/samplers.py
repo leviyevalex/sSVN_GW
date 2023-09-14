@@ -21,6 +21,7 @@ from jax.config import config
 import random # Used for birth death set selection
 import traceback
 config.update("jax_enable_x64", True)
+from src.reparameterization import reparameterization, logistic_CDF, sigma
 
 log = logging.getLogger(__name__)
 # log.addHandler(logging.StreamHandler(stream=sys.stdout))
@@ -214,15 +215,26 @@ class samplers:
 
                     elif method=='langevin':
                         v_svgd = 0 # for output issues
+                        V_X = self.model.getMinusLogPosterior_ensemble(X)
                         gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
-                        dxdy = self._jacMapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
-                        boundary_correction_grad = self._getBoundaryGradientCorrection(eta)
-                        boundary_correction_hess = self._getBoundaryHessianCorrection(eta)
-                        gmlpt_Y = dxdy * gmlpt_X + boundary_correction_grad
+
+                        # dxdy = self._jacMapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
+                        # boundary_correction_grad = self._getBoundaryGradientCorrection(eta)
+                        # boundary_correction_hess = self._getBoundaryHessianCorrection(eta)
+                        # gmlpt_Y = dxdy * gmlpt_X + boundary_correction_grad
                         # eps0=0.01
-                        eps0 = eps
+                        
+                        
+                        eta, V_Y, gmlpt_Y, _ = reparameterization(X, V_X, gmlpt_X, Hmlpt_X, self.model.lower_bound, self.model.upper_bound)
+                        
+                        # eps0 = eps
+
                         eta += -gmlpt_Y * eps + np.sqrt(2 * eps) * np.random.normal(0, 1, size=(self.nParticles, self.DoF))
-                        X = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
+                        
+                        X = sigma(logistic_CDF(eta), self.model.lower_bound, self.model.upper_bound)
+                        
+                        # X___ = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
+
                         n_events = 0
 
 
