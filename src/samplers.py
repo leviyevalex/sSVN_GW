@@ -216,33 +216,41 @@ class samplers:
                     elif method=='langevin':
                         v_svgd = 0 # for output issues
                         V_X = self.model.getMinusLogPosterior_ensemble(X)
+                        
                         gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
+                        eta, V_Y, gmlpt_Y, Hmlpt_Y = reparameterization(X, V_X, gmlpt_X, Hmlpt_X, self.model.lower_bound, self.model.upper_bound)
 
-                        # dxdy = self._jacMapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
-                        # boundary_correction_grad = self._getBoundaryGradientCorrection(eta)
-                        # boundary_correction_hess = self._getBoundaryHessianCorrection(eta)
-                        # gmlpt_Y = dxdy * gmlpt_X + boundary_correction_grad
-                        # eps0=0.01
-                        
-                        
-                        eta, V_Y, gmlpt_Y, _ = reparameterization(X, V_X, gmlpt_X, Hmlpt_X, self.model.lower_bound, self.model.upper_bound)
-                        
-                        # eps0 = eps
 
-                        eta += -gmlpt_Y * eps + np.sqrt(2 * eps) * np.random.normal(0, 1, size=(self.nParticles, self.DoF))
+
+                        
+                        # Birth-death step
+                        self.bd_kernel_kwargs['M'] = None
+                        tau = self.bd_kernel_kwargs['tau']
+                        stride = self.bd_kwargs['stride']
+                        use = self.bd_kwargs['use']
+                        start_iter = self.bd_kwargs['start_iter']
+                        
+                        kern_bd, _ = self.metric_wrapper(self.k_lp, eta, self.bd_kernel_kwargs)
+                        jump_idxs, n_events = self.birthDeathJumpIndicies(kern_bd, V_Y, tau=tau*stride)
+
+
+                        # eta += -gmlpt_Y * eps + np.sqrt(2 * eps) * np.random.normal(0, 1, size=(self.nParticles, self.DoF))
+
+
+                        eta = eta[jump_idxs] - eps * gmlpt_Y[jump_idxs] + np.sqrt(2 * eps) * np.random.normal(0, 1, size=(self.nParticles, self.DoF))
+
+                        
                         
                         X = sigma(logistic_CDF(eta), self.model.lower_bound, self.model.upper_bound)
-                        
-                        # X___ = self._mapRealsToHypercube(eta, self.model.lower_bound, self.model.upper_bound)
 
-                        n_events = 0
+                        # n_events = 0 # For output issues
 
 
 
                     # Update progress bar
                     # ITER.set_description('Stepsize %f | Median bandwidth: %f | SVN norm: %f | Noise norm: %f | SVGD norm %f | Dampening %f' % (eps, self._bandwidth_MED(X), np.linalg.norm(v_svn), np.linalg.norm(v_stc), np.linalg.norm(v_svgd),  lamb))
                     # ITER.set_description('Stepsize %f | Median bandwidth: %f' % (eps1, self._bandwidth_MED(X)))
-                    ITER.set_description('Stepsize %f | Median bandwidth: %f | n_events: %i' % (eps, self._bandwidth_MED(X), n_events))
+                    ITER.set_description('Stepsize %f | Median bandwidth: %f | n_events: %i' % (eps[0,0], self._bandwidth_MED(X), n_events))
 
 
                     # Store relevant per iteration information
