@@ -15,7 +15,7 @@ config.update("jax_enable_x64", True)
 import numpy as np
 
 class hybrid_rosenbrock:
-    def __init__(self, n2, n1, mu, b):
+    def __init__(self, n2, n1, mu, b, seed=1):
         """Hybrid Rosenbrock class
 
         Args:
@@ -41,8 +41,13 @@ class hybrid_rosenbrock:
         self.nGradLikelihoodEvaluations = 0
         self.nHessLikelihoodEvaluations = 0
     
-        self.lower_bound = np.ones(self.DoF) * (0.9)
-        self.upper_bound = np.ones(self.DoF) * (1.2)
+        # self.lower_bound = np.ones(self.DoF) * (0.9)
+        # self.upper_bound = np.ones(self.DoF) * (1.2)
+
+        np.random.seed(seed)
+        self.lower_bound = np.random.uniform(0.2, 1, self.DoF)
+        self.upper_bound = np.random.uniform(2, 4.5, self.DoF)
+
 
     def _getDependencyStructure(self, x):
         """Get the matrix representation of the dependency structure denoted in Figure 7 - https://arxiv.org/abs/1903.09556
@@ -195,18 +200,26 @@ class hybrid_rosenbrock:
         """
         return jax.vmap(self.getGNHessianMinusLogPosterior)(thetas)
 
+    # def _newDrawFromPrior(self, nSamples):
+    #     """
+    #     Return samples from a uniform prior. Included for convenience.
+    #     Args:
+    #         nParticles (int): Number of samples to draw.
+
+    #     Returns: 
+    #         array: (nSamples, DoF) shaped array of samples from uniform prior
+
+    #     """
+    #     # return np.random.uniform(low=-6, high=6, size=(nSamples, self.DoF))
+    #     return np.random.uniform(low=0.9, high=1.2, size=(nSamples, self.DoF))
+
     def _newDrawFromPrior(self, nSamples):
-        """
-        Return samples from a uniform prior. Included for convenience.
-        Args:
-            nParticles (int): Number of samples to draw.
-
-        Returns: 
-            array: (nSamples, DoF) shaped array of samples from uniform prior
-
-        """
-        # return np.random.uniform(low=-6, high=6, size=(nSamples, self.DoF))
-        return np.random.uniform(low=0.9, high=1.2, size=(nSamples, self.DoF))
+        # Returns a grid of particles in buffered hypercube
+        samples = np.zeros((nSamples, self.DoF))
+        for i in range(self.DoF):
+            buffer = (self.upper_bound[i] - self.lower_bound[i]) / 8
+            samples[:, i] = np.random.uniform(self.lower_bound[i] + buffer, self.upper_bound[i] - buffer, nSamples)
+        return samples
 
 
     @partial(jax.jit, static_argnums=(0,))

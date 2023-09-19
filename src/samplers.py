@@ -81,6 +81,13 @@ class samplers:
         self.bd_kernel_kwargs.pop('space')
         self.bd_kernel_kwargs.pop('stride')
 
+        self.bd_kernel_kwargs['M'] = None
+        self.bd_tau = self.bd_kernel_kwargs['tau']
+        self.bd_stride = self.bd_kwargs['stride']
+        self.bd_use = self.bd_kwargs['use']
+        self.bd_start_iter = self.bd_kwargs['start_iter']
+
+
     def apply(self, kernelKwargs, method='SVGD', eps=0.1, schedule=None, lamb1=1, lamb2=2):
         """
         Evolves a set of particles according to (method) with step-size (eps).
@@ -215,35 +222,31 @@ class samplers:
 
                     elif method=='langevin':
                         v_svgd = 0 # for output issues
+
                         V_X = self.model.getMinusLogPosterior_ensemble(X)
                         
                         gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
                         eta, V_Y, gmlpt_Y, Hmlpt_Y = reparameterization(X, V_X, gmlpt_X, Hmlpt_X, self.model.lower_bound, self.model.upper_bound)
-
-
-
                         
-                        # Birth-death step
-                        self.bd_kernel_kwargs['M'] = None
-                        tau = self.bd_kernel_kwargs['tau']
-                        stride = self.bd_kwargs['stride']
-                        use = self.bd_kwargs['use']
-                        start_iter = self.bd_kwargs['start_iter']
-                        
-                        kern_bd, _ = self.metric_wrapper(self.k_lp, eta, self.bd_kernel_kwargs)
-                        jump_idxs, n_events = self.birthDeathJumpIndicies(kern_bd, V_Y, tau=tau*stride)
+                        ### Birth-death step ###
 
+                        # Calculate KDE in bounded space
+                        # kern_bd, _ = self.metric_wrapper(self.k_lp, eta, self.bd_kernel_kwargs)
 
-                        # eta += -gmlpt_Y * eps + np.sqrt(2 * eps) * np.random.normal(0, 1, size=(self.nParticles, self.DoF))
+                        # Get jump indicies
+                        # jump_idxs, n_events = self.birthDeathJumpIndicies(kern_bd, V_Y, tau=tau*stride)
 
+                        # Perform jumps and diffusion 
+                        # eta = eta[jump_idxs] - eps * gmlpt_Y[jump_idxs] + np.sqrt(2 * eps) * np.random.normal(0, 1, size=(self.nParticles, self.DoF))
+                        # -----------------------------------------------
 
-                        eta = eta[jump_idxs] - eps * gmlpt_Y[jump_idxs] + np.sqrt(2 * eps) * np.random.normal(0, 1, size=(self.nParticles, self.DoF))
+                        # Perform update
+                        eta += -gmlpt_Y * eps + np.sqrt(2 * eps) * np.random.normal(0, 1, size=(self.nParticles, self.DoF))
 
-                        
-                        
+                        # Convert samples back to hypercube 
                         X = sigma(logistic_CDF(eta), self.model.lower_bound, self.model.upper_bound)
 
-                        # n_events = 0 # For output issues
+                        n_events = 0 # For output issues
 
 
 

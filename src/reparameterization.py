@@ -1,3 +1,10 @@
+"""
+Module for transforming hypercube flows to flows over R^d.
+
+Version: 0.1.0
+"""
+
+
 import jax.numpy as jnp
 
 logit = lambda x: jnp.log(x / (1 - x))
