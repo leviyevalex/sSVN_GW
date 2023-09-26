@@ -225,9 +225,14 @@ class samplers:
 
                         V_X = self.model.getMinusLogPosterior_ensemble(X)
                         
-                        gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
-                        eta, V_Y, gmlpt_Y, Hmlpt_Y = reparameterization(X, V_X, gmlpt_X, Hmlpt_X, self.model.lower_bound, self.model.upper_bound)
+                        # gmlpt_X, Hmlpt_X = self.model.getDerivativesMinusLogPosterior_ensemble(X)
+
+                        gmlpt_X = self.model.getGradientMinusLogPosterior_ensemble(X)
+
+                        eta, V_Y, gmlpt_Y = reparameterization(X, V_X, gmlpt_X, self.model.lower_bound, self.model.upper_bound)
                         
+                        # eta, V_Y, gmlpt_Y, Hmlpt_Y = reparameterization(X, V_X, gmlpt_X, Hmlpt_X, self.model.lower_bound, self.model.upper_bound)
+
                         ### Birth-death step ###
 
                         # Calculate KDE in bounded space
@@ -241,7 +246,7 @@ class samplers:
                         # -----------------------------------------------
 
                         # Perform update
-                        eta += -gmlpt_Y * eps + np.sqrt(2 * eps) * np.random.normal(0, 1, size=(self.nParticles, self.DoF))
+                        eta += -gmlpt_Y * eps + jnp.sqrt(2 * eps) * np.random.normal(0, 1, size=(self.nParticles, self.DoF))
 
                         # Convert samples back to hypercube 
                         X = sigma(logistic_CDF(eta), self.model.lower_bound, self.model.upper_bound)

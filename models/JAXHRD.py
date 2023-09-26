@@ -45,8 +45,8 @@ class hybrid_rosenbrock:
         # self.upper_bound = np.ones(self.DoF) * (1.2)
 
         np.random.seed(seed)
-        self.lower_bound = np.random.uniform(0.2, 1, self.DoF)
-        self.upper_bound = np.random.uniform(2, 4.5, self.DoF)
+        self.lower_bound = jnp.array(np.random.uniform(0.2, 1, self.DoF))
+        self.upper_bound = jnp.array(np.random.uniform(2, 4.5, self.DoF))
 
 
     def _getDependencyStructure(self, x):
@@ -92,6 +92,7 @@ class hybrid_rosenbrock:
         """
         return jax.jacobian(self._getResiduals)(x)
 
+    # @partial(jax.jit, static_argnums=(0,))
     def getMinusLogPosterior(self, x):
         """Get the minus log likelihood, also known as the "potential"
 

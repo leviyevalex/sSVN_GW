@@ -112,7 +112,7 @@ class taylorf2:
         
         return jnp.array([expr1, expr2, expr3, expr4, expr5])
 
-    @partial(jax.jit, static_argnums=(0,))
+    # @partial(jax.jit, static_argnums=(0,))
     def potential_single(self, x):
         square_norm = lambda a, power_spectral_density, frequency_spacing: (4 * jnp.sum((a.real[..., :-1] ** 2 + a.imag[..., :-1] ** 2) / power_spectral_density[..., :-1] * frequency_spacing, axis=-1)).T
 
@@ -136,8 +136,8 @@ class taylorf2:
     def fisher_ensemble(self, X):
         return jax.vmap(self.fisher_single)(X)
 
-    # def potential(self, X):
-    @partial(jax.jit, static_argnums=(0,))
+    def potential(self, X):
+    # @partial(jax.jit, static_argnums=(0,))
     def getMinusLogPosterior_ensemble(self, X):
         return jax.vmap(self.potential_single)(X)
 
