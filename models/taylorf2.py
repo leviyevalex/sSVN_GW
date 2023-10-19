@@ -51,7 +51,8 @@ class taylorf2:
         # Defined fixed frequency grid
         self.fmin = 10
         self.fmax = 1000
-        self.n_bins = 1000
+        # self.n_bins = 1000
+        self.n_bins = int(1e5)
         self.frequency = jnp.linspace(10, 1000, num=self.n_bins+1)
         self.deltaf = (self.fmax - self.fmin) / self.n_bins
 
@@ -136,7 +137,7 @@ class taylorf2:
     def fisher_ensemble(self, X):
         return jax.vmap(self.fisher_single)(X)
 
-    def potential(self, X):
+    # def potential(self, X):
     # @partial(jax.jit, static_argnums=(0,))
     def getMinusLogPosterior_ensemble(self, X):
         return jax.vmap(self.potential_single)(X)
