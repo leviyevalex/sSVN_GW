@@ -49,11 +49,11 @@ class taylorf2:
         ### Initializations ###
 
         # Defined fixed frequency grid
-        self.fmin = 10
-        self.fmax = 1000
-        # self.n_bins = 1000
-        self.n_bins = int(1e5)
-        self.frequency = jnp.linspace(10, 1000, num=self.n_bins+1)
+        self.fmin = 38
+        self.fmax = 1024
+        self.n_bins = 1000
+        # self.n_bins = 6400
+        self.frequency = jnp.linspace(self.fmin, self.fmax, num=self.n_bins+1)
         self.deltaf = (self.fmax - self.fmin) / self.n_bins
 
         self.m_sun_sec = 4.92549094830932e-6 # Conversion from solar masses to seconds (~5e-6)
@@ -138,17 +138,17 @@ class taylorf2:
         return jax.vmap(self.fisher_single)(X)
 
     # def potential(self, X):
-    # @partial(jax.jit, static_argnums=(0,))
+    @partial(jax.jit, static_argnums=(0,))
     def getMinusLogPosterior_ensemble(self, X):
         return jax.vmap(self.potential_single)(X)
 
-    @partial(jax.jit, static_argnums=(0,))
-    def gradient_potential(self, X):
-        # Direct derivative of potential
-        return jax.vmap(jax.jacrev(self.potential_single))(X)
+    # @partial(jax.jit, static_argnums=(0,))
+    # def gradient_potential(self, X):
+    #     # Direct derivative of potential
+    #     # return jax.vmap(jax.jacrev(self.potential_single))(X)
 
-        # Using cached Jacobian of strain
-        # return jax.vmap(self.gradient_potential_single)(X)
+    #     # Using cached Jacobian of strain
+    #     return jax.vmap(self.gradient_potential_single)(X)
 
     def signal_noise_ratio(self, x):
         s = self.strain(x, self.frequency)
@@ -160,8 +160,8 @@ class taylorf2:
         for i in range(self.DoF): # Assuming uniform on all parameters
             low = self.priorDict[i][0]
             high = self.priorDict[i][1]
-            buffer = (high-low) / 4
-            # buffer = 0
+            # buffer = (high-low) / 4
+            buffer = 0
             prior_draw[:, i] = np.random.uniform(low=low+buffer, high=high-buffer, size=n)
             # prior_draw[:, i] = np.random.uniform(low=self.true_params[i] - 1e-7, high=self.true_params[i] + 1e-7, size=n)
             # print('modified priors to be at mode!')
