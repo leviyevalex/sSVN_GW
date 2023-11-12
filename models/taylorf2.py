@@ -160,8 +160,8 @@ class taylorf2:
         for i in range(self.DoF): # Assuming uniform on all parameters
             low = self.priorDict[i][0]
             high = self.priorDict[i][1]
-            # buffer = (high-low) / 4
-            buffer = 0
+            buffer = (high-low) / 4
+            # buffer = 0
             prior_draw[:, i] = np.random.uniform(low=low+buffer, high=high-buffer, size=n)
             # prior_draw[:, i] = np.random.uniform(low=self.true_params[i] - 1e-7, high=self.true_params[i] + 1e-7, size=n)
             # print('modified priors to be at mode!')
