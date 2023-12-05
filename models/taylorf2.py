@@ -130,7 +130,8 @@ class taylorf2:
 
     def fisher_single(self, x):
         nabla_h = self.gradient_strain(x, self.frequency)
-        inner_product = 4 * contract('if, jf, f -> ij', nabla_h.conjugate(), nabla_h, 1 / self.PSD) * self.deltaf
+        inner_product = 4 * contract('if, jf, f -> ij', nabla_h.conjugate(), nabla_h, 1 / self.PSD, backend='jax') * self.deltaf
+        
         return inner_product.real
 
     @partial(jax.jit, static_argnums=(0,))
