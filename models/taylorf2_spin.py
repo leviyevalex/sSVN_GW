@@ -45,7 +45,7 @@ class taylorf2:
             self.upper_bound[i] = self.priorDict[i][1]
         self.lower_bound = jnp.array(self.lower_bound)
         self.upper_bound = jnp.array(self.upper_bound)
-        self.index_label = [r'$t_c$', r'$\phi$', r'$\mathcal{M}_c$', r'$\eta$', r'$A$', r'$\chi_a', r'$\chi_s']
+        self.index_label = [r'$t_c$', r'$\phi$', r'$\mathcal{M}_c$', r'$\eta$', r'$A$', r'$\chi_a$', r'$\chi_s$']
 
         ### Initializations ###
 
@@ -136,12 +136,12 @@ class taylorf2:
         inner_product = 4 * contract('if, jf, f -> ij', nabla_h.conjugate(), nabla_h, 1 / self.PSD) * self.deltaf
         return inner_product.real
 
-    @partial(jax.jit, static_argnums=(0,))
+    # @partial(jax.jit, static_argnums=(0,))
     def fisher_ensemble(self, X):
         return jax.vmap(self.fisher_single)(X)
 
     # def potential(self, X):
-    @partial(jax.jit, static_argnums=(0,))
+    # @partial(jax.jit, static_argnums=(0,))
     def getMinusLogPosterior_ensemble(self, X):
         return jax.vmap(self.potential_single)(X)
 
@@ -159,12 +159,12 @@ class taylorf2:
         return jnp.sqrt(square_norm(s, self.PSD, self.deltaf))
 
     def _newDrawFromPrior(self, n):
-        prior_draw = np.zeros((n, 5))
+        prior_draw = np.zeros((n, self.DoF))
         for i in range(self.DoF): # Assuming uniform on all parameters
             low = self.priorDict[i][0]
             high = self.priorDict[i][1]
-            buffer = (high-low) / 4
-            # buffer = 0
+            # buffer = (high-low) / 4
+            buffer = 0
             prior_draw[:, i] = np.random.uniform(low=low+buffer, high=high-buffer, size=n)
             # prior_draw[:, i] = np.random.uniform(low=self.true_params[i] - 1e-7, high=self.true_params[i] + 1e-7, size=n)
             # print('modified priors to be at mode!')
