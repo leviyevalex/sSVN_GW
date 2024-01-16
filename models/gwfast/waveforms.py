@@ -25,7 +25,8 @@ from functools import partial
 from jax import jit
 
 
-from gwfast_light.gwfast import gwfastGlobals as glob
+# from gwfast_light.gwfast import gwfastGlobals as glob
+from models.gwfast import gwfastGlobals as glob
 
 ##############################################################################
 # WaveFormModel CLASS DEFINITION

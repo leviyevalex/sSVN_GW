@@ -9,12 +9,13 @@ import numpy as np
 import os, sys
 import time
 import matplotlib.pyplot as plt
-sys.path.append('/mnt/c/Users/alex/Documents/sSVN_GW/gwfast')
-from   gwfast.waveforms import TaylorF2_RestrictedPN, IMRPhenomD
-import gwfast.signal as signal
-from   gwfast.network import DetNet
-import gwfast.gwfastGlobals as glob
-import gwfast.gwfastUtils as utils
+# sys.path.append('/mnt/c/Users/alex/Documents/sSVN_GW/gwfast')
+sys.path.append("..")
+from   models.gwfast.waveforms import TaylorF2_RestrictedPN, IMRPhenomD
+import models.gwfast.signal as signal
+from   models.gwfast.network import DetNet
+import models.gwfast.gwfastGlobals as glob
+import models.gwfast.gwfastUtils as utils
 # from astropy.cosmology import Planck18
 from opt_einsum import contract
 from functools import partial
@@ -228,9 +229,13 @@ class gwfast_class(object):
 
         # O4 PSD
 
-        detector_ASD['L1']    = '/mnt/c/Users/alex/Documents/sSVN_GW/notebooks/aLIGO_O4_high_asd.txt'
-        detector_ASD['H1']    = '/mnt/c/Users/alex/Documents/sSVN_GW/notebooks/aLIGO_O4_high_asd.txt'
-        detector_ASD['Virgo'] = '/mnt/c/Users/alex/Documents/sSVN_GW/notebooks/AdV_ASD.txt'
+        # detector_ASD['L1']    = '/mnt/c/Users/alex/Documents/sSVN_GW/notebooks/aLIGO_O4_high_asd.txt'
+        # detector_ASD['H1']    = '/mnt/c/Users/alex/Documents/sSVN_GW/notebooks/aLIGO_O4_high_asd.txt'
+        # detector_ASD['Virgo'] = '/mnt/c/Users/alex/Documents/sSVN_GW/notebooks/AdV_ASD.txt'
+
+        detector_ASD['L1']    = '/home/al44828/projects/sSVN_GW/notebooks/aLIGO_O4_high_asd.txt'
+        detector_ASD['H1']    = '/home/al44828/projects/sSVN_GW/notebooks/aLIGO_O4_high_asd.txt'
+        detector_ASD['Virgo'] = '/home/al44828/projects/sSVN_GW/notebooks/AdV_asd.txt'
 
         # detector_ASD['L1']    = '/home/alex/anaconda3/envs/myenv/lib/python3.10/site-packages/bilby/gw/detector/noise_curves/aLIGO_O4_high_asd.txt'
         # detector_ASD['H1']    = '/home/alex/anaconda3/envs/myenv/lib/python3.10/site-packages/bilby/gw/detector/noise_curves/aLIGO_O4_high_asd.txt'
@@ -245,9 +250,11 @@ class gwfast_class(object):
         # (v) 
         waveform_model = self.mode
         if waveform_model == 'TaylorF2':
-            self.wf_model = TaylorF2_RestrictedPN(apply_fcut=False) 
+            # self.wf_model = TaylorF2_RestrictedPN(apply_fcut=False) 
+            self.wf_model = TaylorF2_RestrictedPN() 
         elif waveform_model == 'IMRPhenomD':
-            self.wf_model = IMRPhenomD(apply_fcut=False) 
+            # self.wf_model = IMRPhenomD(apply_fcut=False) 
+            self.wf_model = IMRPhenomD()
         print('Using waveform model: %s' % waveform_model)
 
     def _initFrequencyGrid(self, fmin=20): # Checks: X
@@ -293,7 +300,7 @@ class gwfast_class(object):
                                                   det_lat        = self.NetDict[det]['lat'],
                                                   det_long       = self.NetDict[det]['long'],
                                                   det_xax        = self.NetDict[det]['xax'],
-                                                  useEarthMotion = self.EarthMotion,
+                                                #   useEarthMotion = self.EarthMotion,
                                                   fmin           = self.fmin, 
                                                   fmax           = self.fmax,
                                                   verbose        = False,

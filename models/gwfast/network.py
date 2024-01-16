@@ -21,7 +21,9 @@ from jax import pmap, vmap, jacrev, jit, jacfwd
 
 import copy
 
-from gwfast_light.gwfast import gwfastUtils as utils
+# from gwfast_light.gwfast import gwfastUtils as utils
+from models.gwfast import gwfastUtils as utils
+
 from functools import partial
 
 

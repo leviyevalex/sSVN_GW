@@ -22,7 +22,8 @@ import numpy as onp
 import jax.numpy as np
 from jax import vmap, jacrev
 
-from gwfast_light.gwfast import gwfastGlobals as glob
+# from gwfast_light.gwfast import gwfastGlobals as glob
+from models.gwfast import gwfastGlobals as glob
 
 class GWSignal(object):
     """

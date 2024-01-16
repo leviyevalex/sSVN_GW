@@ -16,7 +16,8 @@ import copy
 import os
 import sys
 import ast
-from gwfast_light.gwfast import gwfastGlobals as glob
+# from gwfast_light.gwfast import gwfastGlobals as glob
+from models.gwfast import gwfastGlobals as glob
 
 ##############################################################################
 # LOADING AND SAVING CATALOGS
