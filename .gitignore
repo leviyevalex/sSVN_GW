@@ -22,3 +22,4 @@ fil-result/
 *.json
 *.pickle
 *.log
+.DS_Store
