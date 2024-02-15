@@ -6,98 +6,13 @@ Remarks
 v0.1 - XLA compatible data structure with O(1) lookup, choice, and removal, with O(3N) memory usage added
 
 """
-
-#%%
-from src.reparameterization import reparameterized_potential
-
-def k_lp(X, p=2, h=0.001): 
-    """ 
-    Lp kernel implementation
-    """
-    # Get separation vectors
-    separation_vectors = X[:, jnp.newaxis, :] - X[jnp.newaxis, :, :]
-    
-    # Calculate kernel
-    k = jnp.exp(-jnp.sum(jnp.abs(separation_vectors) ** p, axis=-1) / (p * h))
-    return k
-
-def true_fun(i, j, jumps):
-    """ 
-    Excess logic
-    """
-    jumps = jumps.at[0,i].set(j)
-    jumps = jumps.at[1,i].set(0)
-    return jumps
-
-def false_fun(i, j, jumps):
-    """ 
-    Deficit logic
-    """
-    jumps = jumps.at[0,j].set(i) 
-    jumps = jumps.at[1,j].set(0)
-    return jumps
-
-def scan_func(carry, x):
-    """ 
-    Operation to be performed on each element $x \in \xi$
-    """
-    key, jumps, Lambda, array, pointer = carry 
-    pred = Lambda[x] > 0
-    key, subkey = jax.random.split(key)
-
-
-    j =  
-
-    # Do nothing if entry is padded. This is an XLA artifact
-    jumps = jax.lax.cond(x != -1, lambda: jax.lax.cond(pred, true_fun, false_fun, *(x, j, jumps)), lambda: jumps)
-    return (key, jumps, Lambda), jumps
-
-
-
-#%%
-def batched_birth_death(key, X, potential_func, stepsize, bandwidth, stride, rate, a, b):
-    """ 
-    Remarks
-    -------
-
-    (1) 
-    (2) 
-
-    Notes
-    -----
-
-    
-    """
-    nParticles = X.shape[0]
-    key, subkey = jax.random.split(key)
-
-    # Calculate relevant quantities in dual space    
-    V_X = potential_func(X)
-    Y, V_Y = reparameterized_potential(X, potential_func, a, b)
-    kern_gram = k_lp(Y, h=bandwidth)
-
-    # Get particles with significant mass discrepancy in batch
-    Lambda = jnp.log(jnp.mean(kern_gram, axis=1)) + V_Y
-    Lambda = Lambda - jnp.mean(Lambda) 
-    r = jax.random.uniform(minval=0, maxval=1, shape=Lambda.shape, key=key)
-    threshold = r < 1 - jnp.exp(-jnp.abs(Lambda) * stepsize * stride * rate)
-    idxs = jnp.argwhere(threshold, size=nParticles, fill_value=-1).squeeze()
-    idxs = jax.random.permutation(key, idxs)
-
-    # Perform XLA compatible jump logic
-    jumps = jnp.arange(nParticles)
-    init = (key, jumps, Lambda)
-    jumps = jax.lax.scan(scan_func, init, idxs)
-
-
-    return output
-
-
 #%% v0.02 (extra data structure) 
 import numpy as np
 import jax.numpy as jnp
 from functools import partial
 import jax
+from jax import tree_util
+
 #%%
 class ParticleSystem:
     """ 
@@ -105,8 +20,6 @@ class ParticleSystem:
     """
     def __init__(self, N):
         self.N = N 
-
-        # Modified
         self.array = jnp.zeros(shape=(N,2), dtype='int32')
         self.array = self.array.at[:,0].set(jnp.arange(N))
         self.array = self.array.at[:,1].set(jnp.ones(N, dtype='int32'))
@@ -132,7 +45,7 @@ class ParticleSystem:
         self.array = self.array.at[self.N - self.n_dead].set(self.array[j])      # Step 2
         self.array = self.array.at[j].set(b)                                     # Step 3
 
-        # Swap entries pointer
+        # Swap entries in pointer
         k = self.pointer[b[0]]                                                   # Step 1
         self.pointer = self.pointer.at[b[0]].set(self.pointer[i])                # Step 2
         self.pointer = self.pointer.at[i].set(k)                                 # Step 3
@@ -151,10 +64,111 @@ class ParticleSystem:
         """
         return self.array[self.pointer[i], 1]
 
+#%% 
+
+def flatten_ParticleSystem(obj):
+    children = [obj.array, obj.n_dead, obj.pointer]
+    aux_data = (obj.N)
+    return children, aux_data
+
+def unflatten_ParticleSystem(aux_data, children):
+    obj = ParticleSystem(aux_data)
+    obj.array = children[0]
+    obj.n_dead = children[1]
+    obj.pointer = children[2]
+    return obj
+
+jax.tree_util.register_pytree_node(ParticleSystem, flatten_ParticleSystem, unflatten_ParticleSystem)
 
 
-        
+#%% Jump logic methods
 
+def excess_fun(i, j, jumps, particle_system):
+    jumps = jumps.at[i].set(j)
+    particle_system.kill(i)
+    return jumps, particle_system
+
+def deficit_fun(i, j, jumps, particle_system):
+    jumps = jumps.at[j].set(i) 
+    particle_system.kill(j)
+    return jumps, particle_system
+
+def scan_func(carry, x):
+    """ 
+    Remarks
+    -------
+    (1) Operation to be performed on each element $x \in \xi$
+    (2) Do nothing if entry $x$ is padded. This is an XLA artifact
+    """
+    key, jumps, Lambda, particle_system = carry 
+    pred = Lambda[x] > 0
+    key, subkey = jax.random.split(key)
+    j = particle_system.choose_alive(key)
+    jumps, particle_system = jax.lax.cond(x != -1, lambda: jax.lax.cond(pred, excess_fun, deficit_fun, *(x, j, jumps, particle_system)), lambda: jumps, particle_system)
+    return (key, jumps, Lambda, particle_system), jumps
+
+#%% Putting it all together
+
+from src.reparameterization import reparameterized_potential
+
+def k_lp(X, p=2, h=0.001): 
+    """ 
+    Lp kernel implementation
+    """
+    # Get separation vectors
+    separation_vectors = X[:, jnp.newaxis, :] - X[jnp.newaxis, :, :]
+    
+    # Calculate kernel
+    k = jnp.exp(-jnp.sum(jnp.abs(separation_vectors) ** p, axis=-1) / (p * h))
+    return k
+
+def batched_birth_death(key, X, potential_func, stepsize, bandwidth, stride, rate, a, b):
+    """ 
+    
+    """
+    nParticles = X.shape[0]
+    key, subkey = jax.random.split(key)
+
+    # Calculate relevant quantities in dual space    
+    V_X = potential_func(X)
+    Y, V_Y = reparameterized_potential(X, potential_func, a, b)
+    kern_gram = k_lp(Y, h=bandwidth)
+
+    # Get particles with significant mass discrepancy in batch
+    Lambda = jnp.log(jnp.mean(kern_gram, axis=1)) + V_Y
+    Lambda = Lambda - jnp.mean(Lambda) 
+    r = jax.random.uniform(minval=0, maxval=1, shape=Lambda.shape, key=key)
+    threshold = r < 1 - jnp.exp(-jnp.abs(Lambda) * stepsize * stride * rate)
+    idxs = jnp.argwhere(threshold, size=nParticles, fill_value=-1).squeeze()
+    idxs = jax.random.permutation(key, idxs)
+
+    # Perform XLA compatible jump logic
+    particle_system = ParticleSystem(nParticles)
+    jumps = jnp.arange(nParticles)
+    init = (key, jumps, Lambda, particle_system)
+    jumps = jax.lax.scan(scan_func, init, idxs)
+
+    return jumps
+
+
+
+
+# Tests for the data structure
+#%%
+
+#%% Quick loop test
+def body_fun(i, val): 
+    val.kill(i)
+    return val
+
+@partial(jax.jit, static_argnums=(0,))
+def test_func(nParticles): 
+    a = ParticleSystem(nParticles)
+    return jax.lax.fori_loop(3, nParticles, body_fun, a)
+
+res = test_func(6)
+print(res.array)
+print(res.pointer)
 #%% First test
 a = ParticleSystem(6)
 print(a.array)
@@ -228,77 +242,5 @@ print(a.pointer)
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#%%
-# SCRATCHWORK
-#%%
-class ParticleSystem:
-    """ 
-    This was the first version.
-    
-    """
-    def __init__(self, N):
-        # Keep convention that top row contains information about particles indexed in lower row
-        self.N = N 
-        self.array = jnp.zeros(shape=(2,N), dtype='int32')
-        self.array = self.array.at[0].set(jnp.ones(N, dtype='int32'))
-        self.array = self.array.at[1].set(jnp.arange(N))
-        self.n_dead = 0
-
-        self.pointer = jnp.arange(N)
-
-    # @partial(jax.jit, static_argnums=(0,))
-    def kill(self, i):
-        self.n_dead += 1
-        j = self.pointer[i]
-
-        # Update lookup table
-        self.array = self.array.at[0,j].set(0)
-
-        # Swap entries in array
-        b = self.array[:,self.N - self.n_dead]                                     # Step 1
-        self.array = self.array.at[:,self.N - self.n_dead].set(self.array[:,j])    # Step 2
-        self.array = self.array.at[:,j].set(b)                                     # Step 3
-
-        # Swap entries pointer
-        k = self.pointer[b[1]]                                                     # Step 1
-        self.pointer = self.pointer.at[b[1]].set(self.pointer[i])                  # Step 2
-        self.pointer = self.pointer.at[i].set(k)                                   # Step 3
-
-    def choose_alive(self, key):
-        # Randomly choose a particle that is alive
-        randint = jax.random.randint(key, (1,), 0, self.N - self.n_dead)[0]
-        return self.array[1, randint]
-    
-    def is_alive(self, i):
-        # Returns binary value, (0,1) (dead, alive)
-        # TODO - this is actually broken as is! It needs to pointer before accessing!
-        return self.array[0, i]
 
 
