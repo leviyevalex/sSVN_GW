@@ -94,12 +94,6 @@ def deficit_fun(i, j, jumps, particle_system):
     return jumps, particle_system
 
 def scan_func(carry, x):
-    """ 
-    Remarks
-    -------
-    (1) Operation to be performed on each element $x \in \xi$
-    (2) Do nothing if entry $x$ is padded. This is an XLA artifact
-    """
     key, jumps, Lambda, particle_system = carry 
     pred = Lambda[x] > 0
     key, subkey = jax.random.split(key)
@@ -108,7 +102,8 @@ def scan_func(carry, x):
     return (key, jumps, Lambda, particle_system), jumps
 
 #%% Putting it all together
-
+import sys
+sys.path.append("..")
 from src.reparameterization import reparameterized_potential
 
 def k_lp(X, p=2, h=0.001): 
@@ -155,6 +150,18 @@ def batched_birth_death(key, X, potential_func, stepsize, bandwidth, stride, rat
 
 # Tests for the data structure
 #%%
+nParticles = 6
+particle_system = ParticleSystem(nParticles)
+Lambda = jnp.array([1, -1, 1, -1, 1, 1])
+idxs = jnp.array([1, 2, 5, -1, -1, -1])
+
+key = jax.random.PRNGKey(1)
+jumps = jnp.arange(nParticles)
+init = (key, jumps, Lambda, particle_system)
+jumps = jax.lax.scan(scan_func, init, idxs)
+
+
+
 
 #%% Quick loop test
 def body_fun(i, val): 
