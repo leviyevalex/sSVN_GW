@@ -98,7 +98,7 @@ def scan_func(carry, x):
     pred = Lambda[x] > 0
     key, subkey = jax.random.split(key)
     j = particle_system.choose_alive(key)
-    jumps, particle_system = jax.lax.cond(x != -1, lambda: jax.lax.cond(pred, excess_fun, deficit_fun, *(x, j, jumps, particle_system)), lambda: jumps, particle_system)
+    jumps, particle_system = jax.lax.cond(x != -1, lambda: jax.lax.cond(pred, excess_fun, deficit_fun, *(x, j, jumps, particle_system)), lambda: (jumps, particle_system))
     return (key, jumps, Lambda, particle_system), jumps
 
 #%% Putting it all together
@@ -117,7 +117,7 @@ def k_lp(X, p=2, h=0.001):
     k = jnp.exp(-jnp.sum(jnp.abs(separation_vectors) ** p, axis=-1) / (p * h))
     return k
 
-def batched_birth_death(key, X, potential_func, stepsize, bandwidth, stride, rate, a, b):
+def birth_death(key, X, potential_func, stepsize, bandwidth, stride, rate, a, b):
     """ 
     
     """
@@ -125,7 +125,6 @@ def batched_birth_death(key, X, potential_func, stepsize, bandwidth, stride, rat
     key, subkey = jax.random.split(key)
 
     # Calculate relevant quantities in dual space    
-    V_X = potential_func(X)
     Y, V_Y = reparameterized_potential(X, potential_func, a, b)
     kern_gram = k_lp(Y, h=bandwidth)
 
@@ -143,7 +142,7 @@ def batched_birth_death(key, X, potential_func, stepsize, bandwidth, stride, rat
     init = (key, jumps, Lambda, particle_system)
     jumps = jax.lax.scan(scan_func, init, idxs)
 
-    return jumps
+    return jumps[0][1]
 
 
 
@@ -155,99 +154,106 @@ particle_system = ParticleSystem(nParticles)
 Lambda = jnp.array([1, -1, 1, -1, 1, 1])
 idxs = jnp.array([1, 2, 5, -1, -1, -1])
 
-key = jax.random.PRNGKey(1)
-jumps = jnp.arange(nParticles)
-init = (key, jumps, Lambda, particle_system)
-jumps = jax.lax.scan(scan_func, init, idxs)
+@jax.jit
+def func():
+    key = jax.random.PRNGKey(1)
+    jumps = jnp.arange(nParticles)
+    init = (key, jumps, Lambda, particle_system)
+    jumps = jax.lax.scan(scan_func, init, idxs)[0][1]
+    return jumps
+
+#%%
+func()
+
+#%%
+#%%
+# #%% Quick loop test
+# def body_fun(i, val): 
+#     val.kill(i)
+#     return val
+
+# @partial(jax.jit, static_argnums=(0,))
+# def test_func(nParticles): 
+#     a = ParticleSystem(nParticles)
+#     return jax.lax.fori_loop(3, nParticles, body_fun, a)
+
+# res = test_func(6)
+# print(res.array)
+# print(res.pointer)
+# #%% First test
+# a = ParticleSystem(6)
+# print(a.array)
+# print(a.pointer)
+# #%%
+# a.kill(0)
+# print(a.array)
+# print(a.pointer)
+# #%%
+# a.kill(5)
+# print(a.array)
+# print(a.pointer)
+# #%%
+# a.kill(4)
+# print(a.array)
+# print(a.pointer)
+# #%%
+# seed = 1200
+# key = jax.random.PRNGKey(seed) 
+# a.choose_alive(key)
+
+
+# #%%
+# a.kill(3)
+# print(a.array)
+# print(a.pointer)
+# #%%
+# a.kill(1)
+# print(a.array)
+# print(a.pointer)
+# #%%
+# a.kill(2)
+# print(a.array)
+# print(a.pointer)
+
+# #%% Second test
+# a = ParticleSystem(6)
+# print(a.array)
+# print(a.pointer)
+# #%%
+# a.kill(1)
+# print(a.array)
+# print(a.pointer)
+# #%%
+# a.kill(3)
+# print(a.array)
+# print(a.pointer)
+# #%%
+# a.kill(4)
+# print(a.array)
+# print(a.pointer)
+# #%%
+# a.kill(5)
+# print(a.array)
+# print(a.pointer)
+# #%%
+# a.kill(0)
+# print(a.array)
+# print(a.pointer)
+
+# #%%
+# a.kill(2)
+# print(a.array)
+# print(a.pointer)
+# # %%
 
 
 
 
-#%% Quick loop test
-def body_fun(i, val): 
-    val.kill(i)
-    return val
-
-@partial(jax.jit, static_argnums=(0,))
-def test_func(nParticles): 
-    a = ParticleSystem(nParticles)
-    return jax.lax.fori_loop(3, nParticles, body_fun, a)
-
-res = test_func(6)
-print(res.array)
-print(res.pointer)
-#%% First test
-a = ParticleSystem(6)
-print(a.array)
-print(a.pointer)
-#%%
-a.kill(0)
-print(a.array)
-print(a.pointer)
-#%%
-a.kill(5)
-print(a.array)
-print(a.pointer)
-#%%
-a.kill(4)
-print(a.array)
-print(a.pointer)
-#%%
-seed = 1200
-key = jax.random.PRNGKey(seed) 
-a.choose_alive(key)
 
 
-#%%
-a.kill(3)
-print(a.array)
-print(a.pointer)
-#%%
-a.kill(1)
-print(a.array)
-print(a.pointer)
-#%%
-a.kill(2)
-print(a.array)
-print(a.pointer)
 
-#%% Second test
-a = ParticleSystem(6)
-print(a.array)
-print(a.pointer)
-#%%
-a.kill(1)
-print(a.array)
-print(a.pointer)
-#%%
-a.kill(3)
-print(a.array)
-print(a.pointer)
-#%%
-a.kill(4)
-print(a.array)
-print(a.pointer)
-#%%
-a.kill(5)
-print(a.array)
-print(a.pointer)
-#%%
-a.kill(0)
-print(a.array)
-print(a.pointer)
 
-#%%
-a.kill(2)
-print(a.array)
-print(a.pointer)
+
+
+
 # %%
-
-
-
-
-
-
-
-
-
-
