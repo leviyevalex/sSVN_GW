@@ -97,7 +97,7 @@ def scan_func(carry, x):
     key, jumps, Lambda, particle_system = carry 
     pred = Lambda[x] > 0
     key, subkey = jax.random.split(key)
-    j = particle_system.choose_alive(key)
+    j = particle_system.choose_alive(subkey)
     jumps, particle_system = jax.lax.cond(x != -1, lambda: jax.lax.cond(pred, excess_fun, deficit_fun, *(x, j, jumps, particle_system)), lambda: (jumps, particle_system))
     return (key, jumps, Lambda, particle_system), jumps
 
@@ -117,7 +117,7 @@ def k_lp(X, p=2, h=0.001):
     k = jnp.exp(-jnp.sum(jnp.abs(separation_vectors) ** p, axis=-1) / (p * h))
     return k
 
-def birth_death(key, X, potential_func, stepsize, bandwidth, stride, rate, a, b):
+def birth_death(key, X, potential_func, stepsize, bandwidth, p, stride, rate, a, b, gamma):
     """ 
     
     """
@@ -125,13 +125,13 @@ def birth_death(key, X, potential_func, stepsize, bandwidth, stride, rate, a, b)
     key, subkey = jax.random.split(key)
 
     # Calculate relevant quantities in dual space    
-    Y, V_Y = reparameterized_potential(X, potential_func, a, b)
-    kern_gram = k_lp(Y, h=bandwidth)
+    Y, V_Y = reparameterized_potential(X, potential_func, a, b, gamma)
+    kern_gram = k_lp(Y, h=bandwidth, p=p)
 
     # Get particles with significant mass discrepancy in batch
     Lambda = jnp.log(jnp.mean(kern_gram, axis=1)) + V_Y
     Lambda = Lambda - jnp.mean(Lambda) 
-    r = jax.random.uniform(minval=0, maxval=1, shape=Lambda.shape, key=key)
+    r = jax.random.uniform(minval=0, maxval=1, shape=Lambda.shape, key=subkey)
     threshold = r < 1 - jnp.exp(-jnp.abs(Lambda) * stepsize * stride * rate)
     idxs = jnp.argwhere(threshold, size=nParticles, fill_value=-1).squeeze()
     idxs = jax.random.permutation(key, idxs)
@@ -149,21 +149,21 @@ def birth_death(key, X, potential_func, stepsize, bandwidth, stride, rate, a, b)
 
 # Tests for the data structure
 #%%
-nParticles = 6
-particle_system = ParticleSystem(nParticles)
-Lambda = jnp.array([1, -1, 1, -1, 1, 1])
-idxs = jnp.array([1, 2, 5, -1, -1, -1])
+# nParticles = 6
+# particle_system = ParticleSystem(nParticles)
+# Lambda = jnp.array([1, -1, 1, -1, 1, 1])
+# idxs = jnp.array([1, 2, 5, -1, -1, -1])
 
-@jax.jit
-def func():
-    key = jax.random.PRNGKey(1)
-    jumps = jnp.arange(nParticles)
-    init = (key, jumps, Lambda, particle_system)
-    jumps = jax.lax.scan(scan_func, init, idxs)[0][1]
-    return jumps
+# @jax.jit
+# def func():
+#     key = jax.random.PRNGKey(1)
+#     jumps = jnp.arange(nParticles)
+#     init = (key, jumps, Lambda, particle_system)
+#     jumps = jax.lax.scan(scan_func, init, idxs)[0][1]
+#     return jumps
 
-#%%
-func()
+# #%%
+# func()
 
 #%%
 #%%
