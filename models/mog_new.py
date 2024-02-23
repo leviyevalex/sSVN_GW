@@ -1,3 +1,8 @@
+""" 
+v0.2 - 1/23/24 - Updated potential to be more numerically stable
+
+"""
+
 #%%
 import sys
 sys.path.append("..")
@@ -57,7 +62,8 @@ class MoG:
     def potential(self, x):
         potentials = jnp.zeros(self.nComponents)
         for i in range(self.nComponents):
-            V_i = jnp.dot(x - self.mus[i], (x - self.mus[i]) / self.covs[i]) 
+            # V_i = jnp.dot(x - self.mus[i], (x - self.mus[i]) / self.covs[i]) 
+            V_i = -1 * jax.scipy.stats.multivariate_normal.logpdf(x, self.mus[i], jnp.diag(self.covs[i])) 
             potentials = potentials.at[i].set(V_i)
         return -jax.scipy.special.logsumexp(-potentials, b=self.weights)
 
