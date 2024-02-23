@@ -11,7 +11,7 @@ config.update("jax_enable_x64", True)
 import numpy as np
 
 class MoG:
-    def __init__(self, weights, mus, covs):
+    def __init__(self, weights, mus, covs, lower_bound, upper_bound):
         """
         Gaussian  class
 
@@ -26,17 +26,42 @@ class MoG:
 
         np.random.seed(1)
 
-        self.lower_bound = jnp.array([-7, -7])
-        self.upper_bound = jnp.array([7, 7])
+        self.lower_bound = lower_bound
+        self.upper_bound = upper_bound
 
-    def posterior(self, x):
-        posterior = 0
-        for i in range(self.nComponents):
-            posterior += self.weights[i] * jax.scipy.stats.multivariate_normal.pdf(x, self.mus[i], self.covs[i])
-        return posterior
+    # def posterior(self, x):
+    #     posterior = 0.
+    #     def body_fn(i, posterior):
+    #         return posterior + self.weights[i] * jax.scipy.stats.multivariate_normal.pdf(x, self.mus[i], self.covs[i])
+        
+    #     posterior = jax.lax.fori_loop(0, self.nComponents, body_fn, posterior)
+    #     return posterior
+
+    # def posterior(self, x):
+    #     # Numerically unstable
+    #     posterior = 0
+    #     for i in range(self.nComponents):
+    #         posterior += self.weights[i] * jax.scipy.stats.multivariate_normal.pdf(x, self.mus[i], self.covs[i])
+    #     return posterior
+
+    # def potential(self, x):
+    #     return -jnp.log(self.posterior(x))
+
+    # def potential(self, x):
+    #     # Still Unstable
+    #     posterior = 0
+    #     for i in range(self.nComponents):
+    #         posterior += self.weights[i] * jnp.exp(-1 * jnp.dot(x - self.mus[i], x - self.mus[i]) / self.covs[i])
+    #     return -jnp.log(posterior) 
 
     def potential(self, x):
-        return -jnp.log(self.posterior(x))
+        potentials = jnp.zeros(self.nComponents)
+        for i in range(self.nComponents):
+            V_i = jnp.dot(x - self.mus[i], (x - self.mus[i]) / self.covs[i]) 
+            potentials = potentials.at[i].set(V_i)
+        return -jax.scipy.special.logsumexp(-potentials, b=self.weights)
+
+
 
     def _newDrawFromPrior(self, nSamples):
         # Returns a grid of particles in buffered hypercube
@@ -57,9 +82,9 @@ class MoG:
             n = counts[i]
             if n > 0:
                 if samples is None:
-                    samples = np.random.multivariate_normal(mean=self.mus[i], cov=self.covs[i], size=n)
+                    samples = np.random.multivariate_normal(mean=self.mus[i], cov=np.diag(self.covs[i]), size=n)
                 else:
-                    samples = np.vstack((samples, np.random.multivariate_normal(mean=self.mus[i], cov=self.covs[i], size=n)))
+                    samples = np.vstack((samples, np.random.multivariate_normal(mean=self.mus[i], cov=np.diag(self.covs[i]), size=n)))
 
         np.random.shuffle(samples)
 
@@ -69,30 +94,30 @@ class MoG:
 
 
 #%%
-k = 3
-d = 2
-weights = jnp.array([2, 4, 2])
+# k = 3
+# d = 2
+# weights = jnp.array([2, 4, 2])
 
-mus = jnp.zeros((k, d))
-mus = mus.at[0].set(jnp.array([-5, 0]))
-mus = mus.at[1].set(jnp.array([0, 0]))
-mus = mus.at[2].set(jnp.array([5, 0]))
+# mus = jnp.zeros((k, d))
+# mus = mus.at[0].set(jnp.array([-5, 0]))
+# mus = mus.at[1].set(jnp.array([0, 0]))
+# mus = mus.at[2].set(jnp.array([5, 0]))
 
-covs = jnp.zeros((k, d, d))
-covs = covs.at[0].set(jnp.eye(d))
-covs = covs.at[1].set(jnp.eye(d))
-covs = covs.at[2].set(jnp.eye(d))
+# covs = jnp.zeros((k, d, d))
+# covs = covs.at[0].set(jnp.eye(d))
+# covs = covs.at[1].set(jnp.eye(d))
+# covs = covs.at[2].set(jnp.eye(d))
 
-model = MoG(weights, mus, covs)
-# # %%
+# model = MoG(weights, mus, covs)
+# # # %%
 
-# model.potential(jnp.array([1,1.]))
+# # model.potential(jnp.array([1,1.]))
 
-# # %%
-# samples = model.newDrawFromPosterior(1000000)
-# # %%
-import corner 
-corner.corner(model._newDrawFromPrior(10000), density=True)
+# # # %%
+# # samples = model.newDrawFromPosterior(1000000)
+# # # %%
+# import corner 
+# corner.corner(model._newDrawFromPrior(10000), density=True)
 # # %%
 # model.weights
 # # %%
