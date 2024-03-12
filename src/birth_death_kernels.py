@@ -1,7 +1,7 @@
 """ 
 v0.3 
 
-Changes
+Changelog
 -------
 v0.1 - unnormalized Lp kernel implemented
 v0.2 - implemented normalized uncorrelated multivariate Gaussian
@@ -10,9 +10,6 @@ v0.3 - implemented normalized von-Mises and uncorrelated, truncated multivariate
 """
 import jax.numpy as jnp 
 import jax
-
-
-# Kernels
 
 def k_lp(X, p=2, h=0.001): 
     """ 
@@ -55,5 +52,8 @@ def truncated_multivariate_gaussian(x, mu, sigma, a, b):
     return I * mvg / renormalization
 
 def von_mises(x, mu, k, f):
+    """ 
+    Multivariate uncorrelated von-Mises
+    """
     separation_vectors = x[:, None] - mu[None, ...]
     return jnp.prod(jnp.exp(k * jnp.cos(f * (separation_vectors))) * f / (2 * jnp.pi * jax.scipy.special.i0(k)), axis=-1)
