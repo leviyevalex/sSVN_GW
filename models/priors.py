@@ -7,23 +7,56 @@ def minusLogPrior(x):
     Prior for gravitational wave parameter estimation
 
     """
-    Mc      = x[0]
-    eta     = x[1]
-    dL      = x[2]
-    theta   = x[3]
-    phi     = x[4]
-    iota    = x[5]
-    psi     = x[6]
-    tcoal   = x[7]
-    Phicoal = x[8]
-    chi1z   = x[9]
-    chi2z   = x[10] 
+    Mc      = x[..., 0]
+    eta     = x[..., 1]
+    dL      = x[..., 2]
+    theta   = x[..., 3]
+    phi     = x[..., 4]
+    iota    = x[..., 5]
+    psi     = x[..., 6]
+    tcoal   = x[..., 7]
+    Phicoal = x[..., 8]
+    chi1z   = x[..., 9]
+    chi2z   = x[..., 10] 
 
     # Uniform in m_1, m_2 prior for Mc, eta 
     V_prior = -jnp.log(Mc)      
     V_prior += jnp.log(jnp.sqrt(1 - 4 * eta) * eta ** (6/5))
 
+    # Incorporate other priors here if desired
+    # .
+    # .
+    # .
+
     return V_prior
+
+def gradient_minusLogPrior(x): 
+    """ 
+    Gradient of prior
+    
+    """
+    Mc      = x[..., 0]
+    eta     = x[..., 1]
+    dL      = x[..., 2]
+    theta   = x[..., 3]
+    phi     = x[..., 4]
+    iota    = x[..., 5]
+    psi     = x[..., 6]
+    tcoal   = x[..., 7]
+    Phicoal = x[..., 8]
+    chi1z   = x[..., 9]
+    chi2z   = x[..., 10]
+
+    # NOTE: This is updated as we add more priors
+
+    # NOTE: Method assumes an N x d shaped array as input
+
+    grad_V_prior = jnp.zeros((x.shape[0], 2))
+    grad_V_prior = grad_V_prior.at[:, 0].add(-1 / Mc)
+    grad_V_prior = grad_V_prior.at[:, 1].add((-2 / (1 - 4 * eta) + 6 / (5 * eta)))
+    
+    return grad_V_prior
+
 
 def Mc_func(m1, m2):
     """ 
