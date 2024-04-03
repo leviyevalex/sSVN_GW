@@ -12,14 +12,16 @@ import models.gwfast.signal as signal
 from   models.gwfast.network import DetNet, LV_DetNet
 import models.gwfast.gwfastGlobals as glob
 import models.gwfast.gwfastUtils as utils
-from models.prior import minusLogPrior, gradient_minusLogLikelihood
+from models.priors import minusLogPrior, gradient_minusLogPrior, Mc_eta_uniform_masses_draw
+
 
 # from astropy.cosmology import Planck18
 from functools import partial
 from jax.config import config
 config.update("jax_enable_x64", True)
 
-seconds_per_day = 3600.*24. * 1000 # milliseconds per day
+milliseconds_per_day = 3600. * 24 * 1000 # milliseconds per day
+eta_rescaling = 100
 
 class gwfast_LVGW150914(object):
     def __init__(self, wf_model=TaylorF2_RestrictedPN, nbins=1000, fmin=10., fmax=560.):
@@ -37,10 +39,6 @@ class gwfast_LVGW150914(object):
             self.nbins = nbins
             self.fgrid = jnp.linspace(self.fmin, self.fmax, num=self.nbins + 1).squeeze()
             self.df = (self.fgrid[-1] - self.fgrid[0]) / self.nbins
-            print('fmin: ', self.fmin)
-            print('fmax: ', self.fmax)
-            print('df_standard: ', self.df)
-            print('nbins: ', self.nbins)
 
             # Point to which detector characteristics we want
             asd_paths = {}
@@ -48,7 +46,7 @@ class gwfast_LVGW150914(object):
             asd_paths['H1']    = '/home/al44828/projects/sSVN_GW/notebooks/aLIGO_O4_high_asd.txt'
             asd_paths['Virgo'] = '/home/al44828/projects/sSVN_GW/notebooks/AdV_asd.txt'
 
-            # Define network
+            # Define network object
             self.Net = LV_DetNet(self.wf_model, fixed_fgrid=self.fgrid, verbose=True, ASDs=asd_paths)
 
             # Interpolate detector characteristics onto defined frequency grid
@@ -59,10 +57,10 @@ class gwfast_LVGW150914(object):
 
             # Injection parameters (GW150914)
             tGPS = np.array([1.1262594624e+09])
-            tcoal = float(utils.GPSt_to_LMST(tGPS, lat=0., long=0.)) * seconds_per_day
+            tcoal = float(utils.GPSt_to_LMST(tGPS, lat=0., long=0.)) * milliseconds_per_day
             injParams = {}
             injParams['Mc']      = np.array([31.39])               # (0)   # [M_solar]      # Chirp mass
-            injParams['eta']     = np.array([0.2485773])           # (1)   # [Unitless]     # Symmetric mass ratio
+            injParams['eta']     = np.array([0.2485773]) * eta_rescaling           # (1)   # [Unitless]     # Symmetric mass ratio
             injParams['dL']      = np.array([0.43929])             # (2)   # [Gigaparsecs]  # Luminosity distance
             injParams['theta']   = np.array([2.78560281])          # (3)   # [Rad]          # Declination
             injParams['phi']     = np.array([1.67687425])          # (4)   # [Rad]          # Right ascention
@@ -77,7 +75,8 @@ class gwfast_LVGW150914(object):
             # Parameter bounds 
             bounds = {}
             bounds['Mc']      = [25., 35.]                      
-            bounds['eta']     = [0.20, 0.249]                 
+            # bounds['eta']     = [0.20, 0.249]                 
+            bounds['eta']     = [0.20 * eta_rescaling, 0.249 * eta_rescaling]         
             bounds['dL']      = [0.25, 2.]                     
             bounds['theta']   = [0., np.pi]                   
             bounds['phi']     = [0., 2 * np.pi]               
@@ -88,6 +87,36 @@ class gwfast_LVGW150914(object):
             bounds['chi1z']   = [-0.99, 0.99]                 
             bounds['chi2z']   = [-0.99, 0.99]                 
             self.bounds = bounds
+
+            # Get mock data
+            self.true_params = jnp.array([self.injParams[param].squeeze() for param in self.gwfast_param_order])
+            # self.htrue = self.getSignal(self.true_params[None,:])
+            self.htrue = self.getSignal(self.true_params.at[1].divide(eta_rescaling)[None,:])
+
+
+            self.extraneous()
+
+    def extraneous(self):
+        """ 
+        Print metadata and define variables needed to interface with sampler
+        
+        """
+
+        print('fmin: ', self.fmin)
+        print('fmax: ', self.fmax)
+        print('df_standard: ', self.df)
+        print('nbins: ', self.nbins)
+
+        # Definitions for easy interfacing
+        self.lower_bound = jnp.array([self.bounds[param][0] for param in self.gwfast_param_order]) 
+        self.upper_bound = jnp.array([self.bounds[param][1] for param in self.gwfast_param_order]) 
+
+        # Mock data signal-to-noise ratio
+        self.snr  = self.square_norm(self.htrue['L1'], self.PSDs['L1'], self.df)
+        self.snr += self.square_norm(self.htrue['H1'], self.PSDs['H1'], self.df)
+        self.snr += self.square_norm(self.htrue['Virgo'], self.PSDs['Virgo'], self.df)
+
+        print('SNR at true values: %.2f' % jnp.sqrt(self.snr)[0])
 
     def getSignal(self, X):
         """
@@ -107,7 +136,7 @@ class gwfast_LVGW150914(object):
                                     phi      = X_[4],
                                     iota     = X_[5],
                                     psi      = X_[6],
-                                    tcoal    = X_[7] / self.seconds_per_day,
+                                    tcoal    = X_[7] / milliseconds_per_day,
                                     Phicoal  = X_[8],
                                     chi1z    = X_[9],
                                     chi2z    = X_[10])
@@ -131,17 +160,16 @@ class gwfast_LVGW150914(object):
                                                phi     = X_[4],
                                                iota    = X_[5],
                                                psi     = X_[6],
-                                               tcoal   = X_[7] / seconds_per_day, # Correction 1
+                                               tcoal   = X_[7] / milliseconds_per_day, # Correction 1
                                                Phicoal = X_[8],
                                                chi1z   = X_[9],
                                                chi2z   = X_[10]) 
-
         # Correction 2
-        jacModel['L1'] = jacModel['L1'].at[9].divide(seconds_per_day) 
-        jacModel['H1'] = jacModel['H1'].at[9].divide(seconds_per_day)
-        jacModel['Virgo'] = jacModel['Virgo'].at[9].divide(seconds_per_day)
-        
-        # Order fix (redundent in newer version of gwfast)
+        jacModel['L1'] = jacModel['L1'].at[9].divide(milliseconds_per_day) 
+        jacModel['H1'] = jacModel['H1'].at[9].divide(milliseconds_per_day)
+        jacModel['Virgo'] = jacModel['Virgo'].at[9].divide(milliseconds_per_day)
+
+        # Switch parameter order (redundent in newer version of gwfast)
         jacModel['L1'] = jacModel['L1'][jnp.array([0, 1, 4, 5, 6, 7, 8, 9, 10, 2, 3])]
         jacModel['H1'] = jacModel['H1'][jnp.array([0, 1, 4, 5, 6, 7, 8, 9, 10, 2, 3])]
         jacModel['Virgo'] = jacModel['Virgo'][jnp.array([0, 1, 4, 5, 6, 7, 8, 9, 10, 2, 3])]
@@ -171,6 +199,7 @@ class gwfast_LVGW150914(object):
         Calculates potential V(x) = -ln(likelihood(x)) - ln(prior(x))
 
         """
+        X = X.at[:, 1].divide(eta_rescaling)
 
         # Calculate residuals
         template = self.getSignal(X)
@@ -195,6 +224,8 @@ class gwfast_LVGW150914(object):
         
         """
 
+        X = X.at[:, 1].divide(eta_rescaling)
+
         # Calculate residuals
         template = self.getSignal(X)
         residual = {}
@@ -209,6 +240,34 @@ class gwfast_LVGW150914(object):
         grad_V += self.overlap(jacSignal['Virgo'], residual['Virgo'], self.PSDs['Virgo'], self.df).real
 
         # Gradient of prior
-        grad_V = grad_V.at[:, jnp.array([0, 1])].add(gradient_minusLogLikelihood(X))
+        grad_V = grad_V.at[:, jnp.array([0, 1])].add(gradient_minusLogPrior(X))
+
+        # NOTE: As priors are added this will need to be updated as well!
+
+        grad_V = grad_V.at[:, 1].divide(eta_rescaling)
 
         return grad_V
+
+    def _newDrawFromPrior(self, n, seed=42):
+        prior_samples = np.zeros((n, self.DoF))
+        for i in range(self.DoF):
+            prior_samples[:, i] = np.random.uniform(low=self.lower_bound[i], high=self.upper_bound[i], size=n)
+        
+        # eta rescaling adjustment
+        a = jnp.copy(self.lower_bound).at[1].divide(eta_rescaling)[0:2]
+        b = jnp.copy(self.upper_bound).at[1].divide(eta_rescaling)[0:2]
+        prior_samples[:, 0:2] = Mc_eta_uniform_masses_draw(n, a, b)
+        prior_samples[:,1] *= eta_rescaling
+
+        return jnp.array(prior_samples)
+
+    # def _newDrawFromPrior(self, n, seed=42):
+    #     prior_draw = jnp.zeros((len(self.gwfast_param_order), n))
+    #     key = jax.random.PRNGKey(seed)
+    #     for i, param in enumerate(self.gwfast_param_order): # Assuming uniform on all parameters         
+    #         buffer = 0
+    #         prior_draw = prior_draw.at[i].set(jax.random.uniform(key, (n,), minval=self.priorDict[param][0]+buffer, maxval=self.priorDict[param][1]-buffer))
+    #         key, subkey = jax.random.split(key)
+    #     if self.verbose:
+    #         print('buffer in prior: %f' % buffer)
+    #     return prior_draw.T
