@@ -20,8 +20,10 @@ from functools import partial
 from jax.config import config
 config.update("jax_enable_x64", True)
 
+# milliseconds_per_day = 3600. * 24 * 100 # milliseconds per day (FUDGED!!!)
 milliseconds_per_day = 3600. * 24 * 1000 # milliseconds per day
 eta_rescaling = 100
+dL_rescaling = 1
 
 class gwfast_LVGW150914(object):
     def __init__(self, wf_model=TaylorF2_RestrictedPN, nbins=1000, fmin=10., fmax=560.):
@@ -61,7 +63,7 @@ class gwfast_LVGW150914(object):
             injParams = {}
             injParams['Mc']      = np.array([31.39])               # (0)   # [M_solar]      # Chirp mass
             injParams['eta']     = np.array([0.2485773]) * eta_rescaling           # (1)   # [Unitless]     # Symmetric mass ratio
-            injParams['dL']      = np.array([0.43929])             # (2)   # [Gigaparsecs]  # Luminosity distance
+            injParams['dL']      = np.array([0.43929]) * dL_rescaling             # (2)   # [Gigaparsecs]  # Luminosity distance
             injParams['theta']   = np.array([2.78560281])          # (3)   # [Rad]          # Declination
             injParams['phi']     = np.array([1.67687425])          # (4)   # [Rad]          # Right ascention
             injParams['iota']    = np.array([2.67548653])          # (5)   # [Rad]          # Inclination
@@ -77,7 +79,7 @@ class gwfast_LVGW150914(object):
             bounds['Mc']      = [25., 35.]                      
             # bounds['eta']     = [0.20, 0.249]                 
             bounds['eta']     = [0.20 * eta_rescaling, 0.249 * eta_rescaling]         
-            bounds['dL']      = [0.25, 2.]                     
+            bounds['dL']      = [0.25 * dL_rescaling, 2. * dL_rescaling]                     
             bounds['theta']   = [0., np.pi]                   
             bounds['phi']     = [0., 2 * np.pi]               
             bounds['iota']    = [0., np.pi]                   
@@ -91,8 +93,7 @@ class gwfast_LVGW150914(object):
             # Get mock data
             self.true_params = jnp.array([self.injParams[param].squeeze() for param in self.gwfast_param_order])
             # self.htrue = self.getSignal(self.true_params[None,:])
-            self.htrue = self.getSignal(self.true_params.at[1].divide(eta_rescaling)[None,:])
-
+            self.htrue = self.getSignal(self.true_params.at[jnp.array([1,2])].divide(jnp.array([eta_rescaling, dL_rescaling]))[None,:])
 
             self.extraneous()
 
@@ -200,6 +201,7 @@ class gwfast_LVGW150914(object):
 
         """
         X = X.at[:, 1].divide(eta_rescaling)
+        X = X.at[:, 2].divide(dL_rescaling)
 
         # Calculate residuals
         template = self.getSignal(X)
@@ -225,6 +227,7 @@ class gwfast_LVGW150914(object):
         """
 
         X = X.at[:, 1].divide(eta_rescaling)
+        X = X.at[:, 2].divide(dL_rescaling)
 
         # Calculate residuals
         template = self.getSignal(X)
@@ -245,6 +248,7 @@ class gwfast_LVGW150914(object):
         # NOTE: As priors are added this will need to be updated as well!
 
         grad_V = grad_V.at[:, 1].divide(eta_rescaling)
+        grad_V = grad_V.at[:, 2].divide(dL_rescaling)
 
         return grad_V
 
@@ -260,14 +264,3 @@ class gwfast_LVGW150914(object):
         prior_samples[:,1] *= eta_rescaling
 
         return jnp.array(prior_samples)
-
-    # def _newDrawFromPrior(self, n, seed=42):
-    #     prior_draw = jnp.zeros((len(self.gwfast_param_order), n))
-    #     key = jax.random.PRNGKey(seed)
-    #     for i, param in enumerate(self.gwfast_param_order): # Assuming uniform on all parameters         
-    #         buffer = 0
-    #         prior_draw = prior_draw.at[i].set(jax.random.uniform(key, (n,), minval=self.priorDict[param][0]+buffer, maxval=self.priorDict[param][1]-buffer))
-    #         key, subkey = jax.random.split(key)
-    #     if self.verbose:
-    #         print('buffer in prior: %f' % buffer)
-    #     return prior_draw.T
