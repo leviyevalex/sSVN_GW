@@ -23,21 +23,28 @@ def ula_kernel(key, X, potential, grad_potential, dt, iteration, lower, upper, s
     (1) A subkey is immediately used. The key is used to split
     (2) The periodic coordinates must begin at 0 for the modding to work nicely!!! Otherwise a shift in coordinates in necessary
     """
-    N = X.shape[0]
+    # N = X.shape[0]
 
     # Calculate gradients
     gmlpt_X = grad_potential(X)
 
     # Update bounded coordinates
-    Y, gmlpt_Y = reparameterized_gradient(X[:, bounded_coordinates], gmlpt_X[:, bounded_coordinates], lower[bounded_coordinates], upper[bounded_coordinates])
-    key, subkey = jax.random.split(key)
-    Y = Y - gmlpt_Y * dt #+ jnp.sqrt(2 * dt) * jax.random.normal(key=subkey, shape=(N, len(bounded_coordinates)))
-    X = X.at[:, bounded_coordinates].set(sigma(logistic_CDF(Y), lower[bounded_coordinates], upper[bounded_coordinates]))
+    if len(bounded_coordinates) > 0:
+        Y, gmlpt_Y = reparameterized_gradient(X[:, bounded_coordinates], gmlpt_X[:, bounded_coordinates], lower[bounded_coordinates], upper[bounded_coordinates])
+        key, subkey = jax.random.split(key)
+        Y = Y - gmlpt_Y * dt #+ jnp.sqrt(2 * dt) * jax.random.normal(key=subkey, shape=(N, len(bounded_coordinates)))
+        X = X.at[:, bounded_coordinates].set(sigma(logistic_CDF(Y), lower[bounded_coordinates], upper[bounded_coordinates]))
+
+    # Y, gmlpt_Y = reparameterized_gradient(X, gmlpt_X, lower, upper)
+    # key, subkey = jax.random.split(key)
+    # Y = Y - gmlpt_Y * dt
+    # X = sigma(logistic_CDF(Y), lower, upper)
 
     # Update periodic coordinates
-    key, subkey = jax.random.split(key)    
-    X = X.at[:, periodic_coordinates].add(-gmlpt_X[:, periodic_coordinates] * dt) #+ jnp.sqrt(2 * dt) * jax.random.normal(key=subkey, shape=(N, len(periodic_coordinates))))
-    X = X.at[:, periodic_coordinates].set(jnp.mod(X[:, periodic_coordinates], upper[periodic_coordinates])) 
+    if len(periodic_coordinates) > 0:
+        key, subkey = jax.random.split(key)    
+        X = X.at[:, periodic_coordinates].add(-gmlpt_X[:, periodic_coordinates] * dt) #+ jnp.sqrt(2 * dt) * jax.random.normal(key=subkey, shape=(N, len(periodic_coordinates))))
+        X = X.at[:, periodic_coordinates].set(jnp.mod(X[:, periodic_coordinates], upper[periodic_coordinates])) 
 
     # Perform jumps in primal space
     key, subkey = jax.random.split(key)
