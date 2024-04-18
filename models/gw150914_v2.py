@@ -44,9 +44,13 @@ class gwfast_LVGW150914(object):
 
             # Point to which detector characteristics we want
             asd_paths = {}
-            asd_paths['L1']    = '/home/al44828/projects/sSVN_GW/notebooks/aLIGO_O4_high_asd.txt'
-            asd_paths['H1']    = '/home/al44828/projects/sSVN_GW/notebooks/aLIGO_O4_high_asd.txt'
-            asd_paths['Virgo'] = '/home/al44828/projects/sSVN_GW/notebooks/AdV_asd.txt'
+            # asd_paths['L1']    = '/home/al44828/projects/sSVN_GW/notebooks/aLIGO_O4_high_asd.txt'
+            # asd_paths['H1']    = '/home/al44828/projects/sSVN_GW/notebooks/aLIGO_O4_high_asd.txt'
+            # asd_paths['Virgo'] = '/home/al44828/projects/sSVN_GW/notebooks/AdV_asd.txt'
+
+            asd_paths['L1']    = '/home/al44828/projects/sSVN_GW/notebooks/LIGO_L_ASD_GW150914.txt'
+            asd_paths['H1']    = '/home/al44828/projects/sSVN_GW/notebooks/LIGO_H_ASD_GW150914.txt'
+            # asd_paths['Virgo'] = '/home/al44828/projects/sSVN_GW/notebooks/AdV_asd.txt'
 
             # Define network object
             self.Net = LV_DetNet(self.wf_model, fixed_fgrid=self.fgrid, verbose=True, ASDs=asd_paths)
@@ -55,23 +59,23 @@ class gwfast_LVGW150914(object):
             self.PSDs = {}
             self.PSDs['L1']    = jnp.interp(self.fgrid, self.Net.signals['L1'].strainFreq, self.Net.signals['L1'].noiseCurve, left=1., right=1.).squeeze()
             self.PSDs['H1']    = jnp.interp(self.fgrid, self.Net.signals['H1'].strainFreq, self.Net.signals['H1'].noiseCurve, left=1., right=1.).squeeze()
-            self.PSDs['Virgo'] = jnp.interp(self.fgrid, self.Net.signals['Virgo'].strainFreq, self.Net.signals['Virgo'].noiseCurve, left=1., right=1.).squeeze()
+            # self.PSDs['Virgo'] = jnp.interp(self.fgrid, self.Net.signals['Virgo'].strainFreq, self.Net.signals['Virgo'].noiseCurve, left=1., right=1.).squeeze()
 
             # Injection parameters (GW150914)
             tGPS = np.array([1.1262594624e+09])
             tcoal = float(utils.GPSt_to_LMST(tGPS, lat=0., long=0.)) * milliseconds_per_day
             injParams = {}
-            injParams['Mc']      = np.array([31.39])               # (0)   # [M_solar]      # Chirp mass
-            injParams['eta']     = np.array([0.2485773]) * eta_rescaling           # (1)   # [Unitless]     # Symmetric mass ratio
+            injParams['Mc']      = np.array([31.39])                              # (0)   # [M_solar]      # Chirp mass
+            injParams['eta']     = np.array([0.2485773]) * eta_rescaling          # (1)   # [Unitless]     # Symmetric mass ratio
             injParams['dL']      = np.array([0.43929]) * dL_rescaling             # (2)   # [Gigaparsecs]  # Luminosity distance
-            injParams['theta']   = np.array([2.78560281])          # (3)   # [Rad]          # Declination
-            injParams['phi']     = np.array([1.67687425])          # (4)   # [Rad]          # Right ascention
-            injParams['iota']    = np.array([2.67548653])          # (5)   # [Rad]          # Inclination
-            injParams['psi']     = np.array([0.78539816])          # (6)   # [Rad]          # Polarization angle
-            injParams['tcoal']   = np.array([tcoal])               # (7)   # [ms]           # Time of coalescence
-            injParams['Phicoal'] = np.array([0.1])                 # (8)   # [Rad]          # Phase of coalescence
-            injParams['chi1z']   = np.array([0.27210419])          # (9)   # [Unitless]     # Aligned spin 1
-            injParams['chi2z']   = np.array([0.33355909])          # (10)  # [Unitless]     # Aligned spin 2
+            injParams['theta']   = np.array([2.78560281])                         # (3)   # [Rad]          # Declination
+            injParams['phi']     = np.array([1.67687425])                         # (4)   # [Rad]          # Right ascention
+            injParams['iota']    = np.array([2.67548653])                         # (5)   # [Rad]          # Inclination
+            injParams['psi']     = np.array([0.78539816])                         # (6)   # [Rad]          # Polarization angle
+            injParams['tcoal']   = np.array([tcoal])                              # (7)   # [ms]           # Time of coalescence
+            injParams['Phicoal'] = np.array([0.1])                                # (8)   # [Rad]          # Phase of coalescence
+            injParams['chi1z']   = np.array([0.27210419])                         # (9)   # [Unitless]     # Aligned spin 1
+            injParams['chi2z']   = np.array([0.33355909])                         # (10)  # [Unitless]     # Aligned spin 2
             self.injParams = injParams
 
             # Parameter bounds 
@@ -84,7 +88,7 @@ class gwfast_LVGW150914(object):
             bounds['phi']     = [0., 2 * np.pi]               
             bounds['iota']    = [0., np.pi]                   
             bounds['psi']     = [0., np.pi]                   
-            bounds['tcoal']   = [tcoal - 1, tcoal + 1]        
+            bounds['tcoal']   = [tcoal - 1, tcoal + 1]   # NOTE: This will need to be increased eventually     
             bounds['Phicoal'] = [0., 2 * np.pi]               
             bounds['chi1z']   = [-0.99, 0.99]                 
             bounds['chi2z']   = [-0.99, 0.99]                 
@@ -94,6 +98,14 @@ class gwfast_LVGW150914(object):
             self.true_params = jnp.array([self.injParams[param].squeeze() for param in self.gwfast_param_order])
             # self.htrue = self.getSignal(self.true_params[None,:])
             self.htrue = self.getSignal(self.true_params.at[jnp.array([1,2])].divide(jnp.array([eta_rescaling, dL_rescaling]))[None,:])
+
+            noise = {}
+            for det in self.PSDs.keys(): # NOTE: Number of
+                noise[det] = self.generate_noise_from_asd(self.Net.signals[det].strainFreq, self.Net.signals[det].noiseCurve, self.fgrid, seed=None)
+
+                # noise[det] = 0 # TODO: REMOVE LATER 
+                
+                self.htrue[det] += noise[det]
 
             self.extraneous()
 
@@ -115,7 +127,7 @@ class gwfast_LVGW150914(object):
         # Mock data signal-to-noise ratio
         self.snr  = self.square_norm(self.htrue['L1'], self.PSDs['L1'], self.df)
         self.snr += self.square_norm(self.htrue['H1'], self.PSDs['H1'], self.df)
-        self.snr += self.square_norm(self.htrue['Virgo'], self.PSDs['Virgo'], self.df)
+        # self.snr += self.square_norm(self.htrue['Virgo'], self.PSDs['Virgo'], self.df)
 
         print('SNR at true values: %.2f' % jnp.sqrt(self.snr)[0])
 
@@ -168,12 +180,12 @@ class gwfast_LVGW150914(object):
         # Correction 2
         jacModel['L1'] = jacModel['L1'].at[9].divide(milliseconds_per_day) 
         jacModel['H1'] = jacModel['H1'].at[9].divide(milliseconds_per_day)
-        jacModel['Virgo'] = jacModel['Virgo'].at[9].divide(milliseconds_per_day)
+        # jacModel['Virgo'] = jacModel['Virgo'].at[9].divide(milliseconds_per_day)
 
         # Switch parameter order (redundent in newer version of gwfast)
         jacModel['L1'] = jacModel['L1'][jnp.array([0, 1, 4, 5, 6, 7, 8, 9, 10, 2, 3])]
         jacModel['H1'] = jacModel['H1'][jnp.array([0, 1, 4, 5, 6, 7, 8, 9, 10, 2, 3])]
-        jacModel['Virgo'] = jacModel['Virgo'][jnp.array([0, 1, 4, 5, 6, 7, 8, 9, 10, 2, 3])]
+        # jacModel['Virgo'] = jacModel['Virgo'][jnp.array([0, 1, 4, 5, 6, 7, 8, 9, 10, 2, 3])]
 
         return jacModel
 
@@ -195,6 +207,11 @@ class gwfast_LVGW150914(object):
         overlap = (4 * jnp.sum(a.conjugate() * b / PSD * deltaf, axis=-1)).T
         return overlap
 
+    def overlap_GN(self, a, b, PSD, deltaf):
+        return 4 * jnp.einsum('dNf, DNf -> NdD', a.conjugate(), b / PSD * deltaf)
+        # overlap = (4 * jnp.sum(a.conjugate() * b / PSD * deltaf, axis=-1)).T
+        # return overlap
+
     def potential(self, X):
         """ 
         Calculates potential V(x) = -ln(likelihood(x)) - ln(prior(x))
@@ -208,12 +225,12 @@ class gwfast_LVGW150914(object):
         residual = {}
         residual['L1'] = template['L1'] - self.htrue['L1']
         residual['H1'] = template['H1'] - self.htrue['H1']
-        residual['Virgo'] = template['Virgo'] - self.htrue['Virgo']
+        # residual['Virgo'] = template['Virgo'] - self.htrue['Virgo']
 
         # Likelihood contribution to energy
         V  = 0.5 * self.square_norm(residual['L1'], self.PSDs['L1'], self.df)
         V += 0.5 * self.square_norm(residual['H1'], self.PSDs['H1'], self.df)
-        V += 0.5 * self.square_norm(residual['Virgo'], self.PSDs['Virgo'], self.df)
+        # V += 0.5 * self.square_norm(residual['Virgo'], self.PSDs['Virgo'], self.df)
 
         # Prior contribution to energy
         V += minusLogPrior(X)
@@ -221,6 +238,38 @@ class gwfast_LVGW150914(object):
         return V
     
     def gradient_potential(self, X): 
+        """ 
+        Calculates the gradient of the potential
+        
+        """
+
+        X = X.at[:, 1].divide(eta_rescaling)
+        X = X.at[:, 2].divide(dL_rescaling)
+
+        # Calculate residuals
+        template = self.getSignal(X)
+        residual = {}
+        residual['L1'] = template['L1'] - self.htrue['L1']
+        residual['H1'] = template['H1'] - self.htrue['H1']
+        # residual['Virgo'] = template['Virgo'] - self.htrue['Virgo']
+
+        # Gradient of likelihood 
+        jacSignal = self._getJacobianSignal(X)
+        grad_V = self.overlap(jacSignal['L1'], residual['L1'], self.PSDs['L1'], self.df).real
+        grad_V += self.overlap(jacSignal['H1'], residual['H1'], self.PSDs['H1'], self.df).real
+        # grad_V += self.overlap(jacSignal['Virgo'], residual['Virgo'], self.PSDs['Virgo'], self.df).real
+
+        # Gradient of prior
+        grad_V = grad_V.at[:, jnp.array([0, 1])].add(gradient_minusLogPrior(X))
+
+        # NOTE: As priors are added this will need to be updated as well!
+
+        grad_V = grad_V.at[:, 1].divide(eta_rescaling)
+        grad_V = grad_V.at[:, 2].divide(dL_rescaling)
+
+        return grad_V
+
+    def gradient_potential_GAUSS(self, X): 
         """ 
         Calculates the gradient of the potential
         
@@ -250,7 +299,27 @@ class gwfast_LVGW150914(object):
         grad_V = grad_V.at[:, 1].divide(eta_rescaling)
         grad_V = grad_V.at[:, 2].divide(dL_rescaling)
 
-        return grad_V
+        #######################################
+        # Gauss-Newton approximation to Hessian
+        #######################################
+
+        gauss_newton = self.overlap_GN(jacSignal['L1'], jacSignal['L1'], self.PSDs['L1'], self.df).real
+        gauss_newton += self.overlap_GN(jacSignal['H1'], jacSignal['H1'], self.PSDs['H1'], self.df).real
+        gauss_newton += self.overlap_GN(jacSignal['Virgo'], jacSignal['Virgo'], self.PSDs['Virgo'], self.df).real
+
+        gauss_newton = gauss_newton.at[:, :, 1].divide(eta_rescaling)
+        gauss_newton = gauss_newton.at[:, :, 2].divide(dL_rescaling)
+
+        gauss_newton = gauss_newton.at[:, 1, :].divide(eta_rescaling)
+        gauss_newton = gauss_newton.at[:, 2, :].divide(dL_rescaling)
+
+        gauss_newton = gauss_newton.at[:, 0, 0].add(X[:,0] ** 2) # Hessian of prior on Mc
+
+
+
+        return grad_V, gauss_newton
+
+
 
     def _newDrawFromPrior(self, n, seed=42):
         prior_samples = np.zeros((n, self.DoF))
@@ -264,3 +333,27 @@ class gwfast_LVGW150914(object):
         prior_samples[:,1] *= eta_rescaling
 
         return jnp.array(prior_samples)
+
+
+    def generate_noise_from_asd(self, asd_freq, asd_val, freqs, seed=None):
+        '''
+        Generate frequency domain noise from a given ASD curve at the input frequencies. NOTE: It assumes linear spacing of the frequencies.
+
+        :param array asd_freq: The frequencies at which the ASD is provided.
+        :param array asd_val: The ASD values at ``asd_freq``.
+        :param array freqs: The frequencies at which the noise is to be generated.
+        :param int seed: The seed for the random number generator.
+        
+        :return: The generated noise in the frequency domain.
+        :rtype: array
+        '''
+        if seed is not None:
+            np.random.seed(seed)
+
+        strainGrids = np.interp(freqs, asd_freq, asd_val, left=1., right=1.)
+        scale = 0.5 * strainGrids/np.sqrt(freqs[1] - freqs[0])
+        
+        nre = np.random.normal(0., scale)
+        nco = np.random.normal(0., scale)
+
+        return nre + 1j*nco
