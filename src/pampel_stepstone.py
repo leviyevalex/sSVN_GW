@@ -11,7 +11,7 @@ config.update("jax_debug_nans", True)
 from functools import partial
 
 # Load reparameterization methods
-from src.reparameterization import sigma, logistic_CDF, reparameterized_gradient, push_forward, pull_back
+from src.reparameterization import sigma, logistic_CDF, reparameterized_gradient, push_forward, pull_back, hessian_reparameterization
 
 # Load birth/death method
 from src.birth_death import birth_death
@@ -31,30 +31,79 @@ def ula_kernel(key, X, potential, grad_potential, dt, iteration, lower, upper, s
     d = X.shape[1]
 
     # Calculate gradients
-    gmlpt_X = grad_potential(X)
+    # gmlpt_X = grad_potential(X)
+    gmlpt_X, Hmlpt = grad_potential(X)
+
+    # Use Bayesian Fisher instead
+    # Hmlpt = jnp.mean(gmlpt_X[:,:,None] * gmlpt_X[:,None,:], axis=0)
+    # Hmlpt = jnp.repeat(Hmlpt[None, ...], N, axis=0)
+
+
+
+
+    # Hmlpt += jnp.diag(1 / (upper - lower) ** 2)[None, ...] # Damping
+
+    # NOTE: we want to regularize matrix before reparameterizing it!!!
+    # Hmlpt += damping * jnp.eye(d)[jnp.newaxis, ...]      # Tikhinov regularization
+    # Using local GW Fisher preconditioning 
+    # Hmlpt += jnp.diag(1 / (upper - lower) ** 2)[None, ...] # LM regularization
+
 
     if len(bounded_coordinates) > 0:
-        Y, gmlpt_Y = reparameterized_gradient(X, gmlpt_X, lower, upper)
-        X = X.at[:, bounded_coordinates].set(Y[:, bounded_coordinates])
-        gmlpt_X = gmlpt_X.at[:, bounded_coordinates].set(gmlpt_Y[:, bounded_coordinates])
+        Y, gmlpt_Y = reparameterized_gradient(X[:, bounded_coordinates], gmlpt_X[:, bounded_coordinates], lower[bounded_coordinates], upper[bounded_coordinates])
 
-    Hmlpt += 0.01 * jnp.eye(d)[jnp.newaxis, ...] # Damping factor
-    U = cholesky(Hmlpt, lower=False)
-    X += -cho_solve((U, False), gmlpt_X) * dt  + jnp.sqrt(2 * dt) * solve_triangular(U, jax.random.normal(key=subkey, shape=(X.shape)), lower=False)
+        # Use unmodified X to reparameterize
+        # gmlpt_Z = gmlpt_X.at[:, bounded_coordinates].set(gmlpt_Y[:, bounded_coordinates])
+        gmlpt_Z = gmlpt_X.at[:, bounded_coordinates].set(gmlpt_Y)
 
-    # X += -gmlpt_X * dt + jnp.sqrt(2 * dt) * jax.random.normal(key=subkey, shape=X.shape) # Regular Langevin 
+        Hmlpt_Z = hessian_reparameterization(X, Hmlpt, lower, upper, periodic_coordinates)
+
+        Z = X.at[:, bounded_coordinates].set(Y)
+
+    # damping = 0.001
+
+    # X += -jax.scipy.linalg.solve(Hmlpt, gmlpt_X) * dt
+
+    # # U = cholesky(Hmlpt, lower=False)
+    # X += -cho_solve((U, False), gmlpt_X) * dt #+ jnp.sqrt(2 * dt) * solve_triangular(U, jax.random.normal(key=subkey, shape=(X.shape)), lower=False)
+
+    # Using optimal Fisher preconditioning
+    # gamma = jnp.eye(d)
+    # gamma = jnp.einsum('mi, mj -> ij', gmlpt_X, gmlpt_X) / N + jnp.diag(1 / (upper - lower) ** 2)
+    # U = cholesky(Hmlpt, lower=False)
+    # gamma = jnp.repeat(Hmlpt[None, ...], N, axis=0)
+    # X += -jax.scipy.linalg.solve(gamma, gmlpt_X) * dt
+
+    # U = jnp.repeat(U[None, ...], N, axis=0)
+    # X += -cho_solve((U, False), gmlpt_X) * dt #+ jnp.sqrt(2 * dt) * solve_triangular(U, jax.random.normal(key=subkey, shape=(X.shape)), lower=False)
+
+    # No preconditioning
+
+    preconditioner = jnp.mean(Hmlpt_Z, axis=0)
+    # preconditioner = Hmlpt_Z
+
+
+    U = cholesky(preconditioner, lower=False)
+    U = jnp.repeat(U[None, ...], N, axis=0)
+
+
+    Z += -cho_solve((U, False), gmlpt_Z) * dt + jnp.sqrt(2 * dt) * solve_triangular(U, jax.random.normal(key=subkey, shape=(X.shape)), lower=False)
+
+    # Z += -gmlpt_Z * dt + jnp.sqrt(2 * dt) * jax.random.normal(key=subkey, shape=X.shape) # Regular Langevin 
+
     key, subkey = jax.random.split(key)
 
     if len(bounded_coordinates) > 0:
-        X = X.at[:, bounded_coordinates].set(pull_back(X[:, bounded_coordinates], lower[bounded_coordinates], upper[bounded_coordinates]))
+        X = X.at[:, bounded_coordinates].set(pull_back(Z[:, bounded_coordinates], lower[bounded_coordinates], upper[bounded_coordinates]))
 
     if len(periodic_coordinates) > 0:
-        X = X.at[:, periodic_coordinates].set(jnp.mod(X[:, periodic_coordinates], upper[periodic_coordinates])) 
+        X = X.at[:, periodic_coordinates].set(jnp.mod(Z[:, periodic_coordinates], upper[periodic_coordinates])) 
 
-    # jumps = jax.lax.cond(jnp.mod(iteration, stride) == 0, lambda: birth_death(subkey, X, potential, rate=rate, a=lower, b=upper, bounded_coordinates=bounded_coordinates, periodic_coordinates=periodic_coordinates, sigmas=sigmas), lambda: jnp.arange(N))
     key, subkey = jax.random.split(key)
 
-    # X = X[jumps]
+    jumps = jax.lax.cond(jnp.mod(iteration, stride) == 0, lambda: birth_death(subkey, X, potential, rate=rate, a=lower, b=upper, bounded_coordinates=bounded_coordinates, periodic_coordinates=periodic_coordinates, sigmas=sigmas), lambda: jnp.arange(N))
+
+    X = X[jumps]
 
 
     iteration = iteration + 1
