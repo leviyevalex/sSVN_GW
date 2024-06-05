@@ -79,7 +79,9 @@ def ula_kernel(key, X, potential, grad_potential, dt, iteration, lower, upper, s
 
     # No preconditioning
 
-    preconditioner = jnp.mean(Hmlpt_Z, axis=0)
+    preconditioner = jnp.mean(gmlpt_Z[:,:,None] * gmlpt_Z[:,None,:], axis=0) + 0.001 * jnp.eye(d)
+
+    # preconditioner = jnp.mean(Hmlpt_Z, axis=0) + 0.001 * jnp.eye(d)
     # preconditioner = Hmlpt_Z
 
 
