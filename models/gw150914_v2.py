@@ -26,7 +26,8 @@ eta_rescaling = 100
 dL_rescaling = 1
 
 class gwfast_LVGW150914(object):
-    def __init__(self, wf_model=TaylorF2_RestrictedPN, nbins=1000, fmin=10., fmax=560.):
+    # def __init__(self, wf_model=TaylorF2_RestrictedPN, nbins=1000, fmin=10., fmax=560.):
+    def __init__(self, wf_model=TaylorF2_RestrictedPN, nbins=1968, fmin=20., fmax=512.):
 
             # Define model, parameter order convention, and explicitly label periodic vs bounded coordinates
             self.wf_model = wf_model()
@@ -61,34 +62,53 @@ class gwfast_LVGW150914(object):
             self.PSDs['H1']    = jnp.interp(self.fgrid, self.Net.signals['H1'].strainFreq, self.Net.signals['H1'].noiseCurve, left=1., right=1.).squeeze()
             # self.PSDs['Virgo'] = jnp.interp(self.fgrid, self.Net.signals['Virgo'].strainFreq, self.Net.signals['Virgo'].noiseCurve, left=1., right=1.).squeeze()
 
-            # Injection parameters (GW150914)
-            tGPS = np.array([1.1262594624e+09])
+            # LATEST CATELOG MEDIANS
+            tGPS = np.array([1126259462.419288])
             tcoal = float(utils.GPSt_to_LMST(tGPS, lat=0., long=0.)) * milliseconds_per_day
             injParams = {}
-            injParams['Mc']      = np.array([31.39])                              # (0)   # [M_solar]      # Chirp mass
-            injParams['eta']     = np.array([0.2485773]) * eta_rescaling          # (1)   # [Unitless]     # Symmetric mass ratio
-            injParams['dL']      = np.array([0.43929]) * dL_rescaling             # (2)   # [Gigaparsecs]  # Luminosity distance
-            injParams['theta']   = np.array([2.78560281])                         # (3)   # [Rad]          # Declination
-            injParams['phi']     = np.array([1.67687425])                         # (4)   # [Rad]          # Right ascention
-            injParams['iota']    = np.array([2.67548653])                         # (5)   # [Rad]          # Inclination
-            injParams['psi']     = np.array([0.78539816])                         # (6)   # [Rad]          # Polarization angle
+            injParams['Mc']      = np.array([30.68716026])                        # (0)   # [M_solar]      # Chirp mass
+            injParams['eta']     = np.array([0.2488933]) * eta_rescaling          # (1)   # [Unitless]     # Symmetric mass ratio
+            injParams['dL']      = np.array([0.46752133]) * dL_rescaling          # (2)   # [Gigaparsecs]  # Luminosity distance
+            injParams['theta']   = np.array([2.76406998])                         # (3)   # [Rad]          # Declination
+            injParams['phi']     = np.array([2.0343809])                          # (4)   # [Rad]          # Right ascention
+            injParams['iota']    = np.array([2.69895795])                         # (5)   # [Rad]          # Inclination
+            injParams['psi']     = np.array([1.45278442])                         # (6)   # [Rad]          # Polarization angle
             injParams['tcoal']   = np.array([tcoal])                              # (7)   # [ms]           # Time of coalescence
             injParams['Phicoal'] = np.array([0.1])                                # (8)   # [Rad]          # Phase of coalescence
-            injParams['chi1z']   = np.array([0.27210419])                         # (9)   # [Unitless]     # Aligned spin 1
-            injParams['chi2z']   = np.array([0.33355909])                         # (10)  # [Unitless]     # Aligned spin 2
+            injParams['chi1z']   = np.array([-0.0496784])                         # (9)   # [Unitless]     # Aligned spin 1
+            injParams['chi2z']   = np.array([-0.00661958])                        # (10)  # [Unitless]     # Aligned spin 2
+
+            # Injection parameters (GW150914) # OLDER PARAMETERS
+            # tGPS = np.array([1.1262594624e+09])
+            # tcoal = float(utils.GPSt_to_LMST(tGPS, lat=0., long=0.)) * milliseconds_per_day
+            # injParams = {}
+            # injParams['Mc']      = np.array([31.39])                              # (0)   # [M_solar]      # Chirp mass
+            # injParams['eta']     = np.array([0.2485773]) * eta_rescaling          # (1)   # [Unitless]     # Symmetric mass ratio
+            # injParams['dL']      = np.array([0.43929]) * dL_rescaling             # (2)   # [Gigaparsecs]  # Luminosity distance
+            # injParams['theta']   = np.array([2.78560281])                         # (3)   # [Rad]          # Declination
+            # injParams['phi']     = np.array([1.67687425])                         # (4)   # [Rad]          # Right ascention
+            # injParams['iota']    = np.array([2.67548653])                         # (5)   # [Rad]          # Inclination
+            # injParams['psi']     = np.array([0.78539816])                         # (6)   # [Rad]          # Polarization angle
+            # injParams['tcoal']   = np.array([tcoal])                              # (7)   # [ms]           # Time of coalescence
+            # injParams['Phicoal'] = np.array([0.1])                                # (8)   # [Rad]          # Phase of coalescence
+            # injParams['chi1z']   = np.array([0.27210419])                         # (9)   # [Unitless]     # Aligned spin 1
+            # injParams['chi2z']   = np.array([0.33355909])                         # (10)  # [Unitless]     # Aligned spin 2
+
             self.injParams = injParams
 
             # Parameter bounds 
             bounds = {}
             bounds['Mc']      = [25., 35.]                      
             # bounds['eta']     = [0.20, 0.249]                 
-            bounds['eta']     = [0.20 * eta_rescaling, 0.249 * eta_rescaling]         
+            # bounds['eta']     = [0.20 * eta_rescaling, 0.249 * eta_rescaling]         
+            bounds['eta']     = [0.20 * eta_rescaling, 0.25 * eta_rescaling]         
             bounds['dL']      = [0.25 * dL_rescaling, 2. * dL_rescaling]                     
             bounds['theta']   = [0., np.pi]                   
             bounds['phi']     = [0., 2 * np.pi]               
             bounds['iota']    = [0., np.pi]                   
             bounds['psi']     = [0., np.pi]                   
-            bounds['tcoal']   = [tcoal - 1, tcoal + 1]   # NOTE: This will need to be increased eventually     
+            # bounds['tcoal']   = [tcoal - 1, tcoal + 1]   # NOTE: This will need to be increased eventually     
+            bounds['tcoal']   = [tcoal - 100, tcoal + 100]
             bounds['Phicoal'] = [0., 2 * np.pi]               
             bounds['chi1z']   = [-0.99, 0.99]                 
             bounds['chi2z']   = [-0.99, 0.99]                 
@@ -97,15 +117,16 @@ class gwfast_LVGW150914(object):
             # Get mock data
             self.true_params = jnp.array([self.injParams[param].squeeze() for param in self.gwfast_param_order])
             # self.htrue = self.getSignal(self.true_params[None,:])
+            # NOTE: Rescaling of t_c is handled in `getSignal` method separately
             self.htrue = self.getSignal(self.true_params.at[jnp.array([1,2])].divide(jnp.array([eta_rescaling, dL_rescaling]))[None,:])
 
-            noise = {}
+            self.noise = {}
             for det in self.PSDs.keys(): # NOTE: Number of
-                noise[det] = self.generate_noise_from_asd(self.Net.signals[det].strainFreq, self.Net.signals[det].noiseCurve, self.fgrid, seed=None)
+                self.noise[det] = self.generate_noise_from_asd(self.Net.signals[det].strainFreq, self.Net.signals[det].noiseCurve, self.fgrid, seed=None)
 
-                # noise[det] = 0 # TODO: REMOVE LATER 
+                # self.noise[det] = 0 # TODO: REMOVE LATER 
                 
-                self.htrue[det] += noise[det]
+                self.htrue[det] += self.noise[det]
 
             self.extraneous()
 
@@ -197,26 +218,28 @@ class gwfast_LVGW150914(object):
         """ 
         Square norm for single detector estimated using (left) Riemann sum
         """
-        square_norm = (4 * jnp.sum((a.real ** 2 + a.imag ** 2) / PSD * deltaf, axis=-1)).T
+        square_norm = (4 * deltaf * jnp.sum((a.real ** 2 + a.imag ** 2) / PSD, axis=-1)).T
         return square_norm
 
     def overlap(self, a, b, PSD, deltaf):
         """ 
         Network overlap estimated using (left) Riemann sum
         """
-        overlap = (4 * jnp.sum(a.conjugate() * b / PSD * deltaf, axis=-1)).T
+        overlap = (4 * deltaf * jnp.sum((a.conjugate() * b) / PSD, axis=-1)).T
         return overlap
 
     def overlap_GN(self, a, b, PSD, deltaf):
-        return 4 * jnp.einsum('dNf, DNf -> NdD', a.conjugate(), b / PSD * deltaf)
-        # overlap = (4 * jnp.sum(a.conjugate() * b / PSD * deltaf, axis=-1)).T
-        # return overlap
+        tmp = 4 * deltaf * jnp.sum((a.conjugate()[None, ...] * b[:, None, ...]) / PSD, axis=-1)
+        return jnp.swapaxes(tmp, 0, 2)
 
     def potential(self, X):
         """ 
         Calculates potential V(x) = -ln(likelihood(x)) - ln(prior(x))
 
         """
+        # TODO: DOUBLE CHECK THAT THIS ISNT OVERWRITING PARTICLES OUTSIDE OF THIS METHOD
+
+
         X = X.at[:, 1].divide(eta_rescaling)
         X = X.at[:, 2].divide(dL_rescaling)
 
@@ -283,13 +306,13 @@ class gwfast_LVGW150914(object):
         residual = {}
         residual['L1'] = template['L1'] - self.htrue['L1']
         residual['H1'] = template['H1'] - self.htrue['H1']
-        residual['Virgo'] = template['Virgo'] - self.htrue['Virgo']
+        # residual['Virgo'] = template['Virgo'] - self.htrue['Virgo']
 
         # Gradient of likelihood 
         jacSignal = self._getJacobianSignal(X)
         grad_V = self.overlap(jacSignal['L1'], residual['L1'], self.PSDs['L1'], self.df).real
         grad_V += self.overlap(jacSignal['H1'], residual['H1'], self.PSDs['H1'], self.df).real
-        grad_V += self.overlap(jacSignal['Virgo'], residual['Virgo'], self.PSDs['Virgo'], self.df).real
+        # grad_V += self.overlap(jacSignal['Virgo'], residual['Virgo'], self.PSDs['Virgo'], self.df).real
 
         # Gradient of prior
         grad_V = grad_V.at[:, jnp.array([0, 1])].add(gradient_minusLogPrior(X))
@@ -305,7 +328,7 @@ class gwfast_LVGW150914(object):
 
         gauss_newton = self.overlap_GN(jacSignal['L1'], jacSignal['L1'], self.PSDs['L1'], self.df).real
         gauss_newton += self.overlap_GN(jacSignal['H1'], jacSignal['H1'], self.PSDs['H1'], self.df).real
-        gauss_newton += self.overlap_GN(jacSignal['Virgo'], jacSignal['Virgo'], self.PSDs['Virgo'], self.df).real
+        # gauss_newton += self.overlap_GN(jacSignal['Virgo'], jacSignal['Virgo'], self.PSDs['Virgo'], self.df).real
 
         gauss_newton = gauss_newton.at[:, :, 1].divide(eta_rescaling)
         gauss_newton = gauss_newton.at[:, :, 2].divide(dL_rescaling)
@@ -313,7 +336,7 @@ class gwfast_LVGW150914(object):
         gauss_newton = gauss_newton.at[:, 1, :].divide(eta_rescaling)
         gauss_newton = gauss_newton.at[:, 2, :].divide(dL_rescaling)
 
-        gauss_newton = gauss_newton.at[:, 0, 0].add(X[:,0] ** 2) # Hessian of prior on Mc
+        # gauss_newton = gauss_newton.at[:, 0, 0].add(X[:,0] ** 2) # Hessian of prior on Mc
 
 
 
