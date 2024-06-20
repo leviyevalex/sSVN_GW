@@ -2,6 +2,7 @@ import jax.numpy as jnp
 import numpy as np
 from src.helper import rejection_sampling
 
+# TODO cos i uniform prior should be added later!!! 5/21/24
 def minusLogPrior(x):
     """ 
     Prior for gravitational wave parameter estimation
@@ -22,6 +23,9 @@ def minusLogPrior(x):
     # Uniform in m_1, m_2 prior for Mc, eta 
     V_prior = -jnp.log(Mc)      
     V_prior += jnp.log(jnp.sqrt(1 - 4 * eta) * eta ** (6/5))
+
+    # Power law in dL
+    V_prior += -2 * jnp.log(dL)
 
     # Incorporate other priors here if desired
     # .
@@ -52,9 +56,13 @@ def gradient_minusLogPrior(x):
     # NOTE: Method assumes an N x d shaped array as input
 
     grad_V_prior = jnp.zeros((x.shape[0], 2))
-    grad_V_prior = grad_V_prior.at[:, 0].add(-1 / Mc)
-    grad_V_prior = grad_V_prior.at[:, 1].add((-2 / (1 - 4 * eta) + 6 / (5 * eta)))
+    grad_V_prior = grad_V_prior.at[:, 0].set(-1 / Mc)
+    grad_V_prior = grad_V_prior.at[:, 1].set((-2 / (1 - 4 * eta) + 6 / (5 * eta)))
     
+    # dL contribution to gradient of potential
+    grad_V_prior = grad_V_prior.at[:, 2].set(-2 / dL)
+
+
     return grad_V_prior
 
 
@@ -86,3 +94,10 @@ def Mc_eta_uniform_masses_draw(N, a, b):
     draw[:,1] = eta_func(m1_sams, m2_sams)
 
     return rejection_sampling(draw, a, b)[:N]
+
+def dL_power_law_draw(N, a, b):
+    """ 
+    Draws r.v's with p(x) ~ x^2, a <= x <= b
+    """
+    u = np.random.uniform(size=N)
+    return np.cbrt((a ** 3 + u * (b ** 3 - a ** 3)))

@@ -12,7 +12,7 @@ import models.gwfast.signal as signal
 from   models.gwfast.network import DetNet, LV_DetNet
 import models.gwfast.gwfastGlobals as glob
 import models.gwfast.gwfastUtils as utils
-from models.priors import minusLogPrior, gradient_minusLogPrior, Mc_eta_uniform_masses_draw
+from models.priors import minusLogPrior, gradient_minusLogPrior, Mc_eta_uniform_masses_draw, dL_power_law_draw
 
 
 # from astropy.cosmology import Planck18
@@ -23,7 +23,7 @@ config.update("jax_enable_x64", True)
 # milliseconds_per_day = 3600. * 24 * 100 # milliseconds per day (FUDGED!!!)
 milliseconds_per_day = 3600. * 24 * 1000 # milliseconds per day
 eta_rescaling = 100
-dL_rescaling = 1
+dL_rescaling = 1 # DONT CHANGE THIS
 
 class gwfast_LVGW150914(object):
     # def __init__(self, wf_model=TaylorF2_RestrictedPN, nbins=1000, fmin=10., fmax=560.):
@@ -348,12 +348,15 @@ class gwfast_LVGW150914(object):
         prior_samples = np.zeros((n, self.DoF))
         for i in range(self.DoF):
             prior_samples[:, i] = np.random.uniform(low=self.lower_bound[i], high=self.upper_bound[i], size=n)
+
+        prior_samples[:, 2] = dL_power_law_draw(n, self.lower_bound[2], self.upper_bound[2])
         
         # eta rescaling adjustment
         a = jnp.copy(self.lower_bound).at[1].divide(eta_rescaling)[0:2]
         b = jnp.copy(self.upper_bound).at[1].divide(eta_rescaling)[0:2]
         prior_samples[:, 0:2] = Mc_eta_uniform_masses_draw(n, a, b)
         prior_samples[:,1] *= eta_rescaling
+
 
         return jnp.array(prior_samples)
 
