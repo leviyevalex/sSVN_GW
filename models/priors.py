@@ -55,7 +55,7 @@ def gradient_minusLogPrior(x):
 
     # NOTE: Method assumes an N x d shaped array as input
 
-    grad_V_prior = jnp.zeros((x.shape[0], 2))
+    grad_V_prior = jnp.zeros((x.shape[0], 3))
     grad_V_prior = grad_V_prior.at[:, 0].set(-1 / Mc)
     grad_V_prior = grad_V_prior.at[:, 1].set((-2 / (1 - 4 * eta) + 6 / (5 * eta)))
     

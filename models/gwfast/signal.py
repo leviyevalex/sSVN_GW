@@ -233,7 +233,8 @@ class GWSignal(object):
         tcoal, Phicoal =  evParams['tcoal'], evParams['Phicoal']
         PhiGw = self.wf_model.Phi(f, **evParams)
 
-        return 2.*np.pi*f*(tcoal*3600.*24.) - Phicoal - PhiGw
+        # return 2.*np.pi*f*(tcoal*3600.*24.) - Phicoal - PhiGw  # NOTE THIS WAS THE OLDER VERSION BEFORE OUR MODIFICATION!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        return 2.*np.pi*f*(tcoal*3600.*24.) - 2.*Phicoal - PhiGw
 
     def GWstrain(self, f, Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chi1z, chi2z, rot=0.):
         """
@@ -264,6 +265,7 @@ class GWSignal(object):
         etaUse = eta
             
         evParams = {'Mc':McUse, 'eta':etaUse, 'dL':dL, 'theta':theta, 'phi':phi, 'iota':iota, 'psi':psi, 'tcoal':tcoal, 'Phicoal':Phicoal, 'chi1z':chi1z, 'chi2z':chi2z}
+        t = tcoal * np.ones_like(f)
             
         tmpDeltLoc = self._DeltLoc(theta, phi, t) # in seconds
         t = t + tmpDeltLoc/(3600.*24.)
@@ -446,13 +448,13 @@ class GWSignal(object):
         Fp = np.sin(self.angbtwArms)*(afac*np.cos(2.*psi) + bfac*np.sin(2*psi))
         Fc = np.sin(self.angbtwArms)*(bfac*np.cos(2.*psi) - afac*np.sin(2*psi))
 
-        hp, hc = wfhp*Fp*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - Phicoal + phiL)), wfhc*Fc*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - Phicoal + phiL))
+        hp, hc = wfhp*Fp*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL)), wfhc*Fc*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL))
         def psi_par_deriv():
             
             Fp_psider = 2*np.sin(self.angbtwArms)*(-afac*np.sin(2.*psi) + bfac*np.cos(2*psi))
             Fc_psider = 2*np.sin(self.angbtwArms)*(-bfac*np.sin(2.*psi) - afac*np.cos(2*psi))
             
-            return wfhp*Fp_psider*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - Phicoal + phiL)) + wfhc*Fc_psider*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - Phicoal + phiL))
+            return wfhp*Fp_psider*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL)) + wfhc*Fc_psider*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL))
         
         def phi_par_deriv():
             
@@ -490,8 +492,8 @@ class GWSignal(object):
             Fp_phider = np.sin(self.angbtwArms)*(afac_phider*np.cos(2.*psi) + bfac_phider*np.sin(2*psi))
             Fc_phider = np.sin(self.angbtwArms)*(bfac_phider*np.cos(2.*psi) - afac_phider*np.sin(2*psi))
             
-            ampP_phider = wfhp*Fp_phider*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - Phicoal + phiL))
-            ampC_phider = wfhc*Fc_phider*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - Phicoal + phiL))
+            ampP_phider = wfhp*Fp_phider*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL))
+            ampC_phider = wfhc*Fc_phider*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL))
             phiD_phideriv = 0.
             phiL_phideriv = 2.*np.pi*fgrids*locDt_phider*(3600.*24.)
             
@@ -533,8 +535,8 @@ class GWSignal(object):
             Fp_thder = np.sin(self.angbtwArms)*(afac_thder*np.cos(2.*psi) + bfac_thder*np.sin(2*psi))
             Fc_thder = np.sin(self.angbtwArms)*(bfac_thder*np.cos(2.*psi) - afac_thder*np.sin(2*psi))
             
-            ampP_thder = wfhp*Fp_thder*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - Phicoal + phiL))
-            ampC_thder = wfhc*Fc_thder*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - Phicoal + phiL))
+            ampP_thder = wfhp*Fp_thder*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL))
+            ampC_thder = wfhc*Fc_thder*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL))
             phiD_thderiv = 0.
             phiL_thderiv = 2.*np.pi*fgrids*locDt_thder*(3600.*24.)
             
@@ -575,8 +577,8 @@ class GWSignal(object):
             Fp_tcder = np.sin(self.angbtwArms)*(afac_tcder*np.cos(2.*psi) + bfac_tcder*np.sin(2*psi))
             Fc_tcder = np.sin(self.angbtwArms)*(bfac_tcder*np.cos(2.*psi) - afac_tcder*np.sin(2*psi))
             
-            ampP_tcder = wfhp*Fp_tcder*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - Phicoal + phiL))
-            ampC_tcder = wfhc*Fc_tcder*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - Phicoal + phiL))
+            ampP_tcder = wfhp*Fp_tcder*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL))
+            ampC_tcder = wfhc*Fc_tcder*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL))
             phiD_tcderiv = 0.
             phiL_tcderiv = 2.*np.pi*fgrids*locDt_tcder*(3600.*24.)
 
@@ -586,10 +588,10 @@ class GWSignal(object):
             
             wfhp_iotader, wfhc_iotader = -wfAmpl*np.exp(-1j*wfPhiGw)*(np.cos(iota)*np.sin(iota)), -1j*wfAmpl*np.exp(-1j*wfPhiGw)*np.sin(iota)
             
-            return wfhp_iotader*Fp*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - Phicoal + phiL)) + wfhc_iotader*Fc*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - Phicoal + phiL))
+            return wfhp_iotader*Fp*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL)) + wfhc_iotader*Fc*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL))
         
         dL_deriv = -(hp+hc)/dL
-        Phicoal_deriv = -1j*(hp+hc)
+        Phicoal_deriv = -2j*(hp+hc)
         psi_deriv = psi_par_deriv()
         phi_deriv = phi_par_deriv()
         theta_deriv = theta_par_deriv()

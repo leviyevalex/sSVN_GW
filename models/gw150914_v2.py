@@ -62,7 +62,7 @@ class gwfast_LVGW150914(object):
             self.PSDs['H1']    = jnp.interp(self.fgrid, self.Net.signals['H1'].strainFreq, self.Net.signals['H1'].noiseCurve, left=1., right=1.).squeeze()
             # self.PSDs['Virgo'] = jnp.interp(self.fgrid, self.Net.signals['Virgo'].strainFreq, self.Net.signals['Virgo'].noiseCurve, left=1., right=1.).squeeze()
 
-            # LATEST CATELOG MEDIANS
+            # LATEST CATELOG MEDIANS ( THESE ARE THE CORRECT ONES, TODO CHANGE LATER!!! )
             tGPS = np.array([1126259462.419288])
             tcoal = float(utils.GPSt_to_LMST(tGPS, lat=0., long=0.)) * milliseconds_per_day
             injParams = {}
@@ -124,7 +124,7 @@ class gwfast_LVGW150914(object):
             for det in self.PSDs.keys(): # NOTE: Number of
                 self.noise[det] = self.generate_noise_from_asd(self.Net.signals[det].strainFreq, self.Net.signals[det].noiseCurve, self.fgrid, seed=None)
 
-                # self.noise[det] = 0 # TODO: REMOVE LATER 
+                self.noise[det] = 0 # NOTE: COMMENT THIS OUT IF YOU WANT NOISY INJECTION!!!
                 
                 self.htrue[det] += self.noise[det]
 
@@ -283,7 +283,7 @@ class gwfast_LVGW150914(object):
         # grad_V += self.overlap(jacSignal['Virgo'], residual['Virgo'], self.PSDs['Virgo'], self.df).real
 
         # Gradient of prior
-        grad_V = grad_V.at[:, jnp.array([0, 1])].add(gradient_minusLogPrior(X))
+        grad_V = grad_V.at[:, jnp.array([0, 1, 2])].add(gradient_minusLogPrior(X))
 
         # NOTE: As priors are added this will need to be updated as well!
 
