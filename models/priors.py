@@ -27,12 +27,19 @@ def minusLogPrior(x):
     # Power law in dL
     V_prior += -2 * jnp.log(dL)
 
+    # sin priors
+    V_prior += -jnp.log(jnp.sin(theta))
+    V_prior += -jnp.log(jnp.sin(iota))
+
     # Incorporate other priors here if desired
     # .
     # .
     # .
 
     return V_prior
+
+
+cot = lambda x: jnp.cos(x) / jnp.sin(x)
 
 def gradient_minusLogPrior(x): 
     """ 
@@ -55,12 +62,19 @@ def gradient_minusLogPrior(x):
 
     # NOTE: Method assumes an N x d shaped array as input
 
-    grad_V_prior = jnp.zeros((x.shape[0], 3))
+    grad_V_prior = jnp.zeros((x.shape[0], 5))
     grad_V_prior = grad_V_prior.at[:, 0].set(-1 / Mc)
-    grad_V_prior = grad_V_prior.at[:, 1].set((-2 / (1 - 4 * eta) + 6 / (5 * eta)))
+    # grad_V_prior = grad_V_prior.at[:, 1].set((-2 / (1 - 4 * eta) + 6 / (5 * eta))) # FIRST TRY
+    grad_V_prior = grad_V_prior.at[:, 1].set((6 - 34 * eta) / (5 * eta - 20 * eta ** 2)) # SECOND TRY
     
     # dL contribution to gradient of potential
     grad_V_prior = grad_V_prior.at[:, 2].set(-2 / dL)
+
+    # sin prior contributions to the gradient of the potential
+
+    grad_V_prior = grad_V_prior.at[:, 3].set(-cot(theta)) # theta
+    grad_V_prior = grad_V_prior.at[:, 4].set(-cot(iota)) # iota
+
 
 
     return grad_V_prior
