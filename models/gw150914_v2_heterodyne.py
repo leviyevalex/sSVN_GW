@@ -35,30 +35,45 @@ def jac_q_to_eta(q):
     
     return (1.-q) / (1.+q)**3
 
+
+    # bin_ends[-1] = len(f_grid) - 1
+    # arr = np.array(arr)
+    # f_grid = np.array(f_grid)
+    # sparse_grid = np.array(sparse_grid)
+    # cumsum[1:] = jnp.cumsum(arr)
 def sum_in_bins(arr, f_grid, sparse_grid):
     """ 
-    # NOTE: Eliminate last element in sparse_grid to avoid bin edge placement at boundary
-    # NOTE: Assumes f_grid and sparse_grid are sorted and have no repeated elements
-    # NOTE: Pad cumsum array to handle edge case where i=0
+    Sum values of `arr` binned according to `f_grid` within ranges defined by `sparse_grid`.
+    Eliminates last element in sparse_grid to avoid bin edge placement at boundary.
+    Assumes f_grid and sparse_grid are sorted and have no repeated elements.
+    Pads cumulative sum array to handle edge case where i=0.
     """
-    bin_starts = np.searchsorted(f_grid, sparse_grid[:-1], side='left')
 
-    bin_ends = np.zeros_like(bin_starts)
-    bin_ends[:-1] = bin_starts[1:] - 1
-    bin_ends[-1] = len(f_grid) - 1
+    # Find bin starts using the left edge of each bin
+    bin_starts = jnp.searchsorted(f_grid, sparse_grid[:-1], side='left')
+    
+    # Correct calculation for bin ends
+    bin_ends = jnp.searchsorted(f_grid, sparse_grid[1:], side='left') - 1
+    
+    # Handle out-of-bounds case for the last bin
+    bin_ends = bin_ends.at[-1].set(len(f_grid) - 1)
 
-    cumsum = np.zeros(len(arr) + 1, dtype=arr.dtype)
-    cumsum[1:] = np.cumsum(arr)
+    # Compute cumulative sum array for fast range sums
+    cumsum = jnp.zeros(len(arr) + 1, dtype=arr.dtype)
+    cumsum = cumsum.at[1:].set(jnp.cumsum(arr))
+
+    # Return the sum in each bin by difference of cumulative sums
     return cumsum[bin_ends + 1] - cumsum[bin_starts]
 
-def getBinIds(grid, bins):
-    """ 
-    Given bins, returns an array labeling which bin each point in grid belongs to.
-    Bins are labeled beginning from 0 to nbins - 1!
-    """
-    bin_ids = np.digitize(grid, bins) - 1 # (ia), (ib)
-    bin_ids[-1] = len(bins) - 2 # (ic)
-    return bin_ids
+
+# def getBinIds(grid, bins):
+#     """ 
+#     Given bins, returns an array labeling which bin each point in grid belongs to.
+#     Bins are labeled beginning from 0 to nbins - 1!
+#     """
+#     bin_ids = np.digitize(grid, bins) - 1 # (ia), (ib)
+#     bin_ids[-1] = len(bins) - 2 # (ic)
+#     return bin_ids
 
 
 class gwfast_LVGW150914(object):
@@ -82,10 +97,6 @@ class gwfast_LVGW150914(object):
 
             # Point to which detector characteristics we want
             asd_paths = {}
-            # asd_paths['L1']    = '/home/al44828/projects/sSVN_GW/notebooks/aLIGO_O4_high_asd.txt'
-            # asd_paths['H1']    = '/home/al44828/projects/sSVN_GW/notebooks/aLIGO_O4_high_asd.txt'
-            # asd_paths['Virgo'] = '/home/al44828/projects/sSVN_GW/notebooks/AdV_asd.txt'
-
             asd_paths['L1']    = '/home/al44828/projects/sSVN_GW/notebooks/LIGO_L_ASD_GW150914.txt'
             asd_paths['H1']    = '/home/al44828/projects/sSVN_GW/notebooks/LIGO_H_ASD_GW150914.txt'
             # asd_paths['Virgo'] = '/home/al44828/projects/sSVN_GW/notebooks/AdV_asd.txt'
@@ -97,14 +108,12 @@ class gwfast_LVGW150914(object):
             self.PSDs = {}
             self.PSDs['L1']    = jnp.interp(self.fgrid, self.Net.signals['L1'].strainFreq, self.Net.signals['L1'].noiseCurve, left=1., right=1.).squeeze()
             self.PSDs['H1']    = jnp.interp(self.fgrid, self.Net.signals['H1'].strainFreq, self.Net.signals['H1'].noiseCurve, left=1., right=1.).squeeze()
-            # self.PSDs['Virgo'] = jnp.interp(self.fgrid, self.Net.signals['Virgo'].strainFreq, self.Net.signals['Virgo'].noiseCurve, left=1., right=1.).squeeze()
 
             # LATEST CATELOG MEDIANS ( THESE ARE THE CORRECT ONES, TODO CHANGE LATER!!! )
             tGPS = np.array([1126259462.419288])
             tcoal = float(utils.GPSt_to_LMST(tGPS, lat=0., long=0.)) * milliseconds_per_day
             injParams = {}
             injParams['Mc']      = np.array([30.68716026])                        # (0)   # [M_solar]      # Chirp mass
-            #injParams['eta']     = np.array([0.2488933]) * eta_rescaling          # (1)   # [Unitless]     # Symmetric mass ratio
             injParams['q']       = np.array([0.8752328774395706]) * q_rescaling   # (1)   # [Unitless]     # Mass ratio
             injParams['dL']      = np.array([0.46752133]) * dL_rescaling          # (2)   # [Gigaparsecs]  # Luminosity distance
             injParams['theta']   = np.array([2.76406998])                         # (3)   # [Rad]          # Declination
@@ -116,38 +125,17 @@ class gwfast_LVGW150914(object):
             injParams['chi1z']   = np.array([-0.0496784])                         # (9)   # [Unitless]     # Aligned spin 1
             injParams['chi2z']   = np.array([-0.00661958])                        # (10)  # [Unitless]     # Aligned spin 2
 
-            # Injection parameters (GW150914) # OLDER PARAMETERS
-            # tGPS = np.array([1.1262594624e+09])
-            # tcoal = float(utils.GPSt_to_LMST(tGPS, lat=0., long=0.)) * milliseconds_per_day
-            # injParams = {}
-            # injParams['Mc']      = np.array([31.39])                              # (0)   # [M_solar]      # Chirp mass
-            # injParams['eta']     = np.array([0.2485773]) * eta_rescaling          # (1)   # [Unitless]     # Symmetric mass ratio
-            # injParams['dL']      = np.array([0.43929]) * dL_rescaling             # (2)   # [Gigaparsecs]  # Luminosity distance
-            # injParams['theta']   = np.array([2.78560281])                         # (3)   # [Rad]          # Declination
-            # injParams['phi']     = np.array([1.67687425])                         # (4)   # [Rad]          # Right ascention
-            # injParams['iota']    = np.array([2.67548653])                         # (5)   # [Rad]          # Inclination
-            # injParams['psi']     = np.array([0.78539816])                         # (6)   # [Rad]          # Polarization angle
-            # injParams['tcoal']   = np.array([tcoal])                              # (7)   # [ms]           # Time of coalescence
-            # injParams['Phicoal'] = np.array([0.1])                                # (8)   # [Rad]          # Phase of coalescence
-            # injParams['chi1z']   = np.array([0.27210419])                         # (9)   # [Unitless]     # Aligned spin 1
-            # injParams['chi2z']   = np.array([0.33355909])                         # (10)  # [Unitless]     # Aligned spin 2
-
             self.injParams = injParams
 
             # Parameter bounds 
             bounds = {}
             bounds['Mc']      = [25., 35.]                      
-            # bounds['eta']     = [0.20, 0.249]                 
-            # bounds['eta']     = [0.20 * eta_rescaling, 0.249 * eta_rescaling]         
-            #bounds['eta']     = [0.20 * eta_rescaling, 0.25 * eta_rescaling] 
             bounds['q']       = [0.5 * q_rescaling, 1. * q_rescaling]         
-            # bounds['dL']      = [0.25 * dL_rescaling, 2. * dL_rescaling]                     
             bounds['dL']      = [0.05 * dL_rescaling, 2. * dL_rescaling]                     
             bounds['theta']   = [0., np.pi]                   
             bounds['phi']     = [0., 2 * np.pi]               
             bounds['iota']    = [0., np.pi]                   
             bounds['psi']     = [0., np.pi]                   
-            # bounds['tcoal']   = [tcoal - 1, tcoal + 1]   # NOTE: This will need to be increased eventually     
             bounds['tcoal']   = [tcoal - 100, tcoal + 100]
             bounds['Phicoal'] = [0., 2 * np.pi]               
             bounds['chi1z']   = [-0.99, 0.99]                 
@@ -155,21 +143,18 @@ class gwfast_LVGW150914(object):
             self.bounds = bounds
 
             # Get mock data
-            self.true_params = jnp.array([self.injParams[param].squeeze() for param in self.gwfast_param_order])
-            # self.htrue = self.getSignal(self.true_params[None,:])
             # NOTE: Rescaling of t_c is handled in `getSignal` method separately
-            #self.htrue = self.getSignal(self.true_params.at[jnp.array([1,2])].divide(jnp.array([eta_rescaling, dL_rescaling]))[None,:])
+            self.true_params = jnp.array([self.injParams[param].squeeze() for param in self.gwfast_param_order])
             self.htrue = self.getSignal(self.true_params.at[jnp.array([1,2])].divide(jnp.array([q_rescaling, dL_rescaling]))[None,:])
+            self.htrue['H1'] = self.htrue['H1'].squeeze()
+            self.htrue['L1'] = self.htrue['L1'].squeeze()
 
             self.data = copy.copy(self.htrue)
-
             self.noise = {}
             np.random.seed(42)
             for det in self.PSDs.keys(): # NOTE: Number of
                 self.noise[det] = self.generate_noise_from_asd(self.Net.signals[det].strainFreq, np.sqrt(self.Net.signals[det].noiseCurve), self.fgrid)
-
                 self.noise[det] = 0 # NOTE: COMMENT THIS OUT IF YOU WANT NOISY INJECTION!!!
-                
                 self.data[det] += self.noise[det]
 
             self.extraneous()
@@ -185,6 +170,8 @@ class gwfast_LVGW150914(object):
 
             # Cache h0
             self.h0 = self.getSignal_sparse(self.true_params.at[jnp.array([1,2])].divide(jnp.array([q_rescaling, dL_rescaling]))[None,:])
+            self.h0['H1'] = self.h0['H1'].squeeze()
+            self.h0['L1'] = self.h0['L1'].squeeze()
 
             # Cache data norm
             self.d_d = {}
@@ -194,38 +181,58 @@ class gwfast_LVGW150914(object):
             self.A0, self.A1, self.B0, self.B1 = self.get_summary_data()
 
 
-    def get_heterodyne_grid(self, chi, eps, f_min, f_max):
+    # g_inverse = interp1d(jax.vmap(g)(f_dense), f_dense, kind='linear') 
+
+    def get_heterodyne_grid(self, chi, eps, f_min, f_max): # NOTE: We use jax here for the convenient vmap on `g`
         gammas = jnp.array([-5/3, -2/3, 1, 5/3, 7/3])
 
         f_star = f_max * jnp.heaviside(gammas, 1) + f_min * (1 - jnp.heaviside(gammas, 1))
         
         g = lambda f: 2 * jnp.pi * chi * jnp.sum(jnp.sign(gammas) * ((f / f_star) ** gammas))
 
-        num_bins = jnp.floor((g(f_max) - g(f_min)) / eps) + 1 # NOTE: eps must be some fraction smaller of \delta g
+        self.num_bins = jnp.floor((g(f_max) - g(f_min)) / eps) + 1
 
-        eps_prime = (g(f_max) - g(f_min)) / num_bins
+        eps_prime = (g(f_max) - g(f_min)) / self.num_bins
 
-        print('n_bins = %i' % num_bins)
+        assert(eps_prime < eps)
 
-        g_grid = g(f_min) + jnp.arange(0, num_bins + 1) * eps_prime
+        print('n_bins = %i' % self.num_bins)
+
+        g_grid = g(f_min) + jnp.arange(0, self.num_bins + 1) * eps_prime
 
         # Interpolation step
-        f_dense = np.linspace(f_min, f_max, 10000) 
-        g_inverse = interp1d(jax.vmap(g)(f_dense), f_dense, kind='linear') 
-        sparse_grid = g_inverse(g_grid)
-        sparse_grid[0] = f_min - 0.00001
-        sparse_grid[-1] = f_max + 0.00001
+        f_dense = jnp.linspace(f_min, f_max, 10000) 
+        g_dense = jax.vmap(g)(f_dense)        
+        # g_inverse = jnp.interp1d(g_grid, g_dense, f_dense) 
+
+        # sparse_grid = g_inverse(g_grid)
+        sparse_grid = jnp.interp(g_grid, g_dense, f_dense) 
+        # sparse_grid[0] = f_min
+        # sparse_grid[-1] = f_max
+
+        assert jnp.allclose(sparse_grid, jnp.sort(sparse_grid))
 
         return sparse_grid
 
+    # elements_per_bin = np.bincount(getBinIds(self.fgrid, self.sparse_grid)) # (ii)
+    # B0_integrand = 4 * (self.htrue[det].real ** 2 + self.htrue[det].imag ** 2) / self.PSDs[det] * self.df
+    # bin_ids[-1] = len(self.sparse_grid) - 2
     def get_summary_data(self): 
         A0, A1, B0, B1 = {}, {}, {}, {}
-        elements_per_bin = np.bincount(getBinIds(self.fgrid, self.sparse_grid)) # (ii)
+
+        # Find which frequencies belong to which bin
+        bin_ids = jnp.digitize(self.fgrid, self.sparse_grid) - 1
+        bin_ids = bin_ids.at[-1].set(len(self.sparse_grid) - 2)
+
+        elements_per_bin = jnp.bincount(bin_ids)
         deltaf_in_bin = self.fgrid - np.repeat(self.sparse_grid[:-1], elements_per_bin)
+
+        # assert(np.any(elements_per_bin == 0) == False)
+
         for det in self.PSDs.keys():
             A0_integrand = 4 * (self.htrue[det].conjugate() * self.data[det]) / self.PSDs[det] * self.df
             A1_integrand = A0_integrand * deltaf_in_bin
-            B0_integrand = 4 * (self.htrue[det].real ** 2 + self.htrue[det].imag ** 2) / self.PSDs[det] * self.df
+            B0_integrand = 4 * jnp.abs(self.htrue[det]) ** 2 / self.PSDs[det] * self.df
             B1_integrand = B0_integrand * deltaf_in_bin
             for summary_data, integrand in zip([A0, A1, B0, B1], [A0_integrand, A1_integrand, B0_integrand, B1_integrand]):
                 summary_data[det] = sum_in_bins(integrand.squeeze(), self.fgrid, self.sparse_grid)
@@ -240,6 +247,10 @@ class gwfast_LVGW150914(object):
 
         nParticles = X.shape[0]
         V = jnp.zeros(nParticles)
+
+        X = X.at[:, 1].divide(q_rescaling)
+        X = X.at[:, 2].divide(dL_rescaling)
+
         h = self.getSignal_sparse(X)
 
         for det in self.PSDs.keys():
@@ -247,29 +258,29 @@ class gwfast_LVGW150914(object):
             r0 = r[:, :-1] # Left points (y-intercepts)
             r1 = (r[:, 1:] - r[:, :-1]) / self.bin_widths # Slopes
 
-            h_d = jnp.sum(self.A0[det][jnp.newaxis] * r0.conjugate() + self.A1[det][jnp.newaxis] * r1.conjugate(), axis=1)
-            h_h = jnp.sum(self.B0[det][jnp.newaxis] * jnp.abs(r0) ** 2 + 2 * self.B1[det][jnp.newaxis] * (r0.conjugate() * r1).real, axis=1)
+            h_d = jnp.sum(self.A0[det] * r0.conjugate() + self.A1[det] * r1.conjugate(), axis=1)
+            h_h = jnp.sum(self.B0[det] * jnp.abs(r0) ** 2 + 2 * self.B1[det] * (r0.conjugate() * r1).real, axis=1)
 
             V += 0.5 * h_h - h_d.real + 0.5 * self.d_d[det]
         return V
 
-    def getFirstSplineData(self, X):
-        """ 
-        Return N x b matrix for spline of r := h/h0 in a particular detector
-        """
-        # Remarks:
-        # (i)   r is the heterodyne
-        # (ii)  These are the y-intercepts for each bin (N x b)
-        # (iii) These are the slopes for each bin (N x b)
-        h = self.getSignal_sparse(X)
-        r0, r1 = {}, {}
+    # def getFirstSplineData(self, X):
+    #     """ 
+    #     Return N x b matrix for spline of r := h/h0 in a particular detector
+    #     """
+    #     # Remarks:
+    #     # (i)   r is the heterodyne
+    #     # (ii)  These are the y-intercepts for each bin (N x b)
+    #     # (iii) These are the slopes for each bin (N x b)
+    #     h = self.getSignal_sparse(X)
+    #     r0, r1 = {}, {}
 
-        for det in self.PSDs.keys():
-            r = h[det] / self.h0[det] # (i)
-            r0[det]  = r[:, :-1] # (ii)
-            r1[det] = (r[:, 1:] - r[:, :-1]) / self.bin_widths # (iii)
+    #     for det in self.PSDs.keys():
+    #         r = h[det] / self.h0[det] # (i)
+    #         r0[det]  = r[:, :-1] # (ii)
+    #         r1[det] = (r[:, 1:] - r[:, :-1]) / self.bin_widths # (iii)
 
-        return r0, r1
+    #     return r0, r1
 
     # def getSecondSplineData(self, X, det):
     #     """ 
@@ -309,7 +320,7 @@ class gwfast_LVGW150914(object):
         # self.snr += self.square_norm(self.htrue['Virgo'], self.PSDs['Virgo'], self.df)
 
 
-        print('SNR at true values: %.2f' % jnp.sqrt(self.snr)[0])
+        print('SNR at true values: %.2f' % jnp.sqrt(self.snr))
 
     def getSignal(self, X):
         """
@@ -616,3 +627,22 @@ class gwfast_LVGW150914(object):
         nco = np.random.normal(0., scale)
 
         return nre + 1j*nco
+
+
+
+
+# def sum_in_bins(arr, f_grid, sparse_grid):
+#     """ 
+#     # NOTE: Eliminate last element in sparse_grid to avoid bin edge placement at boundary
+#     # NOTE: Assumes f_grid and sparse_grid are sorted and have no repeated elements
+#     # NOTE: Pad cumsum array to handle edge case where i=0
+#     """
+#     bin_starts = np.searchsorted(f_grid, sparse_grid[:-1], side='left')
+
+#     bin_ends = np.zeros_like(bin_starts)
+#     bin_ends[:-1] = bin_starts[1:] - 1
+#     bin_ends[-1] = len(f_grid) - 1
+
+#     cumsum = np.zeros(len(arr) + 1, dtype=arr.dtype)
+#     cumsum[1:] = np.cumsum(arr)
+#     return cumsum[bin_ends + 1] - cumsum[bin_starts]
