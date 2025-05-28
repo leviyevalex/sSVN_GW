@@ -5,9 +5,9 @@
 #    license that can be found in the LICENSE file.
 
 import os
-
-from jax.config import config
-config.update("jax_enable_x64", True)
+import jax
+# from jax.config import config
+jax.config.update("jax_enable_x64", True)
 
 # We use both the original numpy, denoted as onp, and the JAX implementation of numpy, denoted as np
 import numpy as onp

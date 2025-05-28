@@ -52,7 +52,7 @@ class taylorf2:
         # Defined fixed frequency grid
         self.fmin = 38
         self.fmax = 1024
-        self.n_bins = 1000
+        self.n_bins = 10000
         # self.n_bins = 6400
         self.frequency = jnp.linspace(self.fmin, self.fmax, num=self.n_bins+1)
         self.deltaf = (self.fmax - self.fmin) / self.n_bins
@@ -178,13 +178,23 @@ class taylorf2:
 
     def strain(self, x, f):
         mSunSec = self.m_sun_sec
-        tc = x[0]
-        phi = x[1]
-        Mc = x[2]
-        eta = x[3]
-        A = x[4]
-        chi_a = x[5]
-        chi_s = x[6]
+
+        # tc = x[0]
+        # phi = x[1]
+        # Mc = x[2]
+        # eta = x[3]
+        # A = x[4]
+        # chi_a = x[5]
+        # chi_s = x[6]
+
+        # Testing to see if this improves dimensionality issues
+        tc = x[..., 0]
+        phi = x[..., 1]
+        Mc = x[..., 2]
+        eta = x[..., 3]
+        A = x[..., 4]
+        chi_a = x[..., 5]
+        chi_s = x[..., 6]
 
         expr = (
             (A * jnp.exp(-1j * (-(jnp.pi / 4) + 2 * f * jnp.pi * tc +

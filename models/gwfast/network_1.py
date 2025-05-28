@@ -7,8 +7,8 @@
 import os
 import jax
 #Enable 64bit on JAX, fundamental
-# from jax.config import config
-jax.config.update("jax_enable_x64", True)
+from jax.config import config
+config.update("jax_enable_x64", True)
 #config.update("TF_CPP_MIN_LOG_LEVEL", 0)
 
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
@@ -265,7 +265,6 @@ class LV_DetNet(object):
                                  det_lat        = glob.detectors['L1']['lat'],
                                  det_long       = glob.detectors['L1']['long'],
                                  det_xax        = glob.detectors['L1']['xax'],
-                                 det_elevation  = glob.detectors['L1']['elevation'],
                                  fmin           = min(fixed_fgrid), 
                                  fmax           = max(fixed_fgrid),
                                  fixed_fgrid    = fixed_fgrid,
@@ -278,7 +277,6 @@ class LV_DetNet(object):
                                  det_lat        = glob.detectors['H1']['lat'],
                                  det_long       = glob.detectors['H1']['long'],
                                  det_xax        = glob.detectors['H1']['xax'],
-                                 det_elevation  = glob.detectors['H1']['elevation'],
                                  fmin           = min(fixed_fgrid), 
                                  fmax           = max(fixed_fgrid),
                                  fixed_fgrid    = fixed_fgrid,
@@ -291,7 +289,6 @@ class LV_DetNet(object):
         #                             det_lat        = glob.detectors['Virgo']['lat'],
         #                             det_long       = glob.detectors['Virgo']['long'],
         #                             det_xax        = glob.detectors['Virgo']['xax'],
-        #                             det_elevation  = glob.detectors['Virgo']['elevation'],
         #                             fmin           = min(fixed_fgrid), 
         #                             fmax           = max(fixed_fgrid),
         #                             fixed_fgrid    = fixed_fgrid,
@@ -330,17 +327,17 @@ class LV_DetNet(object):
             evParams = {'Mc':Mc, 'eta':eta, 'chi1z':chi1z, 'chi2z':chi2z, 'dL':dL}
             
             AmpWF = self.wf_model.Ampl(f, **evParams)
-            phaseWF = -self.wf_model.Phi(f, **evParams)
+            phaseWF = self.wf_model.Phi(f, **evParams)
 
-            return AmpWF*np.exp(1j*(phaseWF))*0.5*(1.+(np.cos(iota))**2), -1j*AmpWF*np.exp(1j*(phaseWF))*np.cos(iota)
-            #return AmpWF*np.exp(1j*(phaseWF))*0.5*(1.+(np.cos(iota))**2), 1j*AmpWF*np.exp(1j*(phaseWF))*np.cos(iota)
+            return AmpWF*np.exp(1j*(phaseWF))*0.5*(1.+(np.cos(iota))**2), 1j*AmpWF*np.exp(1j*(phaseWF))*np.cos(iota)
+            # return AmpWF*np.exp(1j*(-phaseWF))*0.5*(1.+(np.cos(iota))**2), 1j*AmpWF*np.exp(1j*(-phaseWF))*np.cos(iota)
         
         wf_p, wf_c = np.asarray(vmap(wfcall)(Mc, eta, dL, iota, chi1z, chi2z))
         
         fgrids = np.repeat(self.fixed_fgrid, Mc.shape[0]).reshape((self.fixed_fgrid.shape[0], Mc.shape[0]))
 
         all_signals = {}
-        
+
         def single_signal(d):
             t = tcoal*np.ones_like(fgrids)
             tmpDeltLoc = self.signals[d]._DeltLoc(theta, phi, t) # in seconds
@@ -351,12 +348,12 @@ class LV_DetNet(object):
 
             sig_p_tmp = wf_p.T*Fp
             sig_c_tmp = wf_c.T*Fc
-            
-            return (sig_p_tmp + sig_c_tmp)*np.exp(-1j*((phiL + 2.*np.pi*fgrids*(tcoal*3600.*24.)) - 2.*Phicoal))
-            
+    
+            return (sig_p_tmp + sig_c_tmp)*np.exp(1j*(phiL + 2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal))
+        
         all_signals['L1'] = single_signal('L1').T
         all_signals['H1'] = single_signal('H1').T
-        #all_signals['Virgo'] = single_signal('Virgo').T
+        # all_signals['Virgo'] = single_signal('Virgo').T
 
         return all_signals
     
@@ -465,9 +462,9 @@ class LV_DetNet(object):
             
             AmpWF = self.wf_model.Ampl(f, **evParams)
             
-            phaseWF = -self.wf_model.Phi(f, **evParams)
+            phaseWF = self.wf_model.Phi(f, **evParams)
             #print((AmpWF*np.exp(1j*(-phaseWF))*0.5*(1.+(np.cos(iota))**2)).shape)
-            return AmpWF*np.exp(1j*(phaseWF))*0.5*(1.+(np.cos(iota))**2), -1j*AmpWF*np.exp(1j*(phaseWF))*np.cos(iota)
+            return AmpWF*np.exp(1j*(phaseWF))*0.5*(1.+(np.cos(iota))**2), 1j*AmpWF*np.exp(1j*(phaseWF))*np.cos(iota)
             
         def wf_derivative_holo(Mc, eta, dL, iota, chi1z, chi2z):
             GWstrainUse = lambda Mc, eta, dL, iota, chi1z, chi2z: wfcall(Mc, eta, dL, iota, chi1z, chi2z)
@@ -502,14 +499,13 @@ class LV_DetNet(object):
             phiL = (2.*np.pi*fgrids)*tmpDeltLoc
             Fp, Fc = self.signals[d]._PatternFunction(theta, phi, t, psi, rot=0.)
 
-            FisherDerivs_p_tmp = FisherDerivs_p.transpose(0,2,1)*Fp*np.exp(-1j*(phiL + 2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal))
-            FisherDerivs_c_tmp = FisherDerivs_c.transpose(0,2,1)*Fc*np.exp(-1j*(phiL + 2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal))
+            FisherDerivs_p_tmp = FisherDerivs_p.transpose(0,2,1)*Fp*np.exp(1j*(phiL + 2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal))
+            FisherDerivs_c_tmp = FisherDerivs_c.transpose(0,2,1)*Fc*np.exp(1j*(phiL + 2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal))
 
             FisherDerivs = (FisherDerivs_p_tmp + FisherDerivs_c_tmp).transpose(0,2,1)
     
             dL_deriv, theta_deriv, phi_deriv, iota_deriv, psi_deriv, tc_deriv, Phicoal_deriv = self.signals[d]._AnalyticalDerivatives(Mc, eta, dL, theta, phi, iota, psi, tcoal, Phicoal, chi1z, chi2z)
             FisherDerivs = np.vstack((FisherDerivs, np.asarray(dL_deriv).T[np.newaxis,:], np.asarray(theta_deriv).T[np.newaxis,:], np.asarray(phi_deriv).T[np.newaxis,:], np.asarray(iota_deriv).T[np.newaxis,:], np.asarray(psi_deriv).T[np.newaxis,:], np.asarray(tc_deriv).T[np.newaxis,:], np.asarray(Phicoal_deriv).T[np.newaxis,:]))
-            FisherDerivs = FisherDerivs[np.array([0,1,4,5,6,7,8,9,10,2,3])]
             
             return FisherDerivs
         

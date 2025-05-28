@@ -78,18 +78,6 @@ Average Earth radius, in kilometers (:math:`\\rm km`).
 
 :type: float
 """
-EarthSemiMajorAxis = 6378.137 # km
-"""
-Earth semi major axis, in kilometers (:math:`\\rm km`).
-
-:type: float
-"""
-EarthSemiMinorAxis = 6356.752314 # km
-"""
-Earth semi minor axis, in kilometers (:math:`\\rm km`).
-
-:type: float
-"""
 RMoon = 1737.4 # km
 """
 Average Moon radius, in kilometers (:math:`\\rm km`).
@@ -146,34 +134,29 @@ Coefficient for the limit of the quasi-Keplerian approximation, in :math:`\\rm H
 ##############################################################################
 
 
-detectors = { 'L1': { 'lat':30 + 33. / 60 + 46.4196 / 3600,
-                     'long':-(90 + 46. / 60 + 27.2654 / 3600),
-                     'xax':242.7165,
+detectors = { 'L1': { 'lat':30.563,
+                     'long':-90.774,
+                     'xax':242.71636956358617,
                      'shape':'L',
-                     'elevation': -6.574/1000.,
                     },
              
-             'H1': { 'lat':46 + 27. / 60 + 18.528 / 3600,
-                     'long':-(119 + 24. / 60 + 27.5657 / 3600),
-                     'xax':170.9994,
+             'H1': { 'lat':46.455,
+                     'long':-119.408,
+                     'xax':170.99924234706103,
                      'shape':'L',
-                     'elevation': 142.554/1000.,
                     },
              
-             'Virgo': {'lat':43 + 37. / 60 + 53.0921 / 3600,
-                     'long':10 + 30. / 60 + 16.1878 / 3600,
+             'Virgo': {'lat':43.631,
+                     'long':10.504,
                      'xax':115.56756342034298,
                      'shape':'L',
-                     'elevation': 51.884/1000.,
                     },
              
-             'KAGRA': {'lat':36 + 24 / 60 + 42.69722 / 3600,
-                     'long':137 + 18 / 60 + 21.44171 / 3600,
+             'KAGRA': {'lat':36.412,
+                     'long':137.306,
                      'xax':15.396,
                      'shape':'L',
-                     'elevation': 414.181/1000.,
                     },
-             
             'LIGOI': {'lat':19.613,
                      'long':77.031,
                      'xax':287.384,

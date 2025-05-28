@@ -53,8 +53,7 @@ class gwfast_class(object):
 
         # Parameter order convention
         self.gwfast_param_order = ['Mc','eta', 'dL', 'theta', 'phi', 'iota', 'psi', 'tcoal', 'Phicoal', 'chi1z', 'chi2z']
-        # self.gwfast_params_neglected = ['chi1x', 'chi2x', 'chi1y', 'chi2y', 'LambdaTilde', 'deltaLambda', 'ecc']
-        self.gwfast_params_neglected = []
+        self.gwfast_params_neglected = ['chi1x', 'chi2x', 'chi1y', 'chi2y', 'LambdaTilde', 'deltaLambda', 'ecc']
 
         # Sample over subset of parameters
         # self.DoF = 11
@@ -92,7 +91,7 @@ class gwfast_class(object):
         # Heterodyned strategy
         self.d_d = self._precomputeDataInnerProduct()
         # TODO reenable when using heterodyne
-        # self._reinitialize(chi=chi, eps=eps)
+        self._reinitialize(chi=chi, eps=eps)
 
         # Debugging (ignore)
         self.hj0 = None
@@ -271,7 +270,7 @@ class gwfast_class(object):
         self.fmin = fmin  # 10
         self.fmax = self.wf_model.fcut(**self.injParams)[0] - 1e-7 # (ii)
 
-        self.nbins_standard = 10000 # 2000
+        self.nbins_standard = 1000 # 2000
         self.fgrid_standard = np.linspace(self.fmin, self.fmax, num=self.nbins_standard + 1).squeeze()
         self.df_standard = (self.fgrid_standard[-1] - self.fgrid_standard[0]) / self.nbins_standard
 
@@ -305,13 +304,11 @@ class gwfast_class(object):
                                                   fmin           = self.fmin, 
                                                   fmax           = self.fmax,
                                                   verbose        = False,
-                                                  is_ASD         = True,
-                                                  fixed_fgrid    = self.fgrid_standard)
+                                                  is_ASD         = True)
 
             self.PSD_standard[det] = jnp.interp(self.fgrid_standard, self.detsInNet[det].strainFreq, self.detsInNet[det].noiseCurve, left=1., right=1.).squeeze()
             self.PSD_dense[det] = jnp.interp(self.fgrid_dense, self.detsInNet[det].strainFreq, self.detsInNet[det].noiseCurve, left=1., right=1.).squeeze()
 
-        self.network = DetNet(self.detsInNet, fixed_fgrid=self.fgrid_standard, verbose=False, wf_model=self.wf_model)
 
     def getSignal(self, X, f_grid, det):
         """Method to calculate signal for each X[i] over f_grid in detector det
@@ -326,7 +323,7 @@ class gwfast_class(object):
         (v)   X must be (N x d) shaped, for one sample is must be (1 x d) shaped
         """
         nParticles = X.shape[0]
-        # dict_params_neglected = self._getDictParamsNeglected(nParticles)
+        dict_params_neglected = self._getDictParamsNeglected(nParticles)
         fgrids = jnp.repeat(f_grid[...,np.newaxis], nParticles, axis=1) # (i)
         X_ = X.T.astype('complex128')
         signal = (self.detsInNet[det].GWstrain(fgrids, # (ii)                        
@@ -339,11 +336,10 @@ class gwfast_class(object):
                                                psi     = X_[6],
                                                tcoal   = X_[7] / self.seconds_per_day, # (iii)
                                                Phicoal = X_[8],
-                                               chi1z    = X_[9],
-                                               chi2z    = X_[10],
-                                            #    is_chi1chi2 = 'True',
-                                            #    **dict_params_neglected)).T # (iv) 
-                                               )).T
+                                               chiS    = X_[9],
+                                               chiA    = X_[10],
+                                               is_chi1chi2 = 'True',
+                                               **dict_params_neglected)).T # (iv) 
                             
         return signal 
 
@@ -362,10 +358,10 @@ class gwfast_class(object):
             gwfast returns a (d, N, f) shaped array 
         """
         nParticles = X.shape[0]
-        # dict_params_neglected = self._getDictParamsNeglected(nParticles)
-        # fgrids = jnp.repeat(f_grid[...,np.newaxis], nParticles, axis=1)
+        dict_params_neglected = self._getDictParamsNeglected(nParticles)
+        fgrids = jnp.repeat(f_grid[...,np.newaxis], nParticles, axis=1)
         X_ = X.T.astype('complex128')
-        jacModel = self.detsInNet[det]._SignalDerivatives( 
+        jacModel = self.detsInNet[det]._SignalDerivatives_use(fgrids, 
                                                               Mc      = X_[0],
                                                               eta     = X_[1],
                                                               dL      = X_[2],
@@ -375,11 +371,10 @@ class gwfast_class(object):
                                                               psi     = X_[6],
                                                               tcoal   = X_[7] / self.seconds_per_day, # Correction 1
                                                               Phicoal = X_[8],
-                                                              chi1z    = X_[9],
-                                                              chi2z    = X_[10],
-                                                            #   use_chi1chi2 = True,
-                                                            #   **dict_params_neglected) 
-                                                              ) 
+                                                              chiS    = X_[9],
+                                                              chiA    = X_[10],
+                                                              use_chi1chi2 = True,
+                                                              **dict_params_neglected) 
 
         jacModel = jacModel.at[7].divide(self.seconds_per_day) # Correction 2
 
@@ -425,56 +420,20 @@ class gwfast_class(object):
         print('SNR: %f' % np.sqrt(SNR))
         return SNR2
 
-    # Question: Why was this commented out? TODO
-    # def getMinusLogPosterior_ensemble(self, X): # Checks: XX
+    # def standard_minusLogLikelihood(self, X): # Checks: XX
     # @partial(jax.jit, static_argnums=(0,))
-    # NOTE: Jit compiling introduces machine error? JIT compiling makes log likelihood nonzero at injection? 
-    def standard_minusLogLikelihood(self, X): # Checks: XX
-        """ 
-        """
-        nParticles = X.shape[0]
-        log_likelihood = jnp.zeros(nParticles)
-        for det in self.detsInNet.keys():
-            template = self.getSignal(X, self.fgrid_standard, det) # signal template
-            residual = template - self.d_standard[det][np.newaxis, ...]
-            log_likelihood += 0.5 * self.square_norm(residual, self.PSD_standard[det], self.df_standard) 
-        return log_likelihood
+    # def getMinusLogPosterior_ensemble(self, X): # Checks: XX
+    #     """ 
+    #     """
+    #     nParticles = X.shape[0]
+    #     log_likelihood = jnp.zeros(nParticles)
+    #     for det in self.detsInNet.keys():
+    #         template = self.getSignal(X, self.fgrid_standard, det) # signal template
+    #         residual = template - self.d_standard[det][np.newaxis, ...]
+    #         log_likelihood += 0.5 * self.square_norm(residual, self.PSD_standard[det], self.df_standard) 
+    #     return log_likelihood
 
     @partial(jax.jit, static_argnums=(0,))
-    def getGradients(self, X):
-        nParticles = X.shape[0]
-        X_ = X.T.astype('complex128')
-        jacModel = self.network._SignalDerivatives( 
-                                                              Mc      = X_[0],
-                                                              eta     = X_[1],
-                                                              dL      = X_[2],
-                                                              theta   = X_[3],
-                                                              phi     = X_[4],
-                                                              iota    = X_[5],
-                                                              psi     = X_[6],
-                                                              tcoal   = X_[7] / self.seconds_per_day, # Correction 1
-                                                              Phicoal = X_[8],
-                                                              chi1z    = X_[9],
-                                                              chi2z    = X_[10],
-                                                            #   use_chi1chi2 = True,
-                                                            #   **dict_params_neglected) 
-                                                              ) 
-        
-        grad_log_like = jnp.zeros((nParticles, self.DoF))
-        # for det in self.detsInNet.keys():
-
-
-        
-        lax.scan
-        det = 'L1'
-        template  = self.getSignal(X, self.fgrid_standard, det)
-        jacSignal = jacModel[det]
-        residual  = template - self.d_standard[det][np.newaxis, ...]
-        grad_log_like += self.overlap(jacSignal, residual, self.PSD_standard[det], self.df_standard).real
-        return grad_log_like
-
-
-    # @partial(jax.jit, static_argnums=(0,))
     def standard_gradientMinusLogLikelihood(self, X): # Checks: XX
         # Remarks:
         # (i) Jacobian is (d, N, f) shaped. sum over final axis gives (d, N), then transpose to give (N, d)
@@ -695,8 +654,8 @@ class gwfast_class(object):
 
     #         r0, r1 = self.getFirstSplineData(X, det)
     #         r0j, r1j = self.getSecondSplineData(X, det)
-            grad_log_like += \
-            jnp.sum((self.B0[det] * r0j.conjugate() * (r0-1)) + (self.B1[det] * (r0j.conjugate() * r1 + r1j.conjugate() * (r0-1))), axis=-1).T.real 
+    #         grad_log_like += \
+    #         jnp.sum((self.B0[det] * r0j.conjugate() * (r0-1)) + (self.B1[det] * (r0j.conjugate() * r1 + r1j.conjugate() * (r0-1))), axis=-1).T.real 
 
     #     return grad_log_like
 

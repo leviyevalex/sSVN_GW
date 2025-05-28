@@ -10,8 +10,8 @@ import jax.numpy as jnp
 import numpy as np
 from functools import partial
 import jax
-from jax.config import config
-config.update("jax_enable_x64", True)
+# from jax.config import config
+jax.config.update("jax_enable_x64", True)
 import numpy as np
 
 class hybrid_rosenbrock:
@@ -44,9 +44,13 @@ class hybrid_rosenbrock:
         # self.lower_bound = np.ones(self.DoF) * (0.9)
         # self.upper_bound = np.ones(self.DoF) * (1.2)
 
+        self.lower_bound = np.ones(self.DoF) * (-5)
+        self.upper_bound = np.ones(self.DoF) * (5)
+
+
         np.random.seed(seed)
-        self.lower_bound = jnp.array(np.random.uniform(0.2, 1, self.DoF))
-        self.upper_bound = jnp.array(np.random.uniform(2, 4.5, self.DoF))
+        # self.lower_bound = jnp.array(np.random.uniform(0.2, 1, self.DoF))
+        # self.upper_bound = jnp.array(np.random.uniform(2, 4.5, self.DoF))
 
 
     def _getDependencyStructure(self, x):
@@ -165,7 +169,7 @@ class hybrid_rosenbrock:
                 samples[:, d] = samples[:, d - 1] ** 2 + np.random.normal(0, 1, nSamples) * standard_deviation
         return samples
 
-    @partial(jax.jit, static_argnums=(0,))
+    # @partial(jax.jit, static_argnums=(0,))
     def getMinusLogPosterior_ensemble(self, thetas):
         """Batch evaluation of the potential
 
@@ -177,7 +181,7 @@ class hybrid_rosenbrock:
         """
         return jax.vmap(self.getMinusLogPosterior)(thetas)
 
-    @partial(jax.jit, static_argnums=(0,))
+    # @partial(jax.jit, static_argnums=(0,))
     def getGradientMinusLogPosterior_ensemble(self, thetas):
         """Batch evaluation of the gradient of the potential
 
@@ -189,7 +193,7 @@ class hybrid_rosenbrock:
         """
         return jax.vmap(self.getGradientMinusLogPosterior)(thetas)
 
-    @partial(jax.jit, static_argnums=(0,))
+    # @partial(jax.jit, static_argnums=(0,))
     def getGNHessianMinusLogPosterior_ensemble(self, thetas):
         """Batch evaluation of the Gauss-Newton approximation to the Hessian of the potential
 
@@ -201,6 +205,8 @@ class hybrid_rosenbrock:
         """
         return jax.vmap(self.getGNHessianMinusLogPosterior)(thetas)
 
+    # def grad_hess(self, thetas):
+        
     # def _newDrawFromPrior(self, nSamples):
     #     """
     #     Return samples from a uniform prior. Included for convenience.
@@ -219,11 +225,12 @@ class hybrid_rosenbrock:
         samples = np.zeros((nSamples, self.DoF))
         for i in range(self.DoF):
             buffer = (self.upper_bound[i] - self.lower_bound[i]) / 8
+            print(buffer)
             samples[:, i] = np.random.uniform(self.lower_bound[i] + buffer, self.upper_bound[i] - buffer, nSamples)
         return samples
 
 
-    @partial(jax.jit, static_argnums=(0,))
+    # @partial(jax.jit, static_argnums=(0,))
     def getDerivativesMinusLogPosterior_ensemble(self, thetas):
         gmlpt = self.getGradientMinusLogPosterior_ensemble(thetas)
         Hmlpt = self.getGNHessianMinusLogPosterior_ensemble(thetas)

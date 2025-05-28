@@ -17,13 +17,16 @@ from models.priors import minusLogPrior, gradient_minusLogPrior, Mc_q_uniform_ma
 
 # from astropy.cosmology import Planck18
 from functools import partial
-# from jax.config import config
-jax.config.update("jax_enable_x64", True)
+from jax.config import config
+config.update("jax_enable_x64", True)
+
+# Stuff for real data
+from gwpy.timeseries import TimeSeries
+from scipy.signal.windows import tukey
 
 # milliseconds_per_day = 3600. * 24 * 100 # milliseconds per day (FUDGED!!!)
 milliseconds_per_day = 3600. * 24 * 1000 # milliseconds per day
-# eta_rescaling = 100
-# q_rescaling = 10
+eta_rescaling = 100
 q_rescaling = 1
 dL_rescaling = 1 # DONT CHANGE THIS
 
@@ -36,11 +39,12 @@ def jac_q_to_eta(q):
 
 class gwfast_LVGW150914(object):
     # def __init__(self, wf_model=TaylorF2_RestrictedPN, nbins=1000, fmin=10., fmax=560.):
-    def __init__(self, wf_model=TaylorF2_RestrictedPN, nbins=200, fmin=20., fmax=512., seed=42, true_params=None):
+    def __init__(self, wf_model=TaylorF2_RestrictedPN, fmin=20., fmax=512.):
 
             # Define model, parameter order convention, and explicitly label periodic vs bounded coordinates
             self.wf_model = wf_model()
             self.DoF = 11
+            #self.gwfast_param_order = ['Mc', 'eta', 'dL', 'theta', 'phi', 'iota', 'psi', 'tcoal', 'Phicoal', 'chi1z', 'chi2z']
             self.gwfast_param_order = ['Mc', 'q', 'dL', 'theta', 'phi', 'iota', 'psi', 'tcoal', 'Phicoal', 'chi1z', 'chi2z']
             self.periodic_coordinates = jnp.array([4, 6, 8])
             self.bounded_coordinates = jnp.array([0, 1, 2, 3, 5, 7, 9, 10])
@@ -48,15 +52,26 @@ class gwfast_LVGW150914(object):
             # Define grid to evaluate frequency domain waveform
             self.fmin = fmin 
             self.fmax = fmax
-            self.nbins = nbins
-            self.fgrid = jnp.linspace(self.fmin, self.fmax, num=self.nbins + 1).squeeze()
-            self.df = (self.fgrid[-1] - self.fgrid[0]) / self.nbins
+            tGPS = np.round(np.array([1126259462.419288]))
+            
+            self.htrue = {}
+            # Settings as in https://git.ligo.org/lscsoft/bilby/blob/master/examples/gw_examples/data_examples/GW150914.py 
+            # NOTE: DO NOT MODIFY
+            self.fgrid, self.htrue['L1'] = self.get_data_from_gwpy(ifo='L1', gps_time=tGPS[0], duration=4, post_trigger_duration=2, roll_off=0.4)
+            _, self.htrue['H1']          = self.get_data_from_gwpy(ifo='H1', gps_time=tGPS[0], duration=4, post_trigger_duration=2, roll_off=0.4)
+            
+            self.htrue['L1'] = self.htrue['L1'][jnp.newaxis,:]
+            self.htrue['H1'] = self.htrue['H1'][jnp.newaxis,:]
+            
+            self.nbins = len(self.fgrid)
+            self.df = np.array(self.fgrid)[1] - np.array(self.fgrid)[0]
 
             # Point to which detector characteristics we want
             asd_paths = {}
+            
             asd_paths['L1']    = '/home/al44828/projects/sSVN_GW/notebooks/LIGO_L_ASD_GW150914.txt'
             asd_paths['H1']    = '/home/al44828/projects/sSVN_GW/notebooks/LIGO_H_ASD_GW150914.txt'
-
+            
             # Define network object
             self.Net = LV_DetNet(self.wf_model, fixed_fgrid=self.fgrid, verbose=True, ASDs=asd_paths)
 
@@ -64,13 +79,12 @@ class gwfast_LVGW150914(object):
             self.PSDs = {}
             self.PSDs['L1']    = jnp.interp(self.fgrid, self.Net.signals['L1'].strainFreq, self.Net.signals['L1'].noiseCurve, left=1., right=1.).squeeze()
             self.PSDs['H1']    = jnp.interp(self.fgrid, self.Net.signals['H1'].strainFreq, self.Net.signals['H1'].noiseCurve, left=1., right=1.).squeeze()
-
-            # Commenting out!
+            
             # LATEST CATELOG MEDIANS ( THESE ARE THE CORRECT ONES, TODO CHANGE LATER!!! )
-            tGPS = np.array([1126259462.419288])
-            tcoal = float(utils.GPSt_to_LMST(tGPS, lat=0., long=0.)[0]) * milliseconds_per_day
+            tcoal = float(utils.GPSt_to_LMST(tGPS, lat=0., long=0.)) * milliseconds_per_day
             injParams = {}
             injParams['Mc']      = np.array([30.68716026])                        # (0)   # [M_solar]      # Chirp mass
+            #injParams['eta']     = np.array([0.2488933]) * eta_rescaling          # (1)   # [Unitless]     # Symmetric mass ratio
             injParams['q']       = np.array([0.8752328774395706]) * q_rescaling   # (1)   # [Unitless]     # Mass ratio
             injParams['dL']      = np.array([0.46752133]) * dL_rescaling          # (2)   # [Gigaparsecs]  # Luminosity distance
             injParams['theta']   = np.array([2.76406998])                         # (3)   # [Rad]          # Declination
@@ -84,60 +98,29 @@ class gwfast_LVGW150914(object):
 
             self.injParams = injParams
 
-            # Parameter bounds (STANDARD USE CASE)
+            # Parameter bounds 
             bounds = {}
             bounds['Mc']      = [25., 35.]                      
-            bounds['q']       = [0.5 * q_rescaling, 1. * q_rescaling]         
+            # bounds['eta']     = [0.20, 0.249]                 
+            # bounds['eta']     = [0.20 * eta_rescaling, 0.249 * eta_rescaling]         
+            #bounds['eta']     = [0.20 * eta_rescaling, 0.25 * eta_rescaling] 
+            bounds['q']       = [0.38 * q_rescaling, 1. * q_rescaling]         
             bounds['dL']      = [0.05 * dL_rescaling, 2. * dL_rescaling]                     
             bounds['theta']   = [0., np.pi]                   
             bounds['phi']     = [0., 2 * np.pi]               
             bounds['iota']    = [0., np.pi]                   
             bounds['psi']     = [0., np.pi]                   
+            # bounds['tcoal']   = [tcoal - 1, tcoal + 1]   # NOTE: This will need to be increased eventually     
             bounds['tcoal']   = [tcoal - 100, tcoal + 100]
             bounds['Phicoal'] = [0., 2 * np.pi]               
             bounds['chi1z']   = [-0.99, 0.99]                 
             bounds['chi2z']   = [-0.99, 0.99]                 
             self.bounds = bounds
 
-            # Parameter bounds (SIMULATION CALIBRATION CASE)
-            # # NOTE: We use the same settings as Kaze Wong in Mc
-            # bounds = {}
-            # bounds['Mc']      = [35., 50.]                      
-            # bounds['q']       = [0.5 * q_rescaling, 1. * q_rescaling]         
-            # bounds['dL']      = [0.3 * dL_rescaling, 2. * dL_rescaling]                     
-            # bounds['theta']   = [0., np.pi]                   
-            # bounds['phi']     = [0., 2 * np.pi]               
-            # bounds['iota']    = [0., np.pi]                   
-            # bounds['psi']     = [0., np.pi]                   
-            # bounds['tcoal']   = [-10, 10]
-            # bounds['Phicoal'] = [0., 2 * np.pi]               
-            # bounds['chi1z']   = [-0.99, 0.99]                 
-            # bounds['chi2z']   = [-0.99, 0.99]                 
-            # self.bounds = bounds
-
-
-
-            # NOTE: Rescaling of t_c is handled in `getSignal` method separately
-
-            # Get mock data
-            if true_params != None:
-                self.true_params = true_params
-            else:
-                self.true_params = jnp.array([self.injParams[param].squeeze() for param in self.gwfast_param_order])
-            
-            self.htrue = self.getSignal(self.true_params.at[jnp.array([1,2])].divide(jnp.array([q_rescaling, dL_rescaling]))[None,:])
-
-            self.noise = {}
-            self.data = copy.copy(self.htrue)
-            for det in self.PSDs.keys(): # NOTE: Number of
-                self.noise[det] = self.generate_noise_from_asd(self.Net.signals[det].strainFreq, np.sqrt(self.Net.signals[det].noiseCurve), self.fgrid, seed=seed)
-
-                # self.noise[det] = 0
-                
-                self.data[det] += self.noise[det]
-
-
             self.extraneous()
+
+            self.true_params = jnp.array([self.injParams[param].squeeze() for param in self.gwfast_param_order])
+
 
     def extraneous(self):
         """ 
@@ -153,13 +136,28 @@ class gwfast_LVGW150914(object):
         # Definitions for easy interfacing
         self.lower_bound = jnp.array([self.bounds[param][0] for param in self.gwfast_param_order]) 
         self.upper_bound = jnp.array([self.bounds[param][1] for param in self.gwfast_param_order]) 
+    
+    def get_data_from_gwpy(self, ifo, gps_time, duration=4, post_trigger_duration=2, roll_off=0.4):
+        
+        end_time = gps_time + post_trigger_duration
+        start_time = end_time - duration
+        
+        # The roll-off (in seconds) used in the Tukey window corresponds to alpha * duration / 2 for scipy tukey window.
+        tukey_alpha = 2 * roll_off / duration
+        
+        data_time = TimeSeries.fetch_open_data(ifo,
+                                                start_time,
+                                                end_time, cache=True)
 
-        # Mock data signal-to-noise ratio
-        self.snr  = self.square_norm(self.htrue['L1'], self.PSDs['L1'], self.df)
-        self.snr += self.square_norm(self.htrue['H1'], self.PSDs['H1'], self.df)
-        # self.snr += self.square_norm(self.htrue['Virgo'], self.PSDs['Virgo'], self.df)
-
-        print('SNR at true values: %.2f' % jnp.sqrt(self.snr)[0])
+        n = len(data_time)
+        delta_t = data_time.dt.value  
+        data_freq = jnp.fft.rfft(jnp.array(data_time.value) * tukey(n, tukey_alpha)) * delta_t
+        freq = jnp.fft.rfftfreq(n, delta_t)
+        
+        frequencies = freq[(freq > self.fmin) & (freq < self.fmax)]
+        data = data_freq[(freq > self.fmin) & (freq < self.fmax)]
+        
+        return frequencies, data
 
     def getSignal(self, X):
         """
@@ -167,7 +165,7 @@ class gwfast_LVGW150914(object):
 
         Returns
         -------
-        Dictonary of signals found in each detector with shape N, f
+        Dictonary of signals found in each detector
 
         """
         
@@ -210,8 +208,8 @@ class gwfast_LVGW150914(object):
                                                chi1z   = X_[9],
                                                chi2z   = X_[10]) 
         # Correction 2
-        jacModel['L1'] = jacModel['L1'].at[7].divide(milliseconds_per_day) 
-        jacModel['H1'] = jacModel['H1'].at[7].divide(milliseconds_per_day)
+        jacModel['L1'] = jacModel['L1'].at[9].divide(milliseconds_per_day) 
+        jacModel['H1'] = jacModel['H1'].at[9].divide(milliseconds_per_day)
         # jacModel['Virgo'] = jacModel['Virgo'].at[9].divide(milliseconds_per_day)
         
         # NOTE: now the derivative is with respect to q, not eta, so we need to plug in the last jacobian element from eta to q
@@ -219,8 +217,8 @@ class gwfast_LVGW150914(object):
         jacModel['H1'] = jacModel['H1'].at[1].multiply(jac_q_to_eta(X_[1])[...,None])
 
         # Switch parameter order (redundent in newer version of gwfast)
-        # jacModel['L1'] = jacModel['L1'][jnp.array([0, 1, 4, 5, 6, 7, 8, 9, 10, 2, 3])]
-        # jacModel['H1'] = jacModel['H1'][jnp.array([0, 1, 4, 5, 6, 7, 8, 9, 10, 2, 3])]
+        jacModel['L1'] = jacModel['L1'][jnp.array([0, 1, 4, 5, 6, 7, 8, 9, 10, 2, 3])]
+        jacModel['H1'] = jacModel['H1'][jnp.array([0, 1, 4, 5, 6, 7, 8, 9, 10, 2, 3])]
         # jacModel['Virgo'] = jacModel['Virgo'][jnp.array([0, 1, 4, 5, 6, 7, 8, 9, 10, 2, 3])]
 
         return jacModel
@@ -254,7 +252,6 @@ class gwfast_LVGW150914(object):
         """
         # TODO: DOUBLE CHECK THAT THIS ISNT OVERWRITING PARTICLES OUTSIDE OF THIS METHOD
 
-        X = jnp.array(X)
 
         #X = X.at[:, 1].divide(eta_rescaling)
         X = X.at[:, 1].divide(q_rescaling)
@@ -263,8 +260,8 @@ class gwfast_LVGW150914(object):
         # Calculate residuals
         template = self.getSignal(X)
         residual = {}
-        residual['L1'] = template['L1'] - self.data['L1']
-        residual['H1'] = template['H1'] - self.data['H1']
+        residual['L1'] = template['L1'] - self.htrue['L1']
+        residual['H1'] = template['H1'] - self.htrue['H1']
         # residual['Virgo'] = template['Virgo'] - self.htrue['Virgo']
 
         # Likelihood contribution to energy
@@ -283,8 +280,6 @@ class gwfast_LVGW150914(object):
         
         """
 
-        X = jnp.array(X)
-
         #X = X.at[:, 1].divide(eta_rescaling)
         X = X.at[:, 1].divide(q_rescaling)
         X = X.at[:, 2].divide(dL_rescaling)
@@ -292,8 +287,8 @@ class gwfast_LVGW150914(object):
         # Calculate residuals
         template = self.getSignal(X)
         residual = {}
-        residual['L1'] = template['L1'] - self.data['L1']
-        residual['H1'] = template['H1'] - self.data['H1']
+        residual['L1'] = template['L1'] - self.htrue['L1']
+        residual['H1'] = template['H1'] - self.htrue['H1']
         # residual['Virgo'] = template['Virgo'] - self.htrue['Virgo']
 
         # Gradient of likelihood 
@@ -364,13 +359,68 @@ class gwfast_LVGW150914(object):
         return grad_V, gauss_newton
 
 
+    # def _newDrawFromPrior(self, n, seed=42):
+    #     prior_samples = np.zeros((n, self.DoF))
+    #     for i in range(self.DoF):
+    #         prior_samples[:, i] = np.random.uniform(low=self.lower_bound[i], high=self.upper_bound[i], size=n)
+
+    #     # Draw samples from prior law
+    #     prior_samples[:, 2] = dL_power_law_draw(n, self.lower_bound[2], self.upper_bound[2])
+        
+    #     # eta rescaling adjustment + uniform in m1, m2
+    #     # a = jnp.copy(self.lower_bound).at[1].divide(eta_rescaling)[0:2]
+    #     # b = jnp.copy(self.upper_bound).at[1].divide(eta_rescaling)[0:2]
+
+    #     # q rescaling
+    #     a = jnp.copy(self.lower_bound).at[1].divide(q_rescaling)[0:2]
+    #     b = jnp.copy(self.upper_bound).at[1].divide(q_rescaling)[0:2]
+
+
+    #     prior_samples[:, 0:2] = Mc_eta_uniform_masses_draw(n, a, b)
+    #     # prior_samples[:,1] *= eta_rescaling
+
+    #     prior_samples[:,1] *= q_rescaling
+
+    #     # uniform in sin samples
+
+    #     return jnp.array(prior_samples)
+
+
+    def generate_noise_from_asd(self, asd_freq, asd_val, freqs, seed=None):
+        '''
+        Generate frequency domain noise from a given ASD curve at the input frequencies. NOTE: It assumes linear spacing of the frequencies.
+
+        :param array asd_freq: The frequencies at which the ASD is provided.
+        :param array asd_val: The ASD values at ``asd_freq``.
+        :param array freqs: The frequencies at which the noise is to be generated.
+        :param int seed: The seed for the random number generator.
+        
+        :return: The generated noise in the frequency domain.
+        :rtype: array
+        '''
+        if seed is not None:
+            np.random.seed(seed)
+
+        strainGrids = np.interp(freqs, asd_freq, asd_val, left=1., right=1.)
+        scale = 0.5 * strainGrids/np.sqrt(freqs[1] - freqs[0])
+        
+        nre = np.random.normal(0., scale)
+        nco = np.random.normal(0., scale)
+
+        return nre + 1j*nco
+
     def _newDrawFromPrior(self, n, seed=42):
         prior_samples = np.zeros((n, self.DoF))
         for i in range(self.DoF):
             prior_samples[:, i] = np.random.uniform(low=self.lower_bound[i], high=self.upper_bound[i], size=n)
 
         # Draw samples from prior law
-        prior_samples[:, 2] = dL_power_law_draw(n, self.lower_bound[2], self.upper_bound[2])
+        # TODO NOTE : UNCOMMENT THIS OUT LATER!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        # prior_samples[:, 2] = dL_power_law_draw(n, self.lower_bound[2], self.upper_bound[2])
+        
+        # eta rescaling adjustment + uniform in m1, m2
+        # a = jnp.copy(self.lower_bound).at[1].divide(eta_rescaling)[0:2]
+        # b = jnp.copy(self.upper_bound).at[1].divide(eta_rescaling)[0:2]
 
         # q rescaling
         a = jnp.copy(self.lower_bound).at[1].divide(q_rescaling)[0:2]
@@ -391,32 +441,3 @@ class gwfast_LVGW150914(object):
 
 
         return jnp.array(prior_samples)
-
-
-    def generate_noise_from_asd(self, asd_freq, asd_val, freqs, seed=None):
-        '''
-        Generate frequency domain noise from a given ASD curve at the input frequencies. NOTE: It assumes linear spacing of the frequencies.
-
-        :param array asd_freq: The frequencies at which the ASD is provided.
-        :param array asd_val: The ASD values at ``asd_freq``.
-        :param array freqs: The frequencies at which the noise is to be generated.
-        :param int seed: The seed for the random number generator.
-        
-        :return: The generated noise in the frequency domain.
-        :rtype: array
-        '''
-        if seed is not None:
-            np.random.seed(seed)
-
-        strainGrids = np.interp(freqs, asd_freq, asd_val, left=1., right=1.)
-
-        # Francesco used this
-        scale = 0.5 * strainGrids/np.sqrt(freqs[1] - freqs[0])
-
-        # We argue that this is correct
-        # scale = strainGrids / (4 * (freqs[1] - freqs[0]))
-        
-        nre = np.random.normal(0., scale)
-        nco = np.random.normal(0., scale)
-
-        return nre + 1j*nco

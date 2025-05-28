@@ -83,7 +83,7 @@ def sum_in_bins(arr, f_grid, sparse_grid):
 
 class gwfast_LVGW150914(object):
     # def __init__(self, wf_model=TaylorF2_RestrictedPN, nbins=1000, fmin=10., fmax=560.):
-    def __init__(self, wf_model=TaylorF2_RestrictedPN, nbins=1968, fmin=20., fmax=512., chi=0.5, eps=0.5, seed=42, true_params=None):
+    def __init__(self, wf_model=TaylorF2_RestrictedPN, nbins=1968, fmin=20., fmax=512., chi=0.5, eps=0.5):
 
             # Define model, parameter order convention, and explicitly label periodic vs bounded coordinates
             self.wf_model = wf_model()
@@ -96,9 +96,28 @@ class gwfast_LVGW150914(object):
             # Define grid to evaluate frequency domain waveform
             self.fmin = fmin 
             self.fmax = fmax
-            self.nbins = nbins
-            self.fgrid = jnp.linspace(self.fmin, self.fmax, num=self.nbins + 1).squeeze()
-            self.df = (self.fgrid[-1] - self.fgrid[0]) / self.nbins
+            # self.nbins = nbins
+            # self.fgrid = jnp.linspace(self.fmin, self.fmax, num=self.nbins + 1).squeeze()
+            # self.df = (self.fgrid[-1] - self.fgrid[0]) / self.nbins
+
+            # Settings as in https://git.ligo.org/lscsoft/bilby/blob/master/examples/gw_examples/data_examples/GW150914.py 
+            tGPS = np.array([1126259462.4])
+            post_trigger_duration=2
+            duration=4
+            start_time = tGPS + post_trigger_duration - duration
+            self.reftime = utils.GPSt_to_LMST(start_time, 0., 0.)[0]
+            
+            self.data = {}
+            asd_compute = {}
+            
+            self.fgrid, self.data['L1'], asd_compute['L1'] = self.get_data_from_gwpy(ifo='L1', gps_time=tGPS[0], duration=duration, post_trigger_duration=post_trigger_duration, roll_off=0.2, roll_off_psd=0.4)
+            _, self.data['H1'], asd_compute['H1']          = self.get_data_from_gwpy(ifo='H1', gps_time=tGPS[0], duration=duration, post_trigger_duration=post_trigger_duration, roll_off=0.2, roll_off_psd=0.4)
+            
+            self.data['L1'] = self.data['L1'][jnp.newaxis,:]
+            self.data['H1'] = self.data['H1'][jnp.newaxis,:]
+            # self.nbins = len(self.fgrid)
+            self.nbins = len(self.fgrid - 1)
+            self.df = np.array(self.fgrid)[1] - np.array(self.fgrid)[0]
 
             # Point to which detector characteristics we want
             asd_paths = {}
@@ -107,7 +126,12 @@ class gwfast_LVGW150914(object):
             # asd_paths['Virgo'] = '/home/al44828/projects/sSVN_GW/notebooks/AdV_asd.txt'
 
             # Define network object
-            self.Net = LV_DetNet(self.wf_model, fixed_fgrid=self.fgrid, verbose=True, ASDs=asd_paths)
+            self.Net = LV_DetNet(self.wf_model, fixed_fgrid=self.fgrid, verbose=False, ASDs=asd_paths)
+            
+            self.Net.signals['L1'].strainFreq = self.fgrid
+            self.Net.signals['H1'].strainFreq = self.fgrid
+            self.Net.signals['L1'].noiseCurve = asd_compute['L1']**2
+            self.Net.signals['H1'].noiseCurve = asd_compute['H1']**2
 
             # Interpolate detector characteristics onto defined frequency grid
             self.PSDs = {}
@@ -115,8 +139,9 @@ class gwfast_LVGW150914(object):
             self.PSDs['H1']    = jnp.interp(self.fgrid, self.Net.signals['H1'].strainFreq, self.Net.signals['H1'].noiseCurve, left=1., right=1.).squeeze()
 
             # LATEST CATELOG MEDIANS ( THESE ARE THE CORRECT ONES, TODO CHANGE LATER!!! )
-            tGPS = np.array([1126259462.419288])
-            tcoal = float(utils.GPSt_to_LMST(tGPS, lat=0., long=0.)) * milliseconds_per_day
+            # tGPS = np.array([1126259462.419288])
+            dtcoal = (tGPS - start_time)[0]/3600/24#float(np.array(utils.GPSt_to_LMST(tGPS, lat=0., long=0.))) * milliseconds_per_day
+            tcoal = (self.reftime + dtcoal) * milliseconds_per_day
             injParams = {}
             injParams['Mc']      = np.array([30.68716026])                        # (0)   # [M_solar]      # Chirp mass
             injParams['q']       = np.array([0.8752328774395706]) * q_rescaling   # (1)   # [Unitless]     # Mass ratio
@@ -141,8 +166,8 @@ class gwfast_LVGW150914(object):
             bounds['phi']     = [0., 2 * np.pi]               
             bounds['iota']    = [0., np.pi]                   
             bounds['psi']     = [0., np.pi]                   
-            bounds['tcoal']   = [tcoal - 15, tcoal + 15]
             # bounds['tcoal']   = [tcoal - 100, tcoal + 100]
+            bounds['tcoal']   = [tcoal - 10, tcoal + 10]
             bounds['Phicoal'] = [0., 2 * np.pi]               
             bounds['chi1z']   = [-0.99, 0.99]                 
             bounds['chi2z']   = [-0.99, 0.99]                 
@@ -150,40 +175,27 @@ class gwfast_LVGW150914(object):
 
             # Get mock data
             # NOTE: Rescaling of t_c is handled in `getSignal` method separately
-            # self.true_params = jnp.array([self.injParams[param].squeeze() for param in self.gwfast_param_order])
-
-            # Get mock data
-            if isinstance(true_params, np.ndarray) or isinstance(true_params, jax.Array):
-                print('Manual injection used')
-                self.true_params = jnp.array(true_params)
-            else:
-                self.true_params = jnp.array([self.injParams[param].squeeze() for param in self.gwfast_param_order])
-
+            self.true_params = jnp.array([self.injParams[param].squeeze() for param in self.gwfast_param_order])
             self.htrue = self.getSignal(self.true_params.at[jnp.array([1,2])].divide(jnp.array([q_rescaling, dL_rescaling]))[None,:])
-            self.data = copy.copy(self.htrue)
+            self.htrue['H1'] = self.htrue['H1'].squeeze()
+            self.htrue['L1'] = self.htrue['L1'].squeeze()
 
-            # TODO NOTE ADDED JITTER!!!!!!!!!!!!!!!!!!!!!!!!!!!
-            self.htrue['H1'] = self.htrue['H1'].squeeze() #+ 1e-30
-            self.htrue['L1'] = self.htrue['L1'].squeeze() #+ 1e-30
-
-            self.noise = {}
-            # np.random.seed(42)
-            for det in self.PSDs.keys(): # NOTE: Number of
-                self.noise[det] = self.generate_noise_from_asd(self.Net.signals[det].strainFreq, np.sqrt(self.Net.signals[det].noiseCurve), self.fgrid, seed=seed)
-                # self.noise[det] = 0 # NOTE: COMMENT THIS OUT IF YOU WANT NOISY INJECTION!!!
-                self.data[det] += self.noise[det]
+            simulated_data = False
+            if simulated_data:
+                self.data = copy.copy(self.htrue)
+                self.noise = {}
+                np.random.seed(42)
+                for det in self.PSDs.keys(): # NOTE: Number of
+                    self.noise[det] = self.generate_noise_from_asd(self.Net.signals[det].strainFreq, np.sqrt(self.Net.signals[det].noiseCurve), self.fgrid)
+                    # self.noise[det] = 0 # NOTE: COMMENT THIS OUT IF YOU WANT NOISY INJECTION!!!
+                    self.data[det] += self.noise[det]
 
             self.extraneous()
 
             # New heterodyning stuff
             self.chi = chi 
             self.eps = eps
-            
-            # NOTE TODO !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Get rid of this after testing!!!
             self.sparse_grid = self.get_heterodyne_grid(chi, eps, fmin, fmax)
-
-            # self.sparse_grid = jnp.linspace(self.fmin, self.fmax, num=jnp.round(self.nbins / 20).astype('int')).squeeze()
-
             self.bin_widths = self.sparse_grid[1:] - self.sparse_grid[:-1]
 
             # Define new net to evaluate at sparse grid
@@ -279,10 +291,6 @@ class gwfast_LVGW150914(object):
 
         for det in self.PSDs.keys():
             r = h[det] / self.h0[det]
-            # jitter = 1e-55
-            # r = h[det] * self.h0[det].conjugate() / (jnp.abs(self.h0[det]) ** 2 + jitter)
-
-
             r0 = r[:, :-1] # Left points (y-intercepts)
             # r0 = r[:, -1] + (r[:, 1:] - r[:, :-1]) / 2 # center points (y-intercepts)
             r1 = (r[:, 1:] - r[:, :-1]) / self.bin_widths # Slopes
@@ -476,15 +484,15 @@ class gwfast_LVGW150914(object):
         # Correction 2
         jacModel['L1'] = jacModel['L1'].at[7].divide(milliseconds_per_day) 
         jacModel['H1'] = jacModel['H1'].at[7].divide(milliseconds_per_day)
-        # jacModel['Virgo'] = jacModel['Virgo'].at[9].divide(milliseconds_per_day)
+        # jacModel['Virgo'] = jacModel['Virgo'].at[7].divide(milliseconds_per_day)
         
         # NOTE: now the derivative is with respect to q, not eta, so we need to plug in the last jacobian element from eta to q
         jacModel['L1'] = jacModel['L1'].at[1].multiply(jac_q_to_eta(X_[1])[...,None]) 
         jacModel['H1'] = jacModel['H1'].at[1].multiply(jac_q_to_eta(X_[1])[...,None])
 
         # Switch parameter order (redundent in newer version of gwfast)
-        # jacModel['L1'] = jacModel['L1'][jnp.array([0, 1, 4, 5, 6, 7, 8, 9, 10, 2, 3])]
-        # jacModel['H1'] = jacModel['H1'][jnp.array([0, 1, 4, 5, 6, 7, 8, 9, 10, 2, 3])]
+        #jacModel['L1'] = jacModel['L1'][jnp.array([0, 1, 4, 5, 6, 7, 8, 9, 10, 2, 3])]
+        #jacModel['H1'] = jacModel['H1'][jnp.array([0, 1, 4, 5, 6, 7, 8, 9, 10, 2, 3])]
         # jacModel['Virgo'] = jacModel['Virgo'][jnp.array([0, 1, 4, 5, 6, 7, 8, 9, 10, 2, 3])]
 
         return jacModel
@@ -650,14 +658,9 @@ class gwfast_LVGW150914(object):
 
 
     def _newDrawFromPrior(self, n, seed=42):
-        np.random.seed(seed)
         prior_samples = np.zeros((n, self.DoF))
         for i in range(self.DoF):
             prior_samples[:, i] = np.random.uniform(low=self.lower_bound[i], high=self.upper_bound[i], size=n)
-
-        # Turn this off later
-        # return prior_samples  # TODO NOTE: GET RID OF THIS
-    
 
         # Draw samples from prior law
         prior_samples[:, 2] = dL_power_law_draw(n, self.lower_bound[2], self.upper_bound[2])
@@ -710,13 +713,14 @@ class gwfast_LVGW150914(object):
 
         return nre + 1j*nco
 
-    def get_data_from_gwpy(self, ifo, gps_time, duration=4, post_trigger_duration=2, roll_off=0.4):
+    def get_data_from_gwpy(self, ifo, gps_time, duration=4, post_trigger_duration=2, roll_off=0.2, roll_off_psd=0.4, psd_extra_duration=32):
         
         end_time = gps_time + post_trigger_duration
         start_time = end_time - duration
         
         # The roll-off (in seconds) used in the Tukey window corresponds to alpha * duration / 2 for scipy tukey window.
         tukey_alpha = 2 * roll_off / duration
+        tukey_alpha_psd = 2 * roll_off_psd / duration
         
         data_time = TimeSeries.fetch_open_data(ifo,
                                                 start_time,
@@ -727,11 +731,16 @@ class gwfast_LVGW150914(object):
         data_freq = jnp.fft.rfft(jnp.array(data_time.value) * tukey(n, tukey_alpha)) * delta_t
         freq = jnp.fft.rfftfreq(n, delta_t)
         
-        frequencies = freq[(freq > self.fmin) & (freq < self.fmax)]
-        data = data_freq[(freq > self.fmin) & (freq < self.fmax)]
+        data_time_asd = TimeSeries.fetch_open_data(ifo,
+                                                   start_time - duration*psd_extra_duration,
+                                                   start_time, cache=True)
+        asd = data_time_asd.asd(fftlength=duration, overlap=0, window=("tukey", tukey_alpha_psd), method="median").value
         
-        return frequencies, data
-
+        frequencies = freq[(freq > self.fmin) & (freq < self.fmax)]
+        data = data_freq[(freq > self.fmin) & (freq < self.fmax)] * np.exp(-1j * 2 * np.pi * frequencies * self.reftime * 3600. * 24.)
+        asd = asd[(freq > self.fmin) & (freq < self.fmax)]
+        
+        return frequencies, data, asd  
 
 # def sum_in_bins(arr, f_grid, sparse_grid):
 #     """ 

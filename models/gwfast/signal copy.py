@@ -9,8 +9,8 @@ import jax
 
 
 #Enable 64bit on JAX, fundamental
-# from jax.config import config
-jax.config.update("jax_enable_x64", True)
+from jax.config import config
+config.update("jax_enable_x64", True)
 #config.update("TF_CPP_MIN_LOG_LEVEL", 0)
 
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
@@ -56,7 +56,6 @@ class GWSignal(object):
                 det_lat=40.44,
                 det_long=9.45,
                 det_xax=0.,
-                det_elevation=0., # in km
                 verbose=True,
                 is_ASD=True,
                 fmin=10., fmax=2048.,
@@ -89,8 +88,6 @@ class GWSignal(object):
         self.det_long_rad = det_long*np.pi/180.
         
         self.det_xax_rad  = det_xax*np.pi/180.
-        
-        self.det_elevation = det_elevation
         
         noise = onp.loadtxt(psd_path, usecols=(0,1))
         f = noise[:,0]
@@ -167,7 +164,6 @@ class GWSignal(object):
         
         return Fp, Fc
     
-    '''
     def _DeltLoc(self, theta, phi, t):
         """
         Compute the time needed to go from Earth center to detector location for a set of sky coordinates and time(s). The result is given in seconds.
@@ -181,7 +177,6 @@ class GWSignal(object):
         
         """
         # Time needed to go from Earth center to detector location
-        # NOTE: This is the version for the spherical model of Earth
         
         ras, decs = self._ra_dec_from_th_phi(theta, phi)
         
@@ -190,36 +185,6 @@ class GWSignal(object):
         comp3 = np.sin(decs)*np.sin(self.det_lat_rad)
         # The minus sign arises from the definition of the unit vector pointing to the source
         Delt = - glob.REarth*(comp1+comp2+comp3)/glob.clight
-        
-        return Delt # in seconds
-    '''
-    
-    def _DeltLoc(self, theta, phi, t):
-        """
-        Compute the time needed to go from Earth center to detector location for a set of sky coordinates and time(s). The result is given in seconds.
-        
-        :param array or float theta: The :math:`\\theta` sky position angle(s), in :math:`\\rm rad`.
-        :param array or float phi: The :math:`\phi` sky position angle(s), in :math:`\\rm rad`.
-        :param array or float t: The time(s) given as GMST.
-        
-        :return: Time shift(s) to go from Earth center to detector location.
-        :rtype: array or float
-        
-        """
-        # Time needed to go from Earth center to detector location
-        # NOTE: This is the version for the ellipsoid model of Earth
-        
-        semi_major_axis = glob.EarthSemiMajorAxis  # for ellipsoid model of Earth, in km
-        semi_minor_axis = glob.EarthSemiMinorAxis  # in km
-        radius = semi_major_axis**2 / np.sqrt(semi_major_axis**2 * np.cos(self.det_lat_rad)**2 + semi_minor_axis**2 * np.sin(self.det_lat_rad)**2)
-        
-        ras, decs = self._ra_dec_from_th_phi(theta, phi)
-        
-        comp1 = np.cos(decs)*np.cos(ras)*np.cos(self.det_lat_rad)*np.cos(self.det_long_rad + 2.*np.pi*t) * (radius + self.det_elevation)
-        comp2 = np.cos(decs)*np.sin(ras)*np.cos(self.det_lat_rad)*np.sin(self.det_long_rad + 2.*np.pi*t) * (radius + self.det_elevation)
-        comp3 = np.sin(decs)*np.sin(self.det_lat_rad) * ((semi_minor_axis / semi_major_axis)**2 * radius + self.det_elevation)
-        # The minus sign arises from the definition of the unit vector pointing to the source
-        Delt = - (comp1+comp2+comp3)/glob.clight
         
         return Delt # in seconds
     
@@ -310,7 +275,7 @@ class GWSignal(object):
         Psi = self.GWPhase(evParams, f)
         Psi = Psi + phiL 
             
-        return (Ap - 1j*Ac)*np.exp(Psi*1j)
+        return (Ap + 1j*Ac)*np.exp(Psi*1j)
     
     def SNRInteg(self, evParams, res=1000):
         """
@@ -447,9 +412,9 @@ class GWSignal(object):
         evParams = {'Mc':Mc, 'dL':dL, 'theta':theta, 'phi':phi, 'iota':iota, 'psi':psi, 'tcoal':tcoal, 'eta':eta, 'Phicoal':Phicoal, 'chi1z':chi1z, 'chi2z':chi2z}
         fgrids = np.repeat(self.fixed_fgrid, Mc.shape[0]).reshape((self.fixed_fgrid.shape[0], Mc.shape[0]))
         
-        wfPhiGw = -self.wf_model.Phi(fgrids, **evParams)
+        wfPhiGw = self.wf_model.Phi(fgrids, **evParams)
         wfAmpl  = self.wf_model.Ampl(fgrids, **evParams)
-        wfhp, wfhc = wfAmpl*np.exp(1j*wfPhiGw)*0.5*(1.+(np.cos(iota))**2), -1j*wfAmpl*np.exp(1j*wfPhiGw)*np.cos(iota)
+        wfhp, wfhc = wfAmpl*np.exp(-1j*wfPhiGw)*0.5*(1.+(np.cos(iota))**2), 1j*wfAmpl*np.exp(-1j*wfPhiGw)*np.cos(iota)
         tmpDeltLoc = self._DeltLoc(theta, phi, tcoal) # in seconds
         t = tcoal + tmpDeltLoc/(3600.*24.)
         
@@ -483,35 +448,22 @@ class GWSignal(object):
         Fp = np.sin(self.angbtwArms)*(afac*np.cos(2.*psi) + bfac*np.sin(2*psi))
         Fc = np.sin(self.angbtwArms)*(bfac*np.cos(2.*psi) - afac*np.sin(2*psi))
 
-        hp, hc = wfhp*Fp*np.exp(-1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL)), wfhc*Fc*np.exp(-1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL))
+        hp, hc = wfhp*Fp*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL)), wfhc*Fc*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL))
         def psi_par_deriv():
             
             Fp_psider = 2*np.sin(self.angbtwArms)*(-afac*np.sin(2.*psi) + bfac*np.cos(2*psi))
             Fc_psider = 2*np.sin(self.angbtwArms)*(-bfac*np.sin(2.*psi) - afac*np.cos(2*psi))
             
-            return wfhp*Fp_psider*np.exp(-1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL)) + wfhc*Fc_psider*np.exp(-1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL))
+            return wfhp*Fp_psider*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL)) + wfhc*Fc_psider*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL))
         
         def phi_par_deriv():
             
-            '''
             def Delt_loc_phider(ra, dec, t):
                 
                 comp1 = -np.cos(dec)*np.sin(ra)*np.cos(self.det_lat_rad)*np.cos(self.det_long_rad + 2.*np.pi*t)
                 comp2 = np.cos(dec)*np.cos(ra)*np.cos(self.det_lat_rad)*np.sin(self.det_long_rad + 2.*np.pi*t)
                 
                 Delt_phider = - glob.REarth*(comp1+comp2)/glob.clight
-                
-                return Delt_phider/(3600.*24.) # in days
-            '''
-            def Delt_loc_phider(ra, dec, t):
-                semi_major_axis = glob.EarthSemiMajorAxis  # for ellipsoid model of Earth, in km
-                semi_minor_axis = glob.EarthSemiMinorAxis  # in km
-                radius = semi_major_axis**2 / np.sqrt(semi_major_axis**2 * np.cos(self.det_lat_rad)**2 + semi_minor_axis**2 * np.sin(self.det_lat_rad)**2)
-                
-                comp1 = -np.cos(dec)*np.sin(ra)*np.cos(self.det_lat_rad)*np.cos(self.det_long_rad + 2.*np.pi*t) * (radius + self.det_elevation)
-                comp2 = np.cos(dec)*np.cos(ra)*np.cos(self.det_lat_rad)*np.sin(self.det_long_rad + 2.*np.pi*t) * (radius + self.det_elevation)
-                
-                Delt_phider = - (comp1+comp2)/glob.clight
                 
                 return Delt_phider/(3600.*24.) # in days
     
@@ -540,15 +492,14 @@ class GWSignal(object):
             Fp_phider = np.sin(self.angbtwArms)*(afac_phider*np.cos(2.*psi) + bfac_phider*np.sin(2*psi))
             Fc_phider = np.sin(self.angbtwArms)*(bfac_phider*np.cos(2.*psi) - afac_phider*np.sin(2*psi))
             
-            ampP_phider = wfhp*Fp_phider*np.exp(-1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL))
-            ampC_phider = wfhc*Fc_phider*np.exp(-1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL))
+            ampP_phider = wfhp*Fp_phider*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL))
+            ampC_phider = wfhc*Fc_phider*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL))
             phiD_phideriv = 0.
             phiL_phideriv = 2.*np.pi*fgrids*locDt_phider*(3600.*24.)
             
-            return ampP_phider - 1j*(phiD_phideriv + phiL_phideriv)*hp + ampC_phider - 1j*(phiD_phideriv + phiL_phideriv)*hc
+            return ampP_phider + 1j*(phiD_phideriv + phiL_phideriv)*hp + ampC_phider + 1j*(phiD_phideriv + phiL_phideriv)*hc
         
         def theta_par_deriv():
-            '''
             def Delt_loc_thder(ra, dec, t):
                 
                 comp1 = np.sin(dec)*np.cos(ra)*np.cos(self.det_lat_rad)*np.cos(self.det_long_rad + 2.*np.pi*t)
@@ -556,19 +507,6 @@ class GWSignal(object):
                 comp3 = -np.cos(dec)*np.sin(self.det_lat_rad)
                 
                 Delt_thder = - glob.REarth*(comp1+comp2+comp3)/glob.clight
-                
-                return Delt_thder/(3600.*24.) # in days
-            '''
-            def Delt_loc_thder(ra, dec, t):
-                semi_major_axis = glob.EarthSemiMajorAxis  # for ellipsoid model of Earth, in km
-                semi_minor_axis = glob.EarthSemiMinorAxis  # in km
-                radius = semi_major_axis**2 / np.sqrt(semi_major_axis**2 * np.cos(self.det_lat_rad)**2 + semi_minor_axis**2 * np.sin(self.det_lat_rad)**2)
-                
-                comp1 = np.sin(dec)*np.cos(ra)*np.cos(self.det_lat_rad)*np.cos(self.det_long_rad + 2.*np.pi*t) * (radius + self.det_elevation)
-                comp2 = np.sin(dec)*np.sin(ra)*np.cos(self.det_lat_rad)*np.sin(self.det_long_rad + 2.*np.pi*t) * (radius + self.det_elevation)
-                comp3 = -np.cos(dec)*np.sin(self.det_lat_rad) * ((semi_minor_axis / semi_major_axis)**2 * radius + self.det_elevation)
-                
-                Delt_thder = - (comp1+comp2+comp3)/glob.clight
                 
                 return Delt_thder/(3600.*24.) # in days
             
@@ -597,33 +535,21 @@ class GWSignal(object):
             Fp_thder = np.sin(self.angbtwArms)*(afac_thder*np.cos(2.*psi) + bfac_thder*np.sin(2*psi))
             Fc_thder = np.sin(self.angbtwArms)*(bfac_thder*np.cos(2.*psi) - afac_thder*np.sin(2*psi))
             
-            ampP_thder = wfhp*Fp_thder*np.exp(-1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL))
-            ampC_thder = wfhc*Fc_thder*np.exp(-1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL))
+            ampP_thder = wfhp*Fp_thder*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL))
+            ampC_thder = wfhc*Fc_thder*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL))
             phiD_thderiv = 0.
             phiL_thderiv = 2.*np.pi*fgrids*locDt_thder*(3600.*24.)
             
-            return ampP_thder - 1j*(phiD_thderiv + phiL_thderiv)*hp + ampC_thder - 1j*(phiD_thderiv + phiL_thderiv)*hc
+            return ampP_thder + 1j*(phiD_thderiv + phiL_thderiv)*hp + ampC_thder + 1j*(phiD_thderiv + phiL_thderiv)*hc
         
         def tcoal_par_deriv():
-            '''
+            
             def Delt_loc_tcder(ra, dec, t):
     
                 comp1 = -np.cos(dec)*np.cos(ra)*np.cos(self.det_lat_rad)*np.sin(self.det_long_rad + 2.*np.pi*t)
                 comp2 = np.cos(dec)*np.sin(ra)*np.cos(self.det_lat_rad)*np.cos(self.det_long_rad + 2.*np.pi*t)
                 
                 Delt_tcder = - 2.*np.pi*glob.REarth*(comp1+comp2)/glob.clight
-                
-                return Delt_tcder/(3600.*24.) # in days
-            '''
-            def Delt_loc_tcder(ra, dec, t):
-                semi_major_axis = glob.EarthSemiMajorAxis  # for ellipsoid model of Earth, in km
-                semi_minor_axis = glob.EarthSemiMinorAxis  # in km
-                radius = semi_major_axis**2 / np.sqrt(semi_major_axis**2 * np.cos(self.det_lat_rad)**2 + semi_minor_axis**2 * np.sin(self.det_lat_rad)**2)
-                
-                comp1 = -np.cos(dec)*np.cos(ra)*np.cos(self.det_lat_rad)*np.sin(self.det_long_rad + 2.*np.pi*t) * (radius + self.det_elevation)
-                comp2 = np.cos(dec)*np.sin(ra)*np.cos(self.det_lat_rad)*np.cos(self.det_long_rad + 2.*np.pi*t) * (radius + self.det_elevation)
-                
-                Delt_tcder = - 2.*np.pi*(comp1+comp2)/glob.clight
                 
                 return Delt_tcder/(3600.*24.) # in days
     
@@ -651,21 +577,21 @@ class GWSignal(object):
             Fp_tcder = np.sin(self.angbtwArms)*(afac_tcder*np.cos(2.*psi) + bfac_tcder*np.sin(2*psi))
             Fc_tcder = np.sin(self.angbtwArms)*(bfac_tcder*np.cos(2.*psi) - afac_tcder*np.sin(2*psi))
             
-            ampP_tcder = wfhp*Fp_tcder*np.exp(-1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL))
-            ampC_tcder = wfhc*Fc_tcder*np.exp(-1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL))
+            ampP_tcder = wfhp*Fp_tcder*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL))
+            ampC_tcder = wfhc*Fc_tcder*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL))
             phiD_tcderiv = 0.
             phiL_tcderiv = 2.*np.pi*fgrids*locDt_tcder*(3600.*24.)
 
-            return ampP_tcder - 1j*(phiD_tcderiv + phiL_tcderiv + 2.*np.pi*fgrids*3600.*24.)*hp + ampC_tcder - 1j*(phiD_tcderiv + phiL_tcderiv + 2.*np.pi*fgrids*3600.*24.)*hc
+            return ampP_tcder + 1j*(phiD_tcderiv + phiL_tcderiv + 2.*np.pi*fgrids*3600.*24.)*hp + ampC_tcder + 1j*(phiD_tcderiv + phiL_tcderiv + 2.*np.pi*fgrids*3600.*24.)*hc
         
         def iota_par_deriv():
             
-            wfhp_iotader, wfhc_iotader = -wfAmpl*np.exp(1j*wfPhiGw)*(np.cos(iota)*np.sin(iota)), 1j*wfAmpl*np.exp(1j*wfPhiGw)*np.sin(iota)
+            wfhp_iotader, wfhc_iotader = -wfAmpl*np.exp(-1j*wfPhiGw)*(np.cos(iota)*np.sin(iota)), -1j*wfAmpl*np.exp(-1j*wfPhiGw)*np.sin(iota)
             
-            return wfhp_iotader*Fp*np.exp(-1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL)) + wfhc_iotader*Fc*np.exp(-1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL))
+            return wfhp_iotader*Fp*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL)) + wfhc_iotader*Fc*np.exp(1j*(2.*np.pi*fgrids*(tcoal*3600.*24.) - 2.*Phicoal + phiL))
         
         dL_deriv = -(hp+hc)/dL
-        Phicoal_deriv = 2j*(hp+hc)
+        Phicoal_deriv = -2j*(hp+hc)
         psi_deriv = psi_par_deriv()
         phi_deriv = phi_par_deriv()
         theta_deriv = theta_par_deriv()

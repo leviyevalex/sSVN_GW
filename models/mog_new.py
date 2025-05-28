@@ -23,7 +23,8 @@ class MoG:
         """
         self.mus = mus
         self.covs = covs
-        self.weights = jax.nn.softmax(weights) # Makes sure that sum of entries = 1
+        # self.weights = jax.nn.softmax(weights) # Makes sure that sum of entries = 1
+        self.weights = weights # Makes sure that sum of entries = 1
         self.nComponents = len(weights)
         self.DoF = mus.shape[1]
 
@@ -34,40 +35,32 @@ class MoG:
         self.lower_bound = lower_bound
         self.upper_bound = upper_bound
 
-    # def posterior(self, x):
-    #     posterior = 0.
-    #     def body_fn(i, posterior):
-    #         return posterior + self.weights[i] * jax.scipy.stats.multivariate_normal.pdf(x, self.mus[i], self.covs[i])
-        
-    #     posterior = jax.lax.fori_loop(0, self.nComponents, body_fn, posterior)
-    #     return posterior
-
-    # def posterior(self, x):
-    #     # Numerically unstable
-    #     posterior = 0
-    #     for i in range(self.nComponents):
-    #         posterior += self.weights[i] * jax.scipy.stats.multivariate_normal.pdf(x, self.mus[i], self.covs[i])
-    #     return posterior
-
     # def potential(self, x):
-    #     return -jnp.log(self.posterior(x))
-
-    # def potential(self, x):
-    #     # Still Unstable
-    #     posterior = 0
+    #     """ 
+    #     Uses for loops
+    #     """
+    #     potentials = jnp.zeros(self.nComponents)
     #     for i in range(self.nComponents):
-    #         posterior += self.weights[i] * jnp.exp(-1 * jnp.dot(x - self.mus[i], x - self.mus[i]) / self.covs[i])
-    #     return -jnp.log(posterior) 
+    #         V_i = -1 * jax.scipy.stats.multivariate_normal.logpdf(x, self.mus[i], jnp.diag(self.covs[i])) 
+    #         potentials = potentials.at[i].set(V_i)
+    #     return -jax.scipy.special.logsumexp(-potentials, b=self.weights)
+
+
 
     def potential(self, x):
+        """ 
+        Uses pure jax
+        """
         potentials = jnp.zeros(self.nComponents)
-        for i in range(self.nComponents):
-            # V_i = jnp.dot(x - self.mus[i], (x - self.mus[i]) / self.covs[i]) 
+
+        def body_fn(i, vs):
             V_i = -1 * jax.scipy.stats.multivariate_normal.logpdf(x, self.mus[i], jnp.diag(self.covs[i])) 
-            potentials = potentials.at[i].set(V_i)
+            vs = vs.at[i].set(V_i)
+            return vs
+        
+        potentials = jax.lax.fori_loop(0, self.nComponents, body_fn, potentials)
+
         return -jax.scipy.special.logsumexp(-potentials, b=self.weights)
-
-
 
     def _newDrawFromPrior(self, nSamples):
         # Returns a grid of particles in buffered hypercube
@@ -97,6 +90,30 @@ class MoG:
         return samples
 
 
+    # def posterior(self, x):
+    #     posterior = 0.
+    #     def body_fn(i, posterior):
+    #         return posterior + self.weights[i] * jax.scipy.stats.multivariate_normal.pdf(x, self.mus[i], self.covs[i])
+        
+    #     posterior = jax.lax.fori_loop(0, self.nComponents, body_fn, posterior)
+    #     return posterior
+
+    # def posterior(self, x):
+    #     # Numerically unstable
+    #     posterior = 0
+    #     for i in range(self.nComponents):
+    #         posterior += self.weights[i] * jax.scipy.stats.multivariate_normal.pdf(x, self.mus[i], self.covs[i])
+    #     return posterior
+
+    # def potential(self, x):
+    #     return -jnp.log(self.posterior(x))
+
+    # def potential(self, x):
+    #     # Still Unstable
+    #     posterior = 0
+    #     for i in range(self.nComponents):
+    #         posterior += self.weights[i] * jnp.exp(-1 * jnp.dot(x - self.mus[i], x - self.mus[i]) / self.covs[i])
+    #     return -jnp.log(posterior) 
 
 
 #%%
